@@ -1,0 +1,66 @@
+<div align="center">
+
+# Komandan
+##### Your army commander
+
+</div>
+
+Komandan is a server automation tool that uses Lua programming language interface. It connects to target servers via SSH, following Ansible's approach for its simplicity and agentless operation on managed servers.
+
+## Usage
+
+Create a lua script:
+```lua
+-- main.lua
+
+local host = {
+  address = "10.20.30.40",
+  user = "user1",
+  private_key_path = os.getenv("HOME") .. "/id_ecdsa",
+}
+
+local task = {
+    name = "Create a directory",
+    komandan.modules.cmd({
+        cmd = "mkdir /tmp/newdir"
+    })
+}
+
+komandan.komando(host, task)
+```
+
+Run the script:
+```sh
+$ komandan main.lua
+```
+
+## `komando` function
+
+Komandan has `komando` function that takes two arguments:
+- `host`: a table that contains the following fields:
+  - `address`: the IP address or hostname of the target server.
+  - `port`: the SSH port to use for the connection (default is 22).
+  - `user`: the username to use for authentication.
+  - `private_key_path`: the path to the private key file for authentication.
+- `task`: a table that contains the following fields:
+  - `name`: a string that describes the task. It is used for logging purposes. (optional)
+  - `module`: a table that contains the module to be executed and its arguments.
+
+This function will execute the module on the target server and return the results:
+- `stdout`: a string that contains the standard output of the module.
+- `stderr`: a string that contains the standard error output of the module.
+- `exit_code`: an integer that contains the exit code of the module.
+
+## Modules
+
+Komandan has several built-in modules that can be used to perform various tasks on the target server. These modules are located in the `komandan.modules` table.
+### `cmd` module
+
+The `cmd` module allows you to execute a shell command on the target server. It takes the following arguments:
+- `cmd`: a string that contains the shell command to be executed.
+
+### `script` module
+
+The `script` module allows you to execute a script on the target server. It takes the following arguments:
+- `script`: a string that contains the script to be executed.
+- `interpreter`: a string that specifies the interpreter to use for the script. If not specified, the script will be executed using the default shell.
