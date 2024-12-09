@@ -1,15 +1,16 @@
 <div align="center">
 
 # Komandan
-##### Your army commander
+#### Your army commander
 
-[![Build Status]][github-actions] [![License:MIT]][license]
+[![Build Status]][github-actions] [![License:MIT]][license] [![Coverage]][codecov.io]
 
 [Build Status]: https://github.com/hahnavi/komandan/actions/workflows/rust.yml/badge.svg
 [github-actions]: https://github.com/hahnavi/komandan/actions
-[License:MIT]: https://img.shields.io/badge/License-MIT-yellow.svg
-[license]: https://github.com/hahnavi/komandan/blob/master/LICENSE
-
+[License:MIT]: https://img.shields.io/badge/License-MIT-blue.svg
+[license]: https://github.com/hahnavi/komandan/blob/main/LICENSE
+[Coverage]: https://codecov.io/gh/hahnavi/komandan/branch/main/graph/badge.svg
+[codecov.io]: https://app.codecov.io/gh/hahnavi/komandan
 
 </div>
 
@@ -72,3 +73,15 @@ The `cmd` module allows you to execute a shell command on the target server. It 
 The `script` module allows you to execute a script on the target server. It takes the following arguments:
 - `script`: a string that contains the script to be executed.
 - `interpreter`: a string that specifies the interpreter to use for the script. If not specified, the script will be executed using the default shell.
+
+### `upload` module
+
+The `upload` module allows you to upload a file to the target server. It takes the following arguments:
+- `src`: a string that contains the path to the file to be uploaded.
+- `dst`: a string that contains the path to the destination file on the target server.
+
+### `download` module
+
+The `download` module allows you to download a file from the target server. It takes the following arguments:
+- `src`: a string that contains the path to the file to be downloaded.
+- `dst`: a string that contains the path to the destination file on the local machine.
