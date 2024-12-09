@@ -3,6 +3,14 @@
 # Komandan
 ##### Your army commander
 
+[![Build Status]][github-actions] [![License:MIT]][license]
+
+[Build Status]: https://github.com/hahnavi/komandan/actions/workflows/rust.yml/badge.svg
+[github-actions]: https://github.com/hahnavi/komandan/actions
+[License:MIT]: https://img.shields.io/badge/License-MIT-yellow.svg
+[license]: https://github.com/hahnavi/komandan/blob/master/LICENSE
+
+
 </div>
 
 Komandan is a server automation tool that uses Lua programming language interface. It connects to target servers via SSH, following Ansible's approach for its simplicity and agentless operation on managed servers.
