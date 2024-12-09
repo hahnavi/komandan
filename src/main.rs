@@ -1,7 +1,7 @@
 use args::Args;
 use clap::Parser;
 use mlua::{chunk, Error::RuntimeError, Integer, Lua, Table, Value};
-use modules::{cmd, script};
+use modules::{cmd, script, upload, download};
 use ssh::SSHSession;
 use std::path::Path;
 
@@ -110,6 +110,8 @@ fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     let modules_table = lua.create_table()?;
     modules_table.set("cmd", lua.create_function(cmd)?)?;
     modules_table.set("script", lua.create_function(script)?)?;
+    modules_table.set("upload", lua.create_function(upload)?)?;
+    modules_table.set("download", lua.create_function(download)?)?;
     komandan.set("modules", modules_table)?;
 
     lua.globals().set("komandan", &komandan)?;
