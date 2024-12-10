@@ -9,7 +9,7 @@ pub struct Args {
     pub main_file: Option<String>,
 
     /// Execute string 'chunk'
-    #[arg(short='e', )]
+    #[arg(short = 'e')]
     pub chunk: Option<String>,
 
     /// Enter interactive mode after executing 'script'.
@@ -21,6 +21,6 @@ pub struct Args {
     pub verbose: bool,
 
     /// Print version information
-    #[arg(short='V', long)]
+    #[arg(short = 'V', long)]
     pub version: bool,
 }
