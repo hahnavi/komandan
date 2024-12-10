@@ -1,9 +1,9 @@
 mod cmd;
+mod download;
 mod script;
 mod upload;
-mod download;
 
 pub use cmd::cmd;
+pub use download::download;
 pub use script::script;
 pub use upload::upload;
-pub use download::download;

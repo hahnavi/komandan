@@ -1,7 +1,7 @@
 use args::Args;
 use clap::Parser;
-use mlua::{chunk, Error::RuntimeError, Integer, MultiValue, Lua, Table, Value};
-use modules::{cmd, script, upload, download};
+use mlua::{chunk, Error::RuntimeError, Integer, Lua, MultiValue, Table, Value};
+use modules::{cmd, download, script, upload};
 use rustyline::DefaultEditor;
 use ssh::SSHSession;
 use std::{env, path::Path};
@@ -34,18 +34,18 @@ async fn main() -> anyhow::Result<()> {
         Some(chunk) => {
             lua.load(&chunk).eval::<()>()?;
         }
-        None => {},
+        None => {}
     }
 
     match &args.main_file {
         Some(main_file) => {
             run_main_file(&lua, main_file)?;
-        },
+        }
         None => {
             if args.chunk.is_none() {
                 repl(&lua);
             }
-        },
+        }
     };
 
     if args.interactive && (!&args.main_file.is_none() || !&args.chunk.is_none()) {
@@ -295,4 +295,108 @@ fn print_version() {
     let version = env!("CARGO_PKG_VERSION");
     let authors = env!("CARGO_PKG_AUTHORS");
     println!("Komandan {} -- Copyright (C) 2024 {}", version, authors);
+}
+
+// Tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_setup_komandan_table() {
+        let lua = Lua::new();
+        setup_komandan_table(&lua).unwrap();
+
+        // Assert that the komandan table is set up correctly
+        let komandan_table = lua.globals().get::<Table>("komandan").unwrap();
+        assert!(komandan_table.contains_key("defaults").unwrap());
+        assert!(komandan_table.contains_key("KomandanModule").unwrap());
+        assert!(komandan_table.contains_key("set_defaults").unwrap());
+        assert!(komandan_table.contains_key("komando").unwrap());
+        assert!(komandan_table.contains_key("regex_is_match").unwrap());
+        assert!(komandan_table.contains_key("filter_hosts").unwrap());
+        assert!(komandan_table.contains_key("dprint").unwrap());
+
+        let modules_table = komandan_table.get::<Table>("modules").unwrap();
+        assert!(modules_table.contains_key("cmd").unwrap());
+        assert!(modules_table.contains_key("script").unwrap());
+        assert!(modules_table.contains_key("upload").unwrap());
+        assert!(modules_table.contains_key("download").unwrap());
+    }
+
+    #[test]
+    fn test_set_defaults() {
+        let lua = Lua::new();
+        setup_komandan_table(&lua).unwrap();
+
+        // Test setting a default value
+        let defaults_data = lua.create_table().unwrap();
+        defaults_data.set("user", "testuser").unwrap();
+        set_defaults(&lua, Value::Table(defaults_data)).unwrap();
+
+        let defaults = lua
+            .globals()
+            .get::<Table>("komandan")
+            .unwrap()
+            .get::<Table>("defaults")
+            .unwrap();
+        assert_eq!(defaults.get::<String>("user").unwrap(), "testuser");
+
+        // Test setting multiple default values
+        let defaults_data = lua.create_table().unwrap();
+        defaults_data.set("port", 2222).unwrap();
+        defaults_data.set("key", "/path/to/key").unwrap();
+        set_defaults(&lua, Value::Table(defaults_data)).unwrap();
+
+        let defaults = lua
+            .globals()
+            .get::<Table>("komandan")
+            .unwrap()
+            .get::<Table>("defaults")
+            .unwrap();
+        assert_eq!(defaults.get::<Integer>("port").unwrap(), 2222);
+        assert_eq!(defaults.get::<String>("key").unwrap(), "/path/to/key");
+
+        // Test with non-table input
+        let result = set_defaults(
+            &lua,
+            Value::String(lua.create_string("not_a_table").unwrap()),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hostname_display() {
+        let lua = Lua::new();
+
+        // Test with name
+        let host = lua.create_table().unwrap();
+        host.set("address", "192.168.1.1").unwrap();
+        host.set("name", "test").unwrap();
+        assert_eq!(hostname_display(&host), "test (192.168.1.1)");
+
+        // Test without name
+        let host = lua.create_table().unwrap();
+        host.set("address", "10.0.0.1").unwrap();
+        assert_eq!(hostname_display(&host), "10.0.0.1");
+    }
+
+    #[test]
+    fn test_run_main_file() {
+        let lua = Lua::new();
+
+        // Test with a valid Lua file
+        let main_file = "examples/hosts.lua".to_string();
+        let result = run_main_file(&lua, &main_file);
+        assert!(result.is_ok());
+
+        // Test with a non-Lua file
+        let main_file = "README.md".to_string();
+        let result = run_main_file(&lua, &main_file);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Main file must be a lua file."
+        );
+    }
 }
