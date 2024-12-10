@@ -16,6 +16,18 @@
 
 Komandan is a server automation tool that uses Lua programming language interface. It connects to target servers via SSH, following Ansible's approach for its simplicity and agentless operation on managed servers.
 
+## Table of Contents
+- [Usage](#usage)
+- [`komando` function](#komando-function)
+- [Modules](#modules)
+  - [`cmd` module](#cmd-module)
+  - [`script` module](#script-module)
+  - [`upload` module](#upload-module)
+  - [`download` module](#download-module)
+- [Built-in functions](#built-in-functions)
+  - [`komandan.filter_hosts`](#komandan-filter-hosts)
+  - [`komandan.set_defaults`](#komandan-set-defaults)
+
 ## Usage
 
 Create a lua script:
@@ -25,7 +37,7 @@ Create a lua script:
 local host = {
   address = "10.20.30.40",
   user = "user1",
-  private_key_path = os.getenv("HOME") .. "/id_ecdsa",
+  private_key_path = os.getenv("HOME") .. "/.ssh/id_ed25519",
 }
 
 local task = {
@@ -85,3 +97,57 @@ The `upload` module allows you to upload a file to the target server. It takes t
 The `download` module allows you to download a file from the target server. It takes the following arguments:
 - `src`: a string that contains the path to the file to be downloaded.
 - `dst`: a string that contains the path to the destination file on the local machine.
+
+## Built-in functions
+
+Komandan provides several built-in functions that can be used to help write scripts.
+
+### `komandan.filter_hosts`
+
+The `filter_hosts` function takes two arguments:
+- `hosts`: a table that contains the hosts to filter.
+- `pattern`: a string that contains the name or tag to filter the hosts. It can be a regular expression by adding `~` at the beginning of the pattern.
+
+
+The function returns a table that contains the filtered hosts.
+
+Example:
+
+```lua
+local hosts = {
+  {
+    name = "server1",
+    address = "10.20.30.41",
+    tags = { "webserver", "database" },
+  },
+  {
+    name = "server2",
+    address = "10.20.30.42",
+    tags = { "webserver" },
+  },
+  {
+    name = "server3",
+    address = "10.20.30.43",
+    tags = { "database" },
+  },
+}
+
+local filtered_hosts = komandan.filter_hosts(hosts, "webserver")
+```
+
+This will return the table `filtered_hosts` that contains only the hosts that have the name or tag `webserver`.
+
+### `komandan.set_defaults`
+
+The `set_defaults` function takes one argument:
+- `data`: a table that contains the defaults to set.
+
+Example:
+```lua
+komandan.set_defaults({
+  user = "user1",
+  private_key_path = os.getenv("HOME") .. "/id_ed25519",
+})
+```
+
+Those defaults will be used by `komando` function when the host table doesn't contain the specified field.

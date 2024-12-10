@@ -46,7 +46,11 @@ impl SSHSession {
             .userauth_pubkey_file(
                 &username,
                 None,
-                Path::new(host.get::<String>("private_key_path").unwrap().as_str()),
+                Path::new(
+                    host.get::<String>("private_key_path")
+                        .unwrap_or_else(|_| defaults.get::<String>("private_key_path").unwrap())
+                        .as_str(),
+                ),
                 None,
             )
             .unwrap();
@@ -71,6 +75,7 @@ impl SSHSession {
 
         channel.read_to_string(&mut stdout).unwrap();
         channel.stderr().read_to_string(&mut stderr).unwrap();
+        stdout = stdout.trim_end_matches('\n').to_string();
         channel.wait_close().unwrap();
         let exit_code = channel.exit_status().unwrap();
 
@@ -79,6 +84,17 @@ impl SSHSession {
         self.exit_code = Some(exit_code);
 
         Ok((stdout, stderr, exit_code))
+    }
+
+    pub fn get_remote_env(&mut self, var: &str) -> Result<String> {
+        let mut channel = self.session.channel_session().unwrap();
+        channel.exec(format!("echo ${}", var).as_str()).unwrap();
+        let mut stdout = String::new();
+        channel.read_to_string(&mut stdout).unwrap();
+        stdout = stdout.trim_end_matches('\n').to_string();
+        channel.wait_close().unwrap();
+
+        Ok(stdout)
     }
 
     pub fn upload(&mut self, local_path: &Path, remote_path: &Path) -> Result<()> {
@@ -121,11 +137,7 @@ impl SSHSession {
     }
 }
 
-fn upload_file(
-    sftp: &mut Sftp,
-    local_path: &Path,
-    remote_path: &Path,
-) -> io::Result<()> {
+fn upload_file(sftp: &mut Sftp, local_path: &Path, remote_path: &Path) -> io::Result<()> {
     let mut local_file = fs::File::open(local_path)?;
     let mut remote_file = sftp.create(remote_path)?;
 
@@ -134,11 +146,7 @@ fn upload_file(
     Ok(())
 }
 
-fn upload_directory(
-    sftp: &mut Sftp,
-    local_path: &Path,
-    remote_path: &Path,
-) -> io::Result<()> {
+fn upload_directory(sftp: &mut Sftp, local_path: &Path, remote_path: &Path) -> io::Result<()> {
     if !sftp.stat(remote_path).is_ok() {
         sftp.mkdir(remote_path, 0o755)?;
     }
@@ -235,6 +243,11 @@ impl UserData for SSHSession {
                 Ok(())
             },
         );
+
+        methods.add_method_mut("get_remote_env", |_, this, var: String| {
+            let val = this.get_remote_env(&var)?;
+            Ok(val)
+        });
 
         methods.add_method("get_session_results", |lua, this, ()| {
             let table = lua.create_table()?;

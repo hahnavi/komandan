@@ -21,7 +21,7 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
             local module = komandan.KomandanModule:new({ name = "script" })
 
             function module:run()
-                local homedir = module.ssh:cmd("echo $HOME").stdout:gsub("\n", "")
+                local homedir = module.ssh:get_remote_env("HOME")
                 local tmpdir = homedir .. "/.komandan/tmp"
                 module.ssh:cmd("mkdir -p " .. tmpdir)
                 module.ssh:write_remote_file(tmpdir .. "/." .. $random_file_name, $script)
@@ -29,7 +29,7 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
             end
 
             function module:cleanup()
-            local homedir = module.ssh:cmd("echo $HOME").stdout:gsub("\n", "")
+            local homedir = module.ssh:get_remote_env("HOME")
             local tmpdir = homedir .. "/.komandan/tmp"
                 module.ssh:cmd("rm " .. tmpdir .. "/." .. $random_file_name)
             end
