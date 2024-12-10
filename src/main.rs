@@ -1,9 +1,10 @@
 use args::Args;
 use clap::Parser;
-use mlua::{chunk, Error::RuntimeError, Integer, Lua, Table, Value};
+use mlua::{chunk, Error::RuntimeError, Integer, MultiValue, Lua, Table, Value};
 use modules::{cmd, script, upload, download};
+use rustyline::DefaultEditor;
 use ssh::SSHSession;
-use std::path::Path;
+use std::{env, path::Path};
 
 mod args;
 mod defaults;
@@ -19,55 +20,37 @@ use validator::{validate_host, validate_module, validate_task};
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let main_file_path = Path::new(&args.main_file);
-    let main_file_name = main_file_path
-        .file_stem()
-        .unwrap_or_default()
-        .to_str()
-        .unwrap()
-        .to_string();
-
-    let main_file_ext = main_file_path
-        .extension()
-        .unwrap_or_default()
-        .to_str()
-        .unwrap()
-        .to_string();
-
-    if main_file_ext != "lua" {
-        return Err(anyhow::anyhow!("Main file must be a lua file."));
+    if args.version {
+        print_version();
+        return Ok(());
     }
-
-    let project_dir = match main_file_path.parent() {
-        Some(parent) => Some(
-            parent
-                .canonicalize()
-                .unwrap_or_else(|_| parent.to_path_buf()),
-        ),
-        _none => None,
-    }
-    .unwrap()
-    .display()
-    .to_string();
 
     let lua = Lua::new();
 
-    let project_dir_lua = lua.create_string(&project_dir)?;
-    lua.load(
-        chunk! {
-            local project_dir = $project_dir_lua
-            package.path = project_dir .. "/?.lua;" .. project_dir .. "/lua_modules/share/lua/5.1/?.lua;" .. project_dir .. "/lua_modules/share/lua/5.1/?/init.lua;"
-            package.cpath = project_dir .. "/?.so;" .. project_dir .. "/lua_modules/lib/lua/5.1/?.so;"
-        }
-    ).exec()?;
-
     setup_komandan_table(&lua)?;
 
-    lua.load(chunk! {
-        require($main_file_name)
-    })
-    .set_name("main")
-    .exec()?;
+    let chunk = args.chunk.clone();
+    match chunk {
+        Some(chunk) => {
+            lua.load(&chunk).eval::<()>()?;
+        }
+        None => {},
+    }
+
+    match &args.main_file {
+        Some(main_file) => {
+            run_main_file(&lua, main_file)?;
+        },
+        None => {
+            if args.chunk.is_none() {
+                repl(&lua);
+            }
+        },
+    };
+
+    if args.interactive && (!&args.main_file.is_none() || !&args.chunk.is_none()) {
+        repl(&lua);
+    }
 
     Ok(())
 }
@@ -213,4 +196,103 @@ fn hostname_display(host: &Table) -> String {
         Ok(name) => format!("{} ({})", name, address),
         Err(_) => format!("{}", address),
     }
+}
+
+fn repl(lua: &Lua) {
+    print_version();
+    let mut editor = DefaultEditor::new().expect("Failed to create editor");
+
+    loop {
+        let mut prompt = "> ";
+        let mut line = String::new();
+
+        loop {
+            match editor.readline(prompt) {
+                Ok(input) => line.push_str(&input),
+                Err(_) => return,
+            }
+
+            match lua.load(&line).eval::<MultiValue>() {
+                Ok(values) => {
+                    editor.add_history_entry(line).unwrap();
+                    println!(
+                        "{}",
+                        values
+                            .iter()
+                            .map(|value| format!("{:#?}", value))
+                            .collect::<Vec<_>>()
+                            .join("\t")
+                    );
+                    break;
+                }
+                Err(mlua::Error::SyntaxError {
+                    incomplete_input: true,
+                    ..
+                }) => {
+                    line.push_str("\n");
+                    prompt = ">> ";
+                }
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+fn run_main_file(lua: &Lua, main_file: &String) -> anyhow::Result<()> {
+    let main_file_path = Path::new(&main_file);
+    let main_file_name = main_file_path
+        .file_stem()
+        .unwrap_or_default()
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    let main_file_ext = main_file_path
+        .extension()
+        .unwrap_or_default()
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    if main_file_ext != "lua" {
+        return Err(anyhow::anyhow!("Main file must be a lua file."));
+    }
+
+    let project_dir = match main_file_path.parent() {
+        Some(parent) => Some(
+            parent
+                .canonicalize()
+                .unwrap_or_else(|_| parent.to_path_buf()),
+        ),
+        _none => None,
+    }
+    .unwrap()
+    .display()
+    .to_string();
+
+    let project_dir_lua = lua.create_string(&project_dir)?;
+    lua.load(
+        chunk! {
+            local project_dir = $project_dir_lua
+            package.path = project_dir .. "/?.lua;" .. project_dir .. "/lua_modules/share/lua/5.1/?.lua;" .. project_dir .. "/lua_modules/share/lua/5.1/?/init.lua;"
+            package.cpath = project_dir .. "/?.so;" .. project_dir .. "/lua_modules/lib/lua/5.1/?.so;"
+        }
+    ).exec()?;
+
+    lua.load(chunk! {
+        require($main_file_name)
+    })
+    .set_name("main")
+    .exec()?;
+
+    Ok(())
+}
+
+fn print_version() {
+    let version = env!("CARGO_PKG_VERSION");
+    let authors = env!("CARGO_PKG_AUTHORS");
+    println!("Komandan {} -- Copyright (C) 2024 {}", version, authors);
 }
