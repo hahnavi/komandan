@@ -97,6 +97,15 @@ impl SSHSession {
         Ok(stdout)
     }
 
+    pub fn chmod(&mut self, remote_path: &Path, mode: &String) -> Result<()> {
+        let mut channel = self.session.channel_session().unwrap();
+        channel
+            .exec(format!("chmod {} {}", mode, remote_path.to_string_lossy()).as_str())
+            .unwrap();
+
+        Ok(())
+    }
+
     pub fn upload(&mut self, local_path: &Path, remote_path: &Path) -> Result<()> {
         let mut sftp = self.session.sftp()?;
 
@@ -247,6 +256,11 @@ impl UserData for SSHSession {
         methods.add_method_mut("get_remote_env", |_, this, var: String| {
             let val = this.get_remote_env(&var)?;
             Ok(val)
+        });
+
+        methods.add_method_mut("chmod", |_, this, (remote_path, mode): (String, String)| {
+            this.chmod(Path::new(remote_path.as_str()), &mode)?;
+            Ok(())
         });
 
         methods.add_method("get_session_results", |lua, this, ()| {

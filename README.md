@@ -84,6 +84,7 @@ The `cmd` module allows you to execute a shell command on the target server. It 
 
 The `script` module allows you to execute a script on the target server. It takes the following arguments:
 - `script`: a string that contains the script to be executed.
+- `from_file`: a string that contains the local path to the script file to be executed on the target server. (script and from_file parameters are mutually exclusive)
 - `interpreter`: a string that specifies the interpreter to use for the script. If not specified, the script will be executed using the default shell.
 
 ### `upload` module
