@@ -1,13 +1,21 @@
 use std::{
     fs,
     io::{self, Read, Write},
-    net::TcpStream,
+    net::{TcpStream, ToSocketAddrs},
     path::Path,
 };
 
 use anyhow::Result;
-use mlua::{Lua, Table, UserData};
+use mlua::UserData;
 use ssh2::{Session, Sftp};
+
+pub enum SSHAuthMethod {
+    Password(String),
+    PublicKey {
+        private_key: String,
+        passphrase: Option<String>,
+    },
+}
 
 pub struct SSHSession {
     session: Session,
@@ -17,43 +25,33 @@ pub struct SSHSession {
 }
 
 impl SSHSession {
-    pub fn connect(lua: &Lua, host: &Table) -> Result<Self> {
-        let tcp = TcpStream::connect((
-            host.get::<String>("address").unwrap().as_str(),
-            host.get::<u16>("port").unwrap_or(22),
-        ))
-        .unwrap();
-
-        let mut session = Session::new().unwrap();
+    pub fn connect<A: ToSocketAddrs>(
+        addr: A,
+        username: &str,
+        auth_method: SSHAuthMethod,
+    ) -> Result<Self> {
+        let tcp = TcpStream::connect(addr)?;
+        let mut session = Session::new()?;
 
         session.set_tcp_stream(tcp);
-        session.handshake().unwrap();
+        session.handshake()?;
 
-        let defaults = lua
-            .globals()
-            .get::<Table>("komandan")?
-            .get::<Table>("defaults")?;
-
-        let username = match host.get::<String>("user") {
-            Ok(user) => user,
-            Err(_) => match defaults.get::<String>("user") {
-                Ok(user) => user,
-                Err(_) => return Err(anyhow::Error::msg("No user specified.")),
-            },
-        };
-
-        session
-            .userauth_pubkey_file(
-                &username,
-                None,
-                Path::new(
-                    host.get::<String>("private_key_path")
-                        .unwrap_or_else(|_| defaults.get::<String>("private_key_path").unwrap())
-                        .as_str(),
-                ),
-                None,
-            )
-            .unwrap();
+        match auth_method {
+            SSHAuthMethod::Password(password) => {
+                session.userauth_password(&username, &password)?;
+            }
+            SSHAuthMethod::PublicKey {
+                private_key,
+                passphrase,
+            } => {
+                session.userauth_pubkey_file(
+                    &username,
+                    None,
+                    Path::new(&private_key),
+                    passphrase.as_deref(),
+                )?;
+            }
+        }
 
         if !session.authenticated() {
             return Err(anyhow::Error::msg("SSH authentication failed."));

@@ -16,6 +16,8 @@
 
 Komandan is a server automation tool that uses Lua programming language interface. It connects to target servers via SSH, following Ansible's approach for its simplicity and agentless operation on managed servers.
 
+> **Notice:** Komandan is in early development and currently supports Linux only. Updates will come as development progresses. Feedback is welcome—thank you for your support!
+
 ## Table of Contents
 - [Usage](#usage)
 - [`komando` function](#komando-function)
@@ -37,7 +39,7 @@ Create a lua script:
 local host = {
   address = "10.20.30.40",
   user = "user1",
-  private_key_path = os.getenv("HOME") .. "/.ssh/id_ed25519",
+  private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
 }
 
 local task = {
@@ -62,10 +64,13 @@ Komandan has `komando` function that takes two arguments:
   - `address`: the IP address or hostname of the target server.
   - `port`: the SSH port to use for the connection (default is 22).
   - `user`: the username to use for authentication.
-  - `private_key_path`: the path to the private key file for authentication.
+  - `private_key_file`: the path to the private key file for authentication.
+  - `private_key_pass`: the passphrase for the private key file for authentication.
+  - `password`: the password to use for authentication if no private key is provided.
 - `task`: a table that contains the following fields:
   - `name`: a string that describes the task. It is used for logging purposes. (optional)
   - `module`: a table that contains the module to be executed and its arguments.
+  - `ignore_exit_code`: a boolean that indicates whether to ignore the exit code of the task. If `true`, the script will continue even if the task returns a non-zero exit code. (default is `false`)
 
 This function will execute the module on the target server and return the results:
 - `stdout`: a string that contains the standard output of the module.
@@ -84,7 +89,7 @@ The `cmd` module allows you to execute a shell command on the target server. It 
 
 The `script` module allows you to execute a script on the target server. It takes the following arguments:
 - `script`: a string that contains the script to be executed.
-- `from_file`: a string that contains the local path to the script file to be executed on the target server. (script and from_file parameters are mutually exclusive)
+- `from_file`: a string that contains the local path to the script file to be executed on the target server. (`script` and `from_file` parameters are mutually exclusive)
 - `interpreter`: a string that specifies the interpreter to use for the script. If not specified, the script will be executed using the default shell.
 
 ### `upload` module
@@ -147,7 +152,7 @@ Example:
 ```lua
 komandan.set_defaults({
   user = "user1",
-  private_key_path = os.getenv("HOME") .. "/id_ed25519",
+  private_key_file = os.getenv("HOME") .. "/id_ed25519",
 })
 ```
 

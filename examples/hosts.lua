@@ -13,7 +13,7 @@ return {
 	},
 	{
 		address = "10.20.30.43",
-		private_key_path = os.getenv("HOME") .. "/.ssh/id_ed25519",
+		private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
 		tags = { "dbserver" },
 	},
 }
