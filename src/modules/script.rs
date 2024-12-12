@@ -24,9 +24,11 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
         .map(char::from)
         .take(10)
         .collect();
+
+    let base_module = super::base_module(&lua);
     let module = lua
         .load(chunk! {
-            local module = komandan.KomandanModule:new({ name = "script" })
+            local module = $base_module:new({ name = "script" })
 
             function module:run()
                 local homedir = module.ssh:get_remote_env("HOME")
@@ -59,4 +61,36 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
         .eval::<Table>()?;
 
     Ok(module)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mlua::Lua;
+
+    #[test]
+    fn test_script_or_from_file_required() {
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        let result = script(&lua, params);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "runtime error: script or from_file parameter is required"
+        );
+    }
+
+    #[test]
+    fn test_script_and_from_file_exclusive() {
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        params.set("script", "echo hello").unwrap();
+        params.set("from_file", "examples/run_script.lua").unwrap();
+        let result = script(&lua, params);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "runtime error: script and from_file parameters cannot be used together"
+        );
+    }
 }
