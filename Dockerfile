@@ -1,4 +1,8 @@
-FROM rustlang/rust:nightly AS builder
+FROM rustlang/rust:nightly-alpine AS builder
+
+RUN apk add --no-cache \
+    build-base \
+    perl
 
 WORKDIR /app
 
@@ -6,11 +10,9 @@ COPY . .
 
 RUN cargo build --release
 
-FROM debian:bookworm-slim
+RUN strip target/release/komandan
 
-RUN apt-get update && apt-get install -y \
-    libssl3 \
-    && rm -rf /var/lib/apt/lists/*
+FROM alpine:3.21
 
 WORKDIR /app
 
