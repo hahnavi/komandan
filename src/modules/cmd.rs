@@ -2,9 +2,11 @@ use mlua::{chunk, ExternalResult, Lua, Table};
 
 pub fn cmd(lua: &Lua, params: Table) -> mlua::Result<Table> {
     let cmd = params.get::<String>("cmd")?;
+
+    let base_module = super::base_module(&lua);
     let module = lua
         .load(chunk! {
-            local module = komandan.KomandanModule:new({ name = "cmd" })
+            local module = $base_module:new({ name = "cmd" })
 
             function module:run()
                 module.ssh:cmd($cmd)

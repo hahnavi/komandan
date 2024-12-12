@@ -1,7 +1,7 @@
 use args::Args;
 use clap::Parser;
 use mlua::{chunk, Error::RuntimeError, Integer, Lua, MultiValue, Table, Value};
-use modules::{cmd, download, script, upload};
+use modules::{base_module, cmd, download, script, upload};
 use rustyline::DefaultEditor;
 use ssh::SSHSession;
 use std::{env, path::Path};
@@ -60,26 +60,9 @@ fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
 
     komandan.set("defaults", defaults::defaults(&lua)?)?;
 
-    let komandan_module = lua
-        .load(chunk! {
-                local KomandanModule = {}
+    let base_module = base_module(&lua);
 
-        function KomandanModule:new(data)
-            local o = setmetatable({}, { __index = self })
-            o.name = data.name
-            o.script = data.script
-            return o
-        end
-
-        function KomandanModule:run_module()
-        self:run()
-        end
-
-        return KomandanModule
-            })
-        .eval::<Table>()?;
-
-    komandan.set("KomandanModule", komandan_module)?;
+    komandan.set("KomandanModule", base_module)?;
 
     komandan.set("set_defaults", lua.create_function(set_defaults)?)?;
     komandan.set("komando", lua.create_async_function(komando)?)?;
