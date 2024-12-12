@@ -17,8 +17,20 @@ pub enum SSHAuthMethod {
     },
 }
 
+pub struct Elevation {
+    pub method: ElevateMethod,
+    pub as_user: Option<String>,
+}
+
+pub enum ElevateMethod {
+    None,
+    Su,
+    Sudo,
+}
+
 pub struct SSHSession {
     session: Session,
+    elevation: Elevation,
     stdout: Option<String>,
     stderr: Option<String>,
     exit_code: Option<i32>,
@@ -29,6 +41,7 @@ impl SSHSession {
         addr: A,
         username: &str,
         auth_method: SSHAuthMethod,
+        elevation: Elevation,
     ) -> Result<Self> {
         let tcp = TcpStream::connect(addr)?;
         let mut session = Session::new()?;
@@ -59,6 +72,7 @@ impl SSHSession {
 
         Ok(Self {
             session,
+            elevation,
             stdout: Some(String::new()),
             stderr: Some(String::new()),
             exit_code: Some(0),
@@ -84,9 +98,36 @@ impl SSHSession {
         Ok((stdout, stderr, exit_code))
     }
 
+    pub fn prepare_command(&mut self, command: &str) -> Result<String> {
+        let command = match self.elevation.method {
+            ElevateMethod::Su => match &self.elevation.as_user {
+                Some(user) => format!("su {} -c '{}'", user, command),
+                None => format!("su -c '{}'", command),
+            },
+            ElevateMethod::Sudo => match &self.elevation.as_user {
+                Some(user) => format!("sudo -u {} {}", user, command),
+                None => format!("sudo {}", command),
+            },
+            _ => command.to_string(),
+        };
+
+        Ok(command)
+    }
+
     pub fn get_remote_env(&mut self, var: &str) -> Result<String> {
         let mut channel = self.session.channel_session().unwrap();
         channel.exec(format!("echo ${}", var).as_str()).unwrap();
+        let mut stdout = String::new();
+        channel.read_to_string(&mut stdout).unwrap();
+        stdout = stdout.trim_end_matches('\n').to_string();
+        channel.wait_close().unwrap();
+
+        Ok(stdout)
+    }
+
+    pub fn get_tmpdir(&mut self) -> Result<String> {
+        let mut channel = self.session.channel_session().unwrap();
+        channel.exec("tmpdir=`for dir in \"$HOME/.komandan/tmp\" \"/tmp/komandan\"; do if [ -d \"$dir\" ] || mkdir -p \"$dir\" 2>/dev/null; then echo \"$dir\"; break; fi; done`; [ -z \"$tmpdir\" ] && { exit 1; } || echo \"$tmpdir\"").unwrap();
         let mut stdout = String::new();
         channel.read_to_string(&mut stdout).unwrap();
         stdout = stdout.trim_end_matches('\n').to_string();
@@ -210,6 +251,7 @@ fn download_directory(sftp: &mut Sftp, remote_path: &Path, local_path: &Path) ->
 impl UserData for SSHSession {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method_mut("cmd", |lua, this, command: String| {
+            let command = this.prepare_command(command.as_str()).unwrap();
             let cmd_result = this.cmd(&command);
             let (stdout, stderr, exit_code) = cmd_result.unwrap();
 
@@ -254,6 +296,11 @@ impl UserData for SSHSession {
         methods.add_method_mut("get_remote_env", |_, this, var: String| {
             let val = this.get_remote_env(&var)?;
             Ok(val)
+        });
+
+        methods.add_method_mut("get_tmpdir", |_, this, ()| {
+            let tmpdir = this.get_tmpdir().unwrap();
+            Ok(tmpdir)
         });
 
         methods.add_method_mut("chmod", |_, this, (remote_path, mode): (String, String)| {

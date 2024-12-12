@@ -71,6 +71,8 @@ Komandan has `komando` function that takes two arguments:
   - `name`: a string that describes the task. It is used for logging purposes. (optional)
   - `module`: a table that contains the module to be executed and its arguments.
   - `ignore_exit_code`: a boolean that indicates whether to ignore the exit code of the task. If `true`, the script will continue even if the task returns a non-zero exit code. (default is `false`)
+  - `elevate`: a boolean that indicates whether to run the task as root. (default is `false`)
+  - `as_user`: a string that specifies the user to run the task as. Requires `elevate` to be `true`. (optional)
 
 This function will execute the module on the target server and return the results:
 - `stdout`: a string that contains the standard output of the module.

@@ -3,7 +3,7 @@ use clap::Parser;
 use mlua::{chunk, Error::RuntimeError, Integer, Lua, MultiValue, Table, Value};
 use modules::{base_module, cmd, download, script, upload};
 use rustyline::DefaultEditor;
-use ssh::{SSHAuthMethod, SSHSession};
+use ssh::{ElevateMethod, Elevation, SSHAuthMethod, SSHSession};
 use std::{env, path::Path};
 
 mod args;
@@ -183,10 +183,79 @@ async fn komando(lua: Lua, (host, task): (Value, Value)) -> mlua::Result<Table> 
             .unwrap_or_else(|_| 22.into())
     }) as u16;
 
+    let elevate = match task.get::<Value>("elevate") {
+        Ok(elevate) => match elevate {
+            Value::Nil => match host.get::<Value>("elevate") {
+                Ok(elevate) => match elevate {
+                    Value::Nil => match defaults.get::<Value>("elevate") {
+                        Ok(elevate) => match elevate {
+                            Value::Nil => false,
+                            Value::Boolean(true) => true,
+                            _ => false,
+                        },
+                        Err(_) => false,
+                    },
+                    Value::Boolean(true) => true,
+                    _ => false,
+                },
+                Err(_) => false,
+            },
+            Value::Boolean(true) => true,
+            _ => false,
+        },
+        Err(_) => false,
+    };
+
+    let as_user: Option<String> = match task.get::<String>("as_user") {
+        Ok(as_user) => Some(as_user),
+        Err(_) => match host.get::<String>("as_user") {
+            Ok(as_user) => Some(as_user),
+            Err(_) => match defaults.get::<String>("as_user") {
+                Ok(as_user) => Some(as_user),
+                Err(_) => None,
+            },
+        },
+    };
+
+    let elevation_method_str = match elevate {
+        true => match user.as_str() {
+            "root" => "su".to_string(),
+            _ => match task.get::<String>("elevation_method") {
+                Ok(method) => method,
+                Err(_) => match host.get::<String>("elevation_method") {
+                    Ok(method) => method,
+                    Err(_) => match defaults.get::<String>("elevation_method") {
+                        Ok(method) => method,
+                        Err(_) => "none".to_string(),
+                    },
+                },
+            },
+        },
+        false => "none".to_string(),
+    };
+
+    let elevation_method = match elevation_method_str.to_lowercase().as_str() {
+        "none" => ElevateMethod::None,
+        "su" => ElevateMethod::Su,
+        "sudo" => ElevateMethod::Sudo,
+        _ => {
+            return Err(RuntimeError(format!(
+                "Invalid elevation_method '{}' for task '{}' on host '{}'.",
+                elevation_method_str, task_display, host_display
+            )))
+        }
+    };
+
+    let elevation = Elevation {
+        method: elevation_method,
+        as_user,
+    };
+
     let ssh = SSHSession::connect(
         (host.get::<String>("address")?.as_str(), port),
         &user,
         ssh_auth_method,
+        elevation,
     )?;
 
     let module_clone = module.clone();
