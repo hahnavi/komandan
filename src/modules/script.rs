@@ -31,10 +31,8 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
             local module = $base_module:new({ name = "script" })
 
             function module:run()
-                local homedir = module.ssh:get_remote_env("HOME")
-                local tmpdir = homedir .. "/.komandan/tmp"
+                local tmpdir = module.ssh:get_tmpdir()
                 module.remote_path = tmpdir .. "/." .. $random_file_name
-                module.ssh:cmd("mkdir -p " .. tmpdir)
 
                 if $script ~= nil then
                     module.ssh:write_remote_file(module.remote_path, $script)
@@ -51,8 +49,7 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
             end
 
             function module:cleanup()
-                local homedir = module.ssh:get_remote_env("HOME")
-                local tmpdir = homedir .. "/.komandan/tmp"
+                local tmpdir = module.ssh:get_tmpdir()
                 module.ssh:cmd("rm " .. module.remote_path)
             end
 

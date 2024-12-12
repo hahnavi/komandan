@@ -3,7 +3,7 @@ use clap::Parser;
 use mlua::{chunk, Error::RuntimeError, Integer, Lua, MultiValue, Table, Value};
 use modules::{base_module, cmd, download, script, upload};
 use rustyline::DefaultEditor;
-use ssh::SSHSession;
+use ssh::{ElevateMethod, Elevation, SSHAuthMethod, SSHSession};
 use std::{env, path::Path};
 
 mod args;
@@ -112,37 +112,165 @@ async fn komando(lua: Lua, (host, task): (Value, Value)) -> mlua::Result<Table> 
         .create_function(validate_module)?
         .call::<Table>(task.get::<Table>(1).unwrap())?;
 
-    let hostname_display = hostname_display(&host);
+    let host_display = hostname_display(&host);
 
-    let ssh = match SSHSession::connect(&lua, &host) {
-        Ok(ssh) => ssh,
-        Err(err) => {
-            return Err(RuntimeError(format!(
-                "Failed to connect to host '{}': {}",
-                &hostname_display,
-                &err.to_string()
-            )))
-        }
-    };
-
-    let task_name = match task.get::<String>("name") {
+    let task_display = match task.get::<String>("name") {
         Ok(name) => name,
         Err(_) => module.get::<String>("name")?,
     };
 
+    let defaults = lua
+        .globals()
+        .get::<Table>("komandan")?
+        .get::<Table>("defaults")?;
+
+    let user = match host.get::<String>("user") {
+        Ok(user) => user,
+        Err(_) => match defaults.get::<String>("user") {
+            Ok(user) => user,
+            Err(_) => match env::var("USER") {
+                Ok(user) => user,
+                Err(_) => {
+                    return Err(RuntimeError(format!(
+                        "No user specified for task '{}'.",
+                        task_display
+                    )))
+                }
+            },
+        },
+    };
+
+    let ssh_auth_method = match host.get::<String>("private_key_file") {
+        Ok(private_key_file) => SSHAuthMethod::PublicKey {
+            private_key: private_key_file,
+            passphrase: match host.get::<String>("private_key_pass") {
+                Ok(passphrase) => Some(passphrase),
+                Err(_) => match defaults.get::<String>("private_key_pass") {
+                    Ok(passphrase) => Some(passphrase),
+                    Err(_) => None,
+                },
+            },
+        },
+        Err(_) => match defaults.get::<String>("private_key_file") {
+            Ok(private_key_file) => SSHAuthMethod::PublicKey {
+                private_key: private_key_file,
+                passphrase: match host.get::<String>("private_key_pass") {
+                    Ok(passphrase) => Some(passphrase),
+                    Err(_) => match defaults.get::<String>("private_key_pass") {
+                        Ok(passphrase) => Some(passphrase),
+                        Err(_) => None,
+                    },
+                },
+            },
+            Err(_) => match host.get::<String>("password") {
+                Ok(password) => SSHAuthMethod::Password(password),
+                Err(_) => match defaults.get::<String>("password") {
+                    Ok(password) => SSHAuthMethod::Password(password),
+                    Err(_) => {
+                        return Err(RuntimeError(format!(
+                            "No authentication method specified for task '{}' on host '{}'.",
+                            task_display, host_display
+                        )))
+                    }
+                },
+            },
+        },
+    };
+
+    let port = host.get::<Integer>("port").unwrap_or_else(|_| {
+        defaults
+            .get::<Integer>("port")
+            .unwrap_or_else(|_| 22.into())
+    }) as u16;
+
+    let elevate = match task.get::<Value>("elevate") {
+        Ok(elevate) => match elevate {
+            Value::Nil => match host.get::<Value>("elevate") {
+                Ok(elevate) => match elevate {
+                    Value::Nil => match defaults.get::<Value>("elevate") {
+                        Ok(elevate) => match elevate {
+                            Value::Nil => false,
+                            Value::Boolean(true) => true,
+                            _ => false,
+                        },
+                        Err(_) => false,
+                    },
+                    Value::Boolean(true) => true,
+                    _ => false,
+                },
+                Err(_) => false,
+            },
+            Value::Boolean(true) => true,
+            _ => false,
+        },
+        Err(_) => false,
+    };
+
+    let as_user: Option<String> = match task.get::<String>("as_user") {
+        Ok(as_user) => Some(as_user),
+        Err(_) => match host.get::<String>("as_user") {
+            Ok(as_user) => Some(as_user),
+            Err(_) => match defaults.get::<String>("as_user") {
+                Ok(as_user) => Some(as_user),
+                Err(_) => None,
+            },
+        },
+    };
+
+    let elevation_method_str = match elevate {
+        true => match user.as_str() {
+            "root" => "su".to_string(),
+            _ => match task.get::<String>("elevation_method") {
+                Ok(method) => method,
+                Err(_) => match host.get::<String>("elevation_method") {
+                    Ok(method) => method,
+                    Err(_) => match defaults.get::<String>("elevation_method") {
+                        Ok(method) => method,
+                        Err(_) => "none".to_string(),
+                    },
+                },
+            },
+        },
+        false => "none".to_string(),
+    };
+
+    let elevation_method = match elevation_method_str.to_lowercase().as_str() {
+        "none" => ElevateMethod::None,
+        "su" => ElevateMethod::Su,
+        "sudo" => ElevateMethod::Sudo,
+        _ => {
+            return Err(RuntimeError(format!(
+                "Invalid elevation_method '{}' for task '{}' on host '{}'.",
+                elevation_method_str, task_display, host_display
+            )))
+        }
+    };
+
+    let elevation = Elevation {
+        method: elevation_method,
+        as_user,
+    };
+
+    let ssh = SSHSession::connect(
+        (host.get::<String>("address")?.as_str(), port),
+        &user,
+        ssh_auth_method,
+        elevation,
+    )?;
+
     let module_clone = module.clone();
     let results = lua
         .load(chunk! {
-            print("Running task '" .. $task_name .. "' on host '" .. $hostname_display .."' ...")
+            print("Running task '" .. $task_display .. "' on host '" .. $host_display .."' ...")
             $module_clone.ssh = $ssh
             $module_clone:run()
 
             local results = $module_clone.ssh:get_session_results()
             komandan.dprint(results.stdout)
             if results.exit_code ~= 0 then
-                print("Task '" .. $task_name .. "' on host '" .. $hostname_display .."' failed with exit code " .. results.exit_code .. ": " .. results.stderr)
+                print("Task '" .. $task_display .. "' on host '" .. $host_display .."' failed with exit code " .. results.exit_code .. ": " .. results.stderr)
             else
-                print("Task '" .. $task_name .. "' on host '" .. $hostname_display .."' succeeded.")
+                print("Task '" .. $task_display .. "' on host '" .. $host_display .."' succeeded.")
             end
 
             return results

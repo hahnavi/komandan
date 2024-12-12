@@ -1,59 +1,70 @@
 use std::{
     fs,
     io::{self, Read, Write},
-    net::TcpStream,
+    net::{TcpStream, ToSocketAddrs},
     path::Path,
 };
 
 use anyhow::Result;
-use mlua::{Lua, Table, UserData};
+use mlua::UserData;
 use ssh2::{Session, Sftp};
+
+pub enum SSHAuthMethod {
+    Password(String),
+    PublicKey {
+        private_key: String,
+        passphrase: Option<String>,
+    },
+}
+
+pub struct Elevation {
+    pub method: ElevateMethod,
+    pub as_user: Option<String>,
+}
+
+pub enum ElevateMethod {
+    None,
+    Su,
+    Sudo,
+}
 
 pub struct SSHSession {
     session: Session,
+    elevation: Elevation,
     stdout: Option<String>,
     stderr: Option<String>,
     exit_code: Option<i32>,
 }
 
 impl SSHSession {
-    pub fn connect(lua: &Lua, host: &Table) -> Result<Self> {
-        let tcp = TcpStream::connect((
-            host.get::<String>("address").unwrap().as_str(),
-            host.get::<u16>("port").unwrap_or(22),
-        ))
-        .unwrap();
-
-        let mut session = Session::new().unwrap();
+    pub fn connect<A: ToSocketAddrs>(
+        addr: A,
+        username: &str,
+        auth_method: SSHAuthMethod,
+        elevation: Elevation,
+    ) -> Result<Self> {
+        let tcp = TcpStream::connect(addr)?;
+        let mut session = Session::new()?;
 
         session.set_tcp_stream(tcp);
-        session.handshake().unwrap();
+        session.handshake()?;
 
-        let defaults = lua
-            .globals()
-            .get::<Table>("komandan")?
-            .get::<Table>("defaults")?;
-
-        let username = match host.get::<String>("user") {
-            Ok(user) => user,
-            Err(_) => match defaults.get::<String>("user") {
-                Ok(user) => user,
-                Err(_) => return Err(anyhow::Error::msg("No user specified.")),
-            },
-        };
-
-        session
-            .userauth_pubkey_file(
-                &username,
-                None,
-                Path::new(
-                    host.get::<String>("private_key_path")
-                        .unwrap_or_else(|_| defaults.get::<String>("private_key_path").unwrap())
-                        .as_str(),
-                ),
-                None,
-            )
-            .unwrap();
+        match auth_method {
+            SSHAuthMethod::Password(password) => {
+                session.userauth_password(&username, &password)?;
+            }
+            SSHAuthMethod::PublicKey {
+                private_key,
+                passphrase,
+            } => {
+                session.userauth_pubkey_file(
+                    &username,
+                    None,
+                    Path::new(&private_key),
+                    passphrase.as_deref(),
+                )?;
+            }
+        }
 
         if !session.authenticated() {
             return Err(anyhow::Error::msg("SSH authentication failed."));
@@ -61,6 +72,7 @@ impl SSHSession {
 
         Ok(Self {
             session,
+            elevation,
             stdout: Some(String::new()),
             stderr: Some(String::new()),
             exit_code: Some(0),
@@ -86,9 +98,36 @@ impl SSHSession {
         Ok((stdout, stderr, exit_code))
     }
 
+    pub fn prepare_command(&mut self, command: &str) -> Result<String> {
+        let command = match self.elevation.method {
+            ElevateMethod::Su => match &self.elevation.as_user {
+                Some(user) => format!("su {} -c '{}'", user, command),
+                None => format!("su -c '{}'", command),
+            },
+            ElevateMethod::Sudo => match &self.elevation.as_user {
+                Some(user) => format!("sudo -u {} {}", user, command),
+                None => format!("sudo {}", command),
+            },
+            _ => command.to_string(),
+        };
+
+        Ok(command)
+    }
+
     pub fn get_remote_env(&mut self, var: &str) -> Result<String> {
         let mut channel = self.session.channel_session().unwrap();
         channel.exec(format!("echo ${}", var).as_str()).unwrap();
+        let mut stdout = String::new();
+        channel.read_to_string(&mut stdout).unwrap();
+        stdout = stdout.trim_end_matches('\n').to_string();
+        channel.wait_close().unwrap();
+
+        Ok(stdout)
+    }
+
+    pub fn get_tmpdir(&mut self) -> Result<String> {
+        let mut channel = self.session.channel_session().unwrap();
+        channel.exec("tmpdir=`for dir in \"$HOME/.komandan/tmp\" \"/tmp/komandan\"; do if [ -d \"$dir\" ] || mkdir -p \"$dir\" 2>/dev/null; then echo \"$dir\"; break; fi; done`; [ -z \"$tmpdir\" ] && { exit 1; } || echo \"$tmpdir\"").unwrap();
         let mut stdout = String::new();
         channel.read_to_string(&mut stdout).unwrap();
         stdout = stdout.trim_end_matches('\n').to_string();
@@ -212,6 +251,7 @@ fn download_directory(sftp: &mut Sftp, remote_path: &Path, local_path: &Path) ->
 impl UserData for SSHSession {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method_mut("cmd", |lua, this, command: String| {
+            let command = this.prepare_command(command.as_str()).unwrap();
             let cmd_result = this.cmd(&command);
             let (stdout, stderr, exit_code) = cmd_result.unwrap();
 
@@ -256,6 +296,11 @@ impl UserData for SSHSession {
         methods.add_method_mut("get_remote_env", |_, this, var: String| {
             let val = this.get_remote_env(&var)?;
             Ok(val)
+        });
+
+        methods.add_method_mut("get_tmpdir", |_, this, ()| {
+            let tmpdir = this.get_tmpdir().unwrap();
+            Ok(tmpdir)
         });
 
         methods.add_method_mut("chmod", |_, this, (remote_path, mode): (String, String)| {

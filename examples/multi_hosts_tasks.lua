@@ -2,7 +2,7 @@ local hosts = require("hosts")
 
 komandan.set_defaults({
 	user = "user1",
-	private_key_path = os.getenv("HOME") .. "/.ssh/id_ed25519",
+	private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
 })
 
 local tasks = {
