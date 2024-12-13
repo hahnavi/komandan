@@ -1,7 +1,7 @@
 use args::Args;
 use clap::Parser;
 use mlua::{chunk, Error::RuntimeError, Integer, Lua, MultiValue, Table, Value};
-use modules::{base_module, cmd, download, script, upload};
+use modules::{apt, base_module, cmd, download, script, upload};
 use rustyline::DefaultEditor;
 use ssh::{ElevateMethod, Elevation, SSHAuthMethod, SSHSession};
 use std::{env, path::Path};
@@ -74,6 +74,7 @@ fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
 
     // Add core modules
     let modules_table = lua.create_table()?;
+    modules_table.set("apt", lua.create_function(apt)?)?;
     modules_table.set("cmd", lua.create_function(cmd)?)?;
     modules_table.set("script", lua.create_function(script)?)?;
     modules_table.set("upload", lua.create_function(upload)?)?;
@@ -429,6 +430,7 @@ mod tests {
         assert!(komandan_table.contains_key("dprint").unwrap());
 
         let modules_table = komandan_table.get::<Table>("modules").unwrap();
+        assert!(modules_table.contains_key("apt").unwrap());
         assert!(modules_table.contains_key("cmd").unwrap());
         assert!(modules_table.contains_key("script").unwrap());
         assert!(modules_table.contains_key("upload").unwrap());
