@@ -26,6 +26,7 @@ Komandan is a server automation tool that uses Lua programming language interfac
   - [`script` module](#script-module)
   - [`upload` module](#upload-module)
   - [`download` module](#download-module)
+  - [`apt` module](#apt-module)
 - [Built-in functions](#built-in-functions)
   - [`komandan.filter_hosts`](#komandan-filter-hosts)
   - [`komandan.set_defaults`](#komandan-set-defaults)
@@ -105,6 +106,14 @@ The `upload` module allows you to upload a file to the target server. It takes t
 The `download` module allows you to download a file from the target server. It takes the following arguments:
 - `src`: a string that contains the path to the file to be downloaded.
 - `dst`: a string that contains the path to the destination file on the local machine.
+
+### `apt` module
+
+The `apt` module allows you to install packages on the target server. It takes the following arguments:
+- `package`: a string that contains the name of the package to be installed.
+- `action`: a string that specifies the action to be taken on the package. (default is `install`. Supported actions: `install`, `remove`, `purge`, `upgrade`, `autoremove`)
+- `update_cache`: a boolean that indicates whether to update the package cache before installing the package. (default is `false`)
+- `install_recommends`: a boolean that indicates whether to install recommended packages. (default is `true`)
 
 ## Built-in functions
 
