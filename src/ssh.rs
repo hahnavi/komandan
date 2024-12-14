@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs,
     io::{self, Read, Write},
     net::{TcpStream, ToSocketAddrs},
@@ -30,6 +31,7 @@ pub enum ElevateMethod {
 
 pub struct SSHSession {
     session: Session,
+    env: HashMap<String, String>,
     elevation: Elevation,
     stdout: Option<String>,
     stderr: Option<String>,
@@ -72,6 +74,7 @@ impl SSHSession {
 
         Ok(Self {
             session,
+            env: HashMap::new(),
             elevation,
             stdout: Some(String::new()),
             stderr: Some(String::new()),
@@ -79,17 +82,30 @@ impl SSHSession {
         })
     }
 
+    pub fn set_env(&mut self, key: &str, value: &str) {
+        *self.env.entry(key.to_string()).or_insert(value.to_string()) = value.to_string();
+    }
+
+    fn execute_command(&mut self, command: &str) -> Result<ssh2::Channel> {
+        let mut channel = self.session.channel_session()?;
+        let mut command = command.to_string();
+        for (key, value) in &self.env {
+            command = format!("export {}={}\n", key, value) + &command;
+        }
+        channel.exec(command.as_str())?;
+        Ok(channel)
+    }
+
     pub fn cmd(&mut self, command: &str) -> Result<(String, String, i32)> {
-        let mut channel = self.session.channel_session().unwrap();
-        channel.exec(command).unwrap();
+        let mut channel = self.execute_command(command)?;
         let mut stdout = String::new();
         let mut stderr = String::new();
 
-        channel.read_to_string(&mut stdout).unwrap();
-        channel.stderr().read_to_string(&mut stderr).unwrap();
+        channel.read_to_string(&mut stdout)?;
+        channel.stderr().read_to_string(&mut stderr)?;
         stdout = stdout.trim_end_matches('\n').to_string();
-        channel.wait_close().unwrap();
-        let exit_code = channel.exit_status().unwrap();
+        channel.wait_close()?;
+        let exit_code = channel.exit_status()?;
 
         self.stdout.as_mut().unwrap().push_str(&stdout);
         self.stderr.as_mut().unwrap().push_str(&stderr);
@@ -115,32 +131,27 @@ impl SSHSession {
     }
 
     pub fn get_remote_env(&mut self, var: &str) -> Result<String> {
-        let mut channel = self.session.channel_session().unwrap();
-        channel.exec(format!("echo ${}", var).as_str()).unwrap();
+        let mut channel = self.execute_command(format!("echo ${}", var).as_str())?;
         let mut stdout = String::new();
-        channel.read_to_string(&mut stdout).unwrap();
+        channel.read_to_string(&mut stdout)?;
         stdout = stdout.trim_end_matches('\n').to_string();
-        channel.wait_close().unwrap();
+        channel.wait_close()?;
 
         Ok(stdout)
     }
 
     pub fn get_tmpdir(&mut self) -> Result<String> {
-        let mut channel = self.session.channel_session().unwrap();
-        channel.exec("tmpdir=`for dir in \"$HOME/.komandan/tmp\" \"/tmp/komandan\"; do if [ -d \"$dir\" ] || mkdir -p \"$dir\" 2>/dev/null; then echo \"$dir\"; break; fi; done`; [ -z \"$tmpdir\" ] && { exit 1; } || echo \"$tmpdir\"").unwrap();
+        let mut channel = self.execute_command("tmpdir=`for dir in \"$HOME/.komandan/tmp\" \"/tmp/komandan\"; do if [ -d \"$dir\" ] || mkdir -p \"$dir\" 2>/dev/null; then echo \"$dir\"; break; fi; done`; [ -z \"$tmpdir\" ] && { exit 1; } || echo \"$tmpdir\"")?;
         let mut stdout = String::new();
-        channel.read_to_string(&mut stdout).unwrap();
+        channel.read_to_string(&mut stdout)?;
         stdout = stdout.trim_end_matches('\n').to_string();
-        channel.wait_close().unwrap();
+        channel.wait_close()?;
 
         Ok(stdout)
     }
 
     pub fn chmod(&mut self, remote_path: &Path, mode: &String) -> Result<()> {
-        let mut channel = self.session.channel_session().unwrap();
-        channel
-            .exec(format!("chmod {} {}", mode, remote_path.to_string_lossy()).as_str())
-            .unwrap();
+        self.execute_command(format!("chmod {} {}", mode, remote_path.to_string_lossy()).as_str())?;
 
         Ok(())
     }
@@ -171,15 +182,14 @@ impl SSHSession {
 
     pub fn write_remote_file(&mut self, remote_path: &str, content: &[u8]) -> Result<()> {
         let content_length = content.len() as u64;
-        let mut remote_file = self
-            .session
-            .scp_send(Path::new(remote_path), 0o644, content_length, None)
-            .unwrap();
-        remote_file.write(content).unwrap();
-        remote_file.send_eof().unwrap();
-        remote_file.wait_eof().unwrap();
-        remote_file.close().unwrap();
-        remote_file.wait_close().unwrap();
+        let mut remote_file =
+            self.session
+                .scp_send(Path::new(remote_path), 0o644, content_length, None)?;
+        remote_file.write(content)?;
+        remote_file.send_eof()?;
+        remote_file.wait_eof()?;
+        remote_file.close()?;
+        remote_file.wait_close()?;
 
         Ok(())
     }
@@ -251,9 +261,9 @@ fn download_directory(sftp: &mut Sftp, remote_path: &Path, local_path: &Path) ->
 impl UserData for SSHSession {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method_mut("cmd", |lua, this, command: String| {
-            let command = this.prepare_command(command.as_str()).unwrap();
+            let command = this.prepare_command(command.as_str())?;
             let cmd_result = this.cmd(&command);
-            let (stdout, stderr, exit_code) = cmd_result.unwrap();
+            let (stdout, stderr, exit_code) = cmd_result?;
 
             let table = lua.create_table()?;
             table.set("stdout", stdout)?;
@@ -299,7 +309,7 @@ impl UserData for SSHSession {
         });
 
         methods.add_method_mut("get_tmpdir", |_, this, ()| {
-            let tmpdir = this.get_tmpdir().unwrap();
+            let tmpdir = this.get_tmpdir()?;
             Ok(tmpdir)
         });
 

@@ -1,5 +1,7 @@
 <div align="center">
 
+<img alt="Komandan Logo" height="230" src="assets/komandan.png" />
+
 # Komandan
 #### Your army commander
 
@@ -14,11 +16,13 @@
 
 </div>
 
-Komandan is a server automation tool that uses Lua programming language interface. It connects to target servers via SSH, following Ansible's approach for its simplicity and agentless operation on managed servers.
+Komandan is a server automation tool that simplifies remote server management by leveraging the power and flexibility of the Lua programming language. It connects to target servers via SSH, following Ansible's agentless approach for streamlined operation. Komandan is designed to be easy to learn and use, even for those new to server automation.
 
 > **Notice:** Komandan is in early development and currently supports Linux only. Updates will come as development progresses. Feedback is welcome—thank you for your support!
 
 ## Table of Contents
+- [Installation](#installation)
+- [Getting Started](#getting-started)
 - [Usage](#usage)
 - [`komando` function](#komando-function)
 - [Modules](#modules)
@@ -30,141 +34,284 @@ Komandan is a server automation tool that uses Lua programming language interfac
 - [Built-in functions](#built-in-functions)
   - [`komandan.filter_hosts`](#komandan-filter-hosts)
   - [`komandan.set_defaults`](#komandan-set-defaults)
+- [Error Handling](#error-handling)
+- [Contributing](#contributing)
+- [License](#license)
+- [Full Documentation](#full-documentation)
+
+## Installation
+
+Pre-built binaries for Komandan are available for Linux (x86_64 architecture only) on the [GitHub Releases](https://github.com/hahnavi/komandan/releases) page.
+
+An installation script is provided for easy installation:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hahnavi/komandan/main/install.sh | sh
+```
+
+This script will download the latest Komandan release for your system and install Komandan to `$HOME/.local/bin`.
+
+## Getting Started
+
+For comprehensive documentation, including detailed guides and references, please visit the [Komandan Documentation Site](https://komandan.vercel.app/docs).
 
 ## Usage
 
-Create a lua script:
+Here's a simple example to get you started. Create a Lua script named `main.lua`:
+
 ```lua
 -- main.lua
 
-local host = {
-  address = "10.20.30.40",
-  user = "user1",
-  private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
-}
-
-local task = {
-    name = "Create a directory",
-    komandan.modules.cmd({
-        cmd = "mkdir /tmp/newdir"
-    })
-}
-
-komandan.komando(host, task)
-```
-
-Run the script:
-```sh
-$ komandan main.lua
-```
-
-## `komando` function
-
-Komandan has `komando` function that takes two arguments:
-- `host`: a table that contains the following fields:
-  - `address`: the IP address or hostname of the target server.
-  - `port`: the SSH port to use for the connection (default is 22).
-  - `user`: the username to use for authentication.
-  - `private_key_file`: the path to the private key file for authentication.
-  - `private_key_pass`: the passphrase for the private key file for authentication.
-  - `password`: the password to use for authentication if no private key is provided.
-- `task`: a table that contains the following fields:
-  - `name`: a string that describes the task. It is used for logging purposes. (optional)
-  - `module`: a table that contains the module to be executed and its arguments.
-  - `ignore_exit_code`: a boolean that indicates whether to ignore the exit code of the task. If `true`, the script will continue even if the task returns a non-zero exit code. (default is `false`)
-  - `elevate`: a boolean that indicates whether to run the task as root. (default is `false`)
-  - `as_user`: a string that specifies the user to run the task as. Requires `elevate` to be `true`. (optional)
-
-This function will execute the module on the target server and return the results:
-- `stdout`: a string that contains the standard output of the module.
-- `stderr`: a string that contains the standard error output of the module.
-- `exit_code`: an integer that contains the exit code of the module.
-
-## Modules
-
-Komandan has several built-in modules that can be used to perform various tasks on the target server. These modules are located in the `komandan.modules` table.
-### `cmd` module
-
-The `cmd` module allows you to execute a shell command on the target server. It takes the following arguments:
-- `cmd`: a string that contains the shell command to be executed.
-
-### `script` module
-
-The `script` module allows you to execute a script on the target server. It takes the following arguments:
-- `script`: a string that contains the script to be executed.
-- `from_file`: a string that contains the local path to the script file to be executed on the target server. (`script` and `from_file` parameters are mutually exclusive)
-- `interpreter`: a string that specifies the interpreter to use for the script. If not specified, the script will be executed using the default shell.
-
-### `upload` module
-
-The `upload` module allows you to upload a file to the target server. It takes the following arguments:
-- `src`: a string that contains the path to the file to be uploaded.
-- `dst`: a string that contains the path to the destination file on the target server.
-
-### `download` module
-
-The `download` module allows you to download a file from the target server. It takes the following arguments:
-- `src`: a string that contains the path to the file to be downloaded.
-- `dst`: a string that contains the path to the destination file on the local machine.
-
-### `apt` module
-
-The `apt` module allows you to install packages on the target server. It takes the following arguments:
-- `package`: a string that contains the name of the package to be installed.
-- `action`: a string that specifies the action to be taken on the package. (default is `install`. Supported actions: `install`, `remove`, `purge`, `upgrade`, `autoremove`)
-- `update_cache`: a boolean that indicates whether to update the package cache before installing the package. (default is `false`)
-- `install_recommends`: a boolean that indicates whether to install recommended packages. (default is `true`)
-
-## Built-in functions
-
-Komandan provides several built-in functions that can be used to help write scripts.
-
-### `komandan.filter_hosts`
-
-The `filter_hosts` function takes two arguments:
-- `hosts`: a table that contains the hosts to filter.
-- `pattern`: a string that contains the name or tag to filter the hosts. It can be a regular expression by adding `~` at the beginning of the pattern.
-
-
-The function returns a table that contains the filtered hosts.
-
-Example:
-
-```lua
 local hosts = {
   {
-    name = "server1",
+    name = "webserver1",
     address = "10.20.30.41",
-    tags = { "webserver", "database" },
-  },
-  {
-    name = "server2",
-    address = "10.20.30.42",
     tags = { "webserver" },
   },
   {
-    name = "server3",
-    address = "10.20.30.43",
+    name = "dbserver1",
+    address = "10.20.30.42",
     tags = { "database" },
   },
 }
 
-local filtered_hosts = komandan.filter_hosts(hosts, "webserver")
+komandan.set_defaults({
+  user = "user1",
+  private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
+})
+
+local webservers = komandan.filter_hosts(hosts, "webserver")
+
+local task = {
+  name = "Create a directory",
+  komandan.modules.cmd({
+    cmd = "mkdir -p /tmp/komandan_test",
+  }),
+}
+
+for _, host in ipairs(webservers) do
+  komandan.komando(host, task)
+end
 ```
 
-This will return the table `filtered_hosts` that contains only the hosts that have the name or tag `webserver`.
+Run the script using the `komandan` command:
+
+```sh
+$ komandan main.lua
+```
+
+This script will connect to `webserver1` as `user1` using the specified SSH key and create the directory `/tmp/komandan_test`.
+
+## `komando` function
+
+The `komando` function is the core of Komandan. It executes tasks on remote hosts via SSH. It takes two arguments:
+
+-   `host`: A table containing the connection details for the target server:
+    -   `address`: The IP address or hostname.
+    -   `port`: The SSH port (default: 22).
+    -   `user`: The username for authentication.
+    -   `private_key_file`: The path to the SSH private key file.
+    -   `private_key_pass`: The passphrase for the private key (if encrypted).
+    -   `password`: The password for authentication (if not using key-based auth).
+-   `task`: A table defining the task to be executed:
+    -   `name`: A descriptive name for the task (optional, used for logging).
+    -   `module`: A table specifying the module to use and its arguments.
+    -   `ignore_exit_code`: Whether to ignore non-zero exit codes (default: `false`).
+    -   `elevate`: Whether to run the task with elevated privileges (default: `false`).
+    -   `as_user`: The user to run the task as when elevated (optional).
+    -   `env`: A table of environment variables to set for the task (optional).
+
+The `komando` function returns a table with the following fields:
+
+-   `stdout`: The standard output of the executed command or script.
+-   `stderr`: The standard error output.
+-   `exit_code`: The exit code of the command or script.
+
+## Modules
+
+Komandan provides built-in modules for common tasks. They are accessible through the `komandan.modules` table.
+
+### `cmd` module
+
+Executes a shell command on the remote host.
+
+**Arguments:**
+
+-   `cmd`: The command to execute.
+
+**Example:**
+
+```lua
+local task = {
+  name = "Get system information",
+  komandan.modules.cmd({
+    cmd = "uname -a",
+  }),
+}
+```
+
+### `script` module
+
+Executes a script on the remote host.
+
+**Arguments:**
+
+-   `script`: The script content to execute.
+-   `from_file`: The local path to a script file to upload and execute. (`script` and `from_file` are mutually exclusive)
+-   `interpreter`: The interpreter to use (e.g., "python3", "bash"). If not specified, the default shell is used.
+
+**Example:**
+
+```lua
+local task = {
+  name = "Run a Python script",
+  komandan.modules.script({
+    from_file = "scripts/hello.py",
+    interpreter = "python3",
+  }),
+}
+```
+
+### `upload` module
+
+Uploads a file to the remote host.
+
+**Arguments:**
+
+-   `src`: The local path of the file to upload.
+-   `dst`: The destination path on the remote host.
+
+**Example:**
+
+```lua
+local task = {
+  name = "Upload a configuration file",
+  komandan.modules.upload({
+    src = "configs/app.conf",
+    dst = "/etc/app.conf",
+  }),
+}
+```
+
+### `download` module
+
+Downloads a file from the remote host.
+
+**Arguments:**
+
+-   `src`: The path of the file to download on the remote host.
+-   `dst`: The local destination path.
+
+**Example:**
+
+```lua
+local task = {
+  name = "Download a log file",
+  komandan.modules.download({
+    src = "/var/log/app.log",
+    dst = "logs/app.log",
+  }),
+}
+```
+
+### `apt` module
+
+Manages packages on Debian/Ubuntu systems using `apt`.
+
+**Arguments:**
+
+-   `package`: The name of the package to manage.
+-   `action`: The action to perform (`install`, `remove`, `purge`, `upgrade`, `autoremove`; default: `install`).
+-   `update_cache`: Whether to update the package cache before the action (default: `false`).
+-   `install_recommends`: Whether to install recommended packages (default: `true`).
+
+**Example:**
+
+```lua
+local task = {
+  name = "Install Nginx",
+  komandan.modules.apt({
+    package = "nginx",
+    action = "install",
+    update_cache = true,
+    elevate = true,
+  }),
+}
+```
+
+## Built-in functions
+
+### `komandan.filter_hosts`
+
+Filters a list of hosts based on a pattern.
+
+**Arguments:**
+
+-   `hosts`: A table of host definitions.
+-   `pattern`: A string to match against host names or tags. Use `~` at the beginning for regular expression matching.
+
+**Returns:**
+
+A table containing only the hosts that match the pattern.
+
+**Example:**
+
+```lua
+local webservers = komandan.filter_hosts(hosts, "webserver")
+local dbservers = komandan.filter_hosts(hosts, "~^db") -- Using a regex
+```
 
 ### `komandan.set_defaults`
 
-The `set_defaults` function takes one argument:
-- `data`: a table that contains the defaults to set.
+Sets default values for host connection parameters.
 
-Example:
+**Arguments:**
+
+-   `data`: A table of default values (e.g., `user`, `private_key_file`).
+
+**Example:**
+
 ```lua
 komandan.set_defaults({
-  user = "user1",
-  private_key_file = os.getenv("HOME") .. "/id_ed25519",
+  user = "admin",
+  port = 2222,
 })
 ```
 
-Those defaults will be used by `komando` function when the host table doesn't contain the specified field.
+## Error Handling
+
+Komandan provides error information through the return values of the `komando` function. If a task fails, the `exit_code` will be non-zero, and `stderr` may contain error messages. You can use the `ignore_exit_code` option in a task to continue execution even if a task fails.
+
+Example:
+
+```lua
+local result = komandan.komando(host, task)
+
+if result.exit_code ~= 0 then
+  print("Task failed with exit code: " .. result.exit_code)
+  print("Error output: " .. result.stderr)
+else
+  print("Task succeeded!")
+  print("Output: " .. result.stdout)
+end
+```
+
+## Contributing
+
+Contributions to Komandan are welcome! If you'd like to contribute, please follow these guidelines:
+
+1. Fork the repository on GitHub.
+2. Create a new branch for your feature or bug fix.
+3. Write your code and tests.
+4. Ensure your code passes all existing tests.
+5. Submit a pull request to the `main` branch.
+
+Please report any issues or bugs on the [GitHub Issues](https://github.com/hahnavi/komandan/issues) page.
+
+## License
+
+Komandan is licensed under the [MIT License](LICENSE).
+
+## Full Documentation
+
+For more detailed information, examples, and advanced usage, please visit the [Komandan Documentation Site](https://komandan.vercel.app/docs).
