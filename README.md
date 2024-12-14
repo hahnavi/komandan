@@ -74,6 +74,7 @@ Komandan has `komando` function that takes two arguments:
   - `ignore_exit_code`: a boolean that indicates whether to ignore the exit code of the task. If `true`, the script will continue even if the task returns a non-zero exit code. (default is `false`)
   - `elevate`: a boolean that indicates whether to run the task as root. (default is `false`)
   - `as_user`: a string that specifies the user to run the task as. Requires `elevate` to be `true`. (optional)
+  - `env`: a table that contains environment variables to be set before executing the task. (optional)
 
 This function will execute the module on the target server and return the results:
 - `stdout`: a string that contains the standard output of the module.
@@ -83,10 +84,18 @@ This function will execute the module on the target server and return the result
 ## Modules
 
 Komandan has several built-in modules that can be used to perform various tasks on the target server. These modules are located in the `komandan.modules` table.
+
 ### `cmd` module
 
 The `cmd` module allows you to execute a shell command on the target server. It takes the following arguments:
 - `cmd`: a string that contains the shell command to be executed.
+
+Usage example:
+```lua
+local task = komandan.modules.cmd({
+  cmd = "mkdir /tmp/newdir"
+})
+```
 
 ### `script` module
 
@@ -95,17 +104,47 @@ The `script` module allows you to execute a script on the target server. It take
 - `from_file`: a string that contains the local path to the script file to be executed on the target server. (`script` and `from_file` parameters are mutually exclusive)
 - `interpreter`: a string that specifies the interpreter to use for the script. If not specified, the script will be executed using the default shell.
 
+Usage example:
+
+```lua
+local task = komandan.modules.script({
+  script = "print('Hello from Komandan!')"
+  -- or
+  from_file = "/local_path/to/script.py"
+
+  interpreter = "python3"
+})
+```
+
 ### `upload` module
 
 The `upload` module allows you to upload a file to the target server. It takes the following arguments:
 - `src`: a string that contains the path to the file to be uploaded.
 - `dst`: a string that contains the path to the destination file on the target server.
 
+Usage example:
+
+```lua
+local task = komandan.modules.upload({
+  src = "/local_path/to/file.txt",
+  dst = "/remote_path/to/file.txt"
+})
+```
+
 ### `download` module
 
 The `download` module allows you to download a file from the target server. It takes the following arguments:
 - `src`: a string that contains the path to the file to be downloaded.
 - `dst`: a string that contains the path to the destination file on the local machine.
+
+Usage example:
+
+```lua
+local task = komandan.modules.download({
+  src = "/remote_path/to/file.txt",
+  dst = "/local_path/to/file.txt"
+})
+```
 
 ### `apt` module
 
@@ -114,6 +153,16 @@ The `apt` module allows you to install packages on the target server. It takes t
 - `action`: a string that specifies the action to be taken on the package. (default is `install`. Supported actions: `install`, `remove`, `purge`, `upgrade`, `autoremove`)
 - `update_cache`: a boolean that indicates whether to update the package cache before installing the package. (default is `false`)
 - `install_recommends`: a boolean that indicates whether to install recommended packages. (default is `true`)
+
+Usage example:
+
+```lua
+local task = komandan.modules.apt({
+  package = "nginx",
+  update_cache = true,
+  elevate = true
+})
+```
 
 ## Built-in functions
 

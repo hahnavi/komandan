@@ -252,12 +252,34 @@ async fn komando(lua: Lua, (host, task): (Value, Value)) -> mlua::Result<Table> 
         as_user,
     };
 
-    let ssh = SSHSession::connect(
+    let mut ssh = SSHSession::connect(
         (host.get::<String>("address")?.as_str(), port),
         &user,
         ssh_auth_method,
         elevation,
     )?;
+
+    let env_defaults = defaults.get::<Table>("env").unwrap_or(lua.create_table()?);
+    let env_host = host.get::<Table>("env").unwrap_or(lua.create_table()?);
+    let env_task = task.get::<Table>("env").unwrap_or(lua.create_table()?);
+
+    for pair in env_defaults.pairs() {
+        let (key, value): (String, String) = pair?;
+        println!("{}={}", key, value);
+        ssh.set_env(&key, &value);
+    }
+
+    for pair in env_host.pairs() {
+        let (key, value): (String, String) = pair?;
+        println!("{}={}", key, value);
+        ssh.set_env(&key, &value);
+    }
+
+    for pair in env_task.pairs() {
+        let (key, value): (String, String) = pair?;
+        println!("{}={}", key, value);
+        ssh.set_env(&key, &value);
+    }
 
     let module_clone = module.clone();
     let results = lua
@@ -284,11 +306,6 @@ async fn komando(lua: Lua, (host, task): (Value, Value)) -> mlua::Result<Table> 
     end
     })
     .eval::<()>()?;
-
-    let defaults = lua
-        .globals()
-        .get::<Table>("komandan")?
-        .get::<Table>("defaults")?;
 
     let ignore_exit_code = task
         .get::<bool>("ignore_exit_code")

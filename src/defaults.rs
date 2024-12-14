@@ -8,5 +8,9 @@ pub fn defaults(lua: &Lua) -> mlua::Result<Table> {
     defaults.set("elevate", false)?;
     defaults.set("elevation_method", "sudo")?;
 
+    let env = lua.create_table()?;
+    env.set("DEBIAN_FRONTEND", "noninteractive")?;
+    defaults.set("env", env)?;
+
     Ok(defaults)
 }
