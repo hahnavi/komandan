@@ -1,12 +1,14 @@
 mod apt;
 mod cmd;
 mod download;
+mod lineinfile;
 mod script;
 mod upload;
 
 pub use apt::apt;
 pub use cmd::cmd;
 pub use download::download;
+pub use lineinfile::lineinfile;
 pub use script::script;
 pub use upload::upload;
 
