@@ -34,7 +34,7 @@ Komandan is a server automation tool that simplifies remote server management by
 
 ## Installation
 
-Pre-built binaries for Komandan are available for Linux (x86_64 architecture only) on the [GitHub Releases](https://github.com/hahnavi/komandan/releases) page.
+Pre-built binaries for Komandan are available for Linux on the [GitHub Releases](https://github.com/hahnavi/komandan/releases) page.
 
 An installation script is provided for easy installation:
 
