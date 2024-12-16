@@ -43,13 +43,12 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 if $interpreter ~= nil then
                     module.ssh:cmd($interpreter .. " " .. module.remote_path)
                 else
-                    module.ssh:chmod(module.remote_path, "0755")
+                    module.ssh:chmod(module.remote_path, "+x")
                     module.ssh:cmd(module.remote_path)
                 end
             end
 
             function module:cleanup()
-                local tmpdir = module.ssh:get_tmpdir()
                 module.ssh:cmd("rm " .. module.remote_path)
             end
 

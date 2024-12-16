@@ -1,7 +1,7 @@
 use args::Args;
 use clap::Parser;
 use mlua::{chunk, Error::RuntimeError, Integer, Lua, MultiValue, Table, Value};
-use modules::{apt, base_module, cmd, download, script, upload};
+use modules::{apt, base_module, cmd, lineinfile, download, script, template, upload};
 use rustyline::DefaultEditor;
 use ssh::{ElevateMethod, Elevation, SSHAuthMethod, SSHSession};
 use std::{env, path::Path};
@@ -76,7 +76,9 @@ fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     let modules_table = lua.create_table()?;
     modules_table.set("apt", lua.create_function(apt)?)?;
     modules_table.set("cmd", lua.create_function(cmd)?)?;
+    modules_table.set("lineinfile", lua.create_function(lineinfile)?)?;
     modules_table.set("script", lua.create_function(script)?)?;
+    modules_table.set("template", lua.create_function(template)?)?;
     modules_table.set("upload", lua.create_function(upload)?)?;
     modules_table.set("download", lua.create_function(download)?)?;
     komandan.set("modules", modules_table)?;
@@ -265,19 +267,16 @@ async fn komando(lua: Lua, (host, task): (Value, Value)) -> mlua::Result<Table> 
 
     for pair in env_defaults.pairs() {
         let (key, value): (String, String) = pair?;
-        println!("{}={}", key, value);
         ssh.set_env(&key, &value);
     }
 
     for pair in env_host.pairs() {
         let (key, value): (String, String) = pair?;
-        println!("{}={}", key, value);
         ssh.set_env(&key, &value);
     }
 
     for pair in env_task.pairs() {
         let (key, value): (String, String) = pair?;
-        println!("{}={}", key, value);
         ssh.set_env(&key, &value);
     }
 
@@ -449,7 +448,9 @@ mod tests {
         let modules_table = komandan_table.get::<Table>("modules").unwrap();
         assert!(modules_table.contains_key("apt").unwrap());
         assert!(modules_table.contains_key("cmd").unwrap());
+        assert!(modules_table.contains_key("lineinfile").unwrap());
         assert!(modules_table.contains_key("script").unwrap());
+        assert!(modules_table.contains_key("template").unwrap());
         assert!(modules_table.contains_key("upload").unwrap());
         assert!(modules_table.contains_key("download").unwrap());
     }

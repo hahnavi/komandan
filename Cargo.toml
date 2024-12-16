@@ -8,7 +8,8 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.93"
 clap = { version = "4.5.21", features = ["derive"] }
-mlua = { version = "0.10.1", features = ["anyhow", "async", "luajit", "macros", "vendored"] }
+minijinja = "2.5.0"
+mlua = { version = "0.10.1", features = ["anyhow", "async", "luajit", "macros", "serialize", "vendored"] }
 rand = "0.8.5"
 regex = "1.11.1"
 rustyline = "15.0.0"

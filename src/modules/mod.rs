@@ -1,13 +1,17 @@
 mod apt;
 mod cmd;
 mod download;
+mod lineinfile;
 mod script;
+mod template;
 mod upload;
 
 pub use apt::apt;
 pub use cmd::cmd;
 pub use download::download;
+pub use lineinfile::lineinfile;
 pub use script::script;
+pub use template::template;
 pub use upload::upload;
 
 use mlua::{chunk, Table};
