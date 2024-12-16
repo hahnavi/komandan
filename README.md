@@ -26,14 +26,7 @@ Komandan is a server automation tool that simplifies remote server management by
 - [Usage](#usage)
 - [`komando` function](#komando-function)
 - [Modules](#modules)
-  - [`cmd` module](#cmd-module)
-  - [`script` module](#script-module)
-  - [`upload` module](#upload-module)
-  - [`download` module](#download-module)
-  - [`apt` module](#apt-module)
 - [Built-in functions](#built-in-functions)
-  - [`komandan.filter_hosts`](#komandan-filter-hosts)
-  - [`komandan.set_defaults`](#komandan-set-defaults)
 - [Error Handling](#error-handling)
 - [Contributing](#contributing)
 - [License](#license)
@@ -129,154 +122,26 @@ The `komando` function returns a table with the following fields:
 
 ## Modules
 
-Komandan provides built-in modules for common tasks. They are accessible through the `komandan.modules` table.
+Komandan provides built-in modules for common tasks, accessible through the `komandan.modules` table. Here's a quick overview of the available modules:
 
-### `cmd` module
+-   **`cmd`**: Execute shell commands on the remote host.
+-   **`script`**: Run scripts on the remote host, either from a local file or provided directly.
+-   **`upload`**: Upload files to the remote host.
+-   **`download`**: Download files from the remote host.
+-   **`apt`**: Manage packages on Debian/Ubuntu systems using `apt`.
+-   **`lineinfile`**: Insert or replace lines in a file.
+-   **`template`**: Render a jinja template file on the remote host.
 
-Executes a shell command on the remote host.
-
-**Arguments:**
-
--   `cmd`: The command to execute.
-
-**Example:**
-
-```lua
-local task = {
-  name = "Get system information",
-  komandan.modules.cmd({
-    cmd = "uname -a",
-  }),
-}
-```
-
-### `script` module
-
-Executes a script on the remote host.
-
-**Arguments:**
-
--   `script`: The script content to execute.
--   `from_file`: The local path to a script file to upload and execute. (`script` and `from_file` are mutually exclusive)
--   `interpreter`: The interpreter to use (e.g., "python3", "bash"). If not specified, the default shell is used.
-
-**Example:**
-
-```lua
-local task = {
-  name = "Run a Python script",
-  komandan.modules.script({
-    from_file = "scripts/hello.py",
-    interpreter = "python3",
-  }),
-}
-```
-
-### `upload` module
-
-Uploads a file to the remote host.
-
-**Arguments:**
-
--   `src`: The local path of the file to upload.
--   `dst`: The destination path on the remote host.
-
-**Example:**
-
-```lua
-local task = {
-  name = "Upload a configuration file",
-  komandan.modules.upload({
-    src = "configs/app.conf",
-    dst = "/etc/app.conf",
-  }),
-}
-```
-
-### `download` module
-
-Downloads a file from the remote host.
-
-**Arguments:**
-
--   `src`: The path of the file to download on the remote host.
--   `dst`: The local destination path.
-
-**Example:**
-
-```lua
-local task = {
-  name = "Download a log file",
-  komandan.modules.download({
-    src = "/var/log/app.log",
-    dst = "logs/app.log",
-  }),
-}
-```
-
-### `apt` module
-
-Manages packages on Debian/Ubuntu systems using `apt`.
-
-**Arguments:**
-
--   `package`: The name of the package to manage.
--   `action`: The action to perform (`install`, `remove`, `purge`, `upgrade`, `autoremove`; default: `install`).
--   `update_cache`: Whether to update the package cache before the action (default: `false`).
--   `install_recommends`: Whether to install recommended packages (default: `true`).
-
-**Example:**
-
-```lua
-local task = {
-  name = "Install Nginx",
-  komandan.modules.apt({
-    package = "nginx",
-    action = "install",
-    update_cache = true,
-    elevate = true,
-  }),
-}
-```
+For detailed explanations, arguments, and examples of each module, please refer to the [Modules section of the Komandan Documentation Site](https://komandan.vercel.app/docs/modules).
 
 ## Built-in functions
 
-### `komandan.filter_hosts`
+Komandan offers built-in functions to enhance scripting capabilities:
 
-Filters a list of hosts based on a pattern.
+-   **`komandan.filter_hosts`**: Filters a list of hosts based on a pattern.
+-   **`komandan.set_defaults`**: Sets default values for host connection parameters.
 
-**Arguments:**
-
--   `hosts`: A table of host definitions.
--   `pattern`: A string to match against host names or tags. Use `~` at the beginning for regular expression matching.
-
-**Returns:**
-
-A table containing only the hosts that match the pattern.
-
-**Example:**
-
-```lua
-local webservers = komandan.filter_hosts(hosts, "webserver")
-local dbservers = komandan.filter_hosts(hosts, "~^db") -- Using a regex
-```
-
-### `komandan.set_defaults`
-
-Sets default values for host connection parameters.
-
-**Arguments:**
-
--   `data`: A table of default values (e.g., `user`, `private_key_file`).
-
-**Example:**
-
-```lua
-komandan.set_defaults({
-  user = "admin",
-  port = 2222,
-})
-```
+For detailed descriptions and usage examples of these functions, please visit the [Built-in Functions section of the Komandan Documentation Site](https://komandan.vercel.app/docs/functions/).
 
 ## Error Handling
 

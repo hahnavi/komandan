@@ -1,7 +1,7 @@
 use args::Args;
 use clap::Parser;
 use mlua::{chunk, Error::RuntimeError, Integer, Lua, MultiValue, Table, Value};
-use modules::{apt, base_module, cmd, lineinfile, download, script, upload};
+use modules::{apt, base_module, cmd, lineinfile, download, script, template, upload};
 use rustyline::DefaultEditor;
 use ssh::{ElevateMethod, Elevation, SSHAuthMethod, SSHSession};
 use std::{env, path::Path};
@@ -78,6 +78,7 @@ fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     modules_table.set("cmd", lua.create_function(cmd)?)?;
     modules_table.set("lineinfile", lua.create_function(lineinfile)?)?;
     modules_table.set("script", lua.create_function(script)?)?;
+    modules_table.set("template", lua.create_function(template)?)?;
     modules_table.set("upload", lua.create_function(upload)?)?;
     modules_table.set("download", lua.create_function(download)?)?;
     komandan.set("modules", modules_table)?;
@@ -449,6 +450,7 @@ mod tests {
         assert!(modules_table.contains_key("cmd").unwrap());
         assert!(modules_table.contains_key("lineinfile").unwrap());
         assert!(modules_table.contains_key("script").unwrap());
+        assert!(modules_table.contains_key("template").unwrap());
         assert!(modules_table.contains_key("upload").unwrap());
         assert!(modules_table.contains_key("download").unwrap());
     }
