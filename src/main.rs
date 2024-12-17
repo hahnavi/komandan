@@ -379,17 +379,6 @@ fn run_main_file(lua: &Lua, main_file: &String) -> anyhow::Result<()> {
         .unwrap()
         .to_string();
 
-    let main_file_ext = main_file_path
-        .extension()
-        .unwrap_or_default()
-        .to_str()
-        .unwrap()
-        .to_string();
-
-    if main_file_ext != "lua" {
-        return Err(anyhow::anyhow!("Main file must be a lua file."));
-    }
-
     let project_dir = match main_file_path.parent() {
         Some(parent) => Some(
             parent
@@ -406,7 +395,7 @@ fn run_main_file(lua: &Lua, main_file: &String) -> anyhow::Result<()> {
     lua.load(
         chunk! {
             local project_dir = $project_dir_lua
-            package.path = project_dir .. "/?.lua;" .. project_dir .. "/lua_modules/share/lua/5.1/?.lua;" .. project_dir .. "/lua_modules/share/lua/5.1/?/init.lua;"
+            package.path = project_dir .. "/?.lua;" .. project_dir .. "/?;" .. project_dir .. "/lua_modules/share/lua/5.1/?.lua;" .. project_dir .. "/lua_modules/share/lua/5.1/?/init.lua;"
             package.cpath = project_dir .. "/?.so;" .. project_dir .. "/lua_modules/lib/lua/5.1/?.so;"
         }
     ).exec()?;
@@ -522,14 +511,5 @@ mod tests {
         let main_file = "examples/hosts.lua".to_string();
         let result = run_main_file(&lua, &main_file);
         assert!(result.is_ok());
-
-        // Test with a non-Lua file
-        let main_file = "README.md".to_string();
-        let result = run_main_file(&lua, &main_file);
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "Main file must be a lua file."
-        );
     }
 }
