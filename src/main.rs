@@ -1,7 +1,7 @@
 use args::Args;
 use clap::Parser;
 use mlua::{chunk, Error::RuntimeError, Integer, Lua, MultiValue, Table, Value};
-use modules::{apt, base_module, cmd, lineinfile, download, script, template, upload};
+use modules::{apt, base_module, cmd, download, lineinfile, script, template, upload};
 use rustyline::DefaultEditor;
 use ssh::{ElevateMethod, Elevation, SSHAuthMethod, SSHSession};
 use std::{env, path::Path};
@@ -27,6 +27,31 @@ async fn main() -> anyhow::Result<()> {
 
     let lua = Lua::new();
 
+    let project_dir = match args.main_file.clone() {
+        Some(main_file) => {
+            let main_file_path = Path::new(&main_file);
+            let project_dir = match main_file_path.parent() {
+                Some(parent) => Some(
+                    parent
+                        .canonicalize()
+                        .unwrap_or_else(|_| parent.to_path_buf()),
+                ),
+                _none => None,
+            }
+            .unwrap();
+            project_dir.display().to_string()
+        }
+        None => env::current_dir()?.display().to_string(),
+    };
+
+    let project_dir_lua = project_dir.clone();
+    lua.load(
+        chunk! {
+            package.path = $project_dir_lua .. "/?.lua;" .. $project_dir_lua .. "/?;" .. $project_dir_lua .. "/lua_modules/share/lua/5.1/?.lua;" .. $project_dir_lua .. "/lua_modules/share/lua/5.1/?/init.lua;"  .. package.path
+            package.cpath = $project_dir_lua .. "/?.so;" .. $project_dir_lua .. "/lua_modules/lib/lua/5.1/?.so;" .. package.cpath
+        }
+    ).exec()?;
+
     setup_komandan_table(&lua)?;
 
     let chunk = args.chunk.clone();
@@ -39,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
 
     match &args.main_file {
         Some(main_file) => {
-            run_main_file(&lua, main_file)?;
+            run_main_file(&lua, &main_file)?;
         }
         None => {
             if args.chunk.is_none() {
@@ -48,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    if args.interactive && (!&args.main_file.is_none() || !&args.chunk.is_none()) {
+    if args.interactive && (!args.main_file.is_none() || !&args.chunk.is_none()) {
         repl(&lua);
     }
 
@@ -371,37 +396,9 @@ fn repl(lua: &Lua) {
 }
 
 fn run_main_file(lua: &Lua, main_file: &String) -> anyhow::Result<()> {
-    let main_file_path = Path::new(&main_file);
-    let main_file_name = main_file_path
-        .file_stem()
-        .unwrap_or_default()
-        .to_str()
-        .unwrap()
-        .to_string();
-
-    let project_dir = match main_file_path.parent() {
-        Some(parent) => Some(
-            parent
-                .canonicalize()
-                .unwrap_or_else(|_| parent.to_path_buf()),
-        ),
-        _none => None,
-    }
-    .unwrap()
-    .display()
-    .to_string();
-
-    let project_dir_lua = lua.create_string(&project_dir)?;
-    lua.load(
-        chunk! {
-            local project_dir = $project_dir_lua
-            package.path = project_dir .. "/?.lua;" .. project_dir .. "/?;" .. project_dir .. "/lua_modules/share/lua/5.1/?.lua;" .. project_dir .. "/lua_modules/share/lua/5.1/?/init.lua;"
-            package.cpath = project_dir .. "/?.so;" .. project_dir .. "/lua_modules/lib/lua/5.1/?.so;"
-        }
-    ).exec()?;
-
+    let main_file = main_file.clone();
     lua.load(chunk! {
-        require($main_file_name)
+        dofile($main_file)
     })
     .set_name("main")
     .exec()?;
