@@ -7,7 +7,7 @@ pub fn template(lua: &Lua, params: Table) -> mlua::Result<Table> {
         Ok(s) => s,
         Err(_) => return Err(RuntimeError(String::from("'src' parameter is required"))),
     };
-    
+
     let dst = match params.get::<String>("dst") {
         Ok(s) => s,
         Err(_) => return Err(RuntimeError(String::from("'dst' parameter is required"))),
@@ -15,7 +15,9 @@ pub fn template(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
     let vars = params.get::<Value>("vars")?;
     if !vars.is_nil() && !vars.is_table() {
-        return Err(RuntimeError(String::from("'vars' parameter must be a table")));
+        return Err(RuntimeError(String::from(
+            "'vars' parameter must be a table",
+        )));
     };
 
     if !std::path::Path::new(&src).exists() {
@@ -57,4 +59,83 @@ pub fn template(lua: &Lua, params: Table) -> mlua::Result<Table> {
         .into_lua_err()?;
 
     Ok(module)
+}
+
+// Tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mlua::Lua;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_template_src_required() {
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        let result = template(&lua, params);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "runtime error: 'src' parameter is required"
+        );
+    }
+
+    #[test]
+    fn test_template_dst_required() {
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        params.set("src", "example.src").unwrap();
+        let result = template(&lua, params);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "runtime error: 'dst' parameter is required"
+        );
+    }
+
+    #[test]
+    fn test_template_vars_must_be_table() {
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        params.set("src", "example.src").unwrap();
+        params.set("dst", "example.dst").unwrap();
+        params.set("vars", "not a table").unwrap();
+        let result = template(&lua, params);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "runtime error: 'vars' parameter must be a table"
+        );
+    }
+
+    #[test]
+    fn test_template_src_file_exists() {
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        params.set("src", "non_existent_file.src").unwrap();
+        params.set("dst", "example.dst").unwrap();
+        let result = template(&lua, params);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "runtime error: Source template does not exist"
+        );
+    }
+
+    #[test]
+    fn test_template_success() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "{{ name }} is {{ age }} years old").unwrap();
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        params.set("src", temp_file.path().to_str().unwrap()).unwrap();
+        params.set("dst", "/remote/file").unwrap();
+        let vars = lua.create_table().unwrap();
+        vars.set("name", "John").unwrap();
+        vars.set("age", 30).unwrap();
+        params.set("vars", vars).unwrap();
+        let result = template(&lua, params);
+        assert!(result.is_ok());
+    }
 }

@@ -34,7 +34,7 @@ Komandan is a server automation tool that simplifies remote server management by
 
 ## Installation
 
-Pre-built binaries for Komandan are available for Linux (x86_64 architecture only) on the [GitHub Releases](https://github.com/hahnavi/komandan/releases) page.
+Pre-built binaries for Komandan are available for Linux on the [GitHub Releases](https://github.com/hahnavi/komandan/releases) page.
 
 An installation script is provided for easy installation:
 
@@ -139,6 +139,7 @@ For detailed explanations, arguments, and examples of each module, please refer 
 Komandan offers built-in functions to enhance scripting capabilities:
 
 -   **`komandan.filter_hosts`**: Filters a list of hosts based on a pattern.
+-   **`komandan.parse_hosts_json`**: Parses a JSON file containing hosts information.
 -   **`komandan.set_defaults`**: Sets default values for host connection parameters.
 
 For detailed descriptions and usage examples of these functions, please visit the [Built-in Functions section of the Komandan Documentation Site](https://komandan.vercel.app/docs/functions/).
