@@ -1,7 +1,28 @@
-use crate::{args::Args, validator::validate_host};
+use crate::args::Args;
+use crate::validator::validate_host;
 use clap::Parser;
 use mlua::{chunk, Error::RuntimeError, Lua, LuaSerdeExt, Table, Value};
 use std::{fs::File, io::Read};
+
+pub fn set_defaults(lua: &Lua, data: Value) -> mlua::Result<()> {
+    if !data.is_table() {
+        return Err(RuntimeError(
+            "Parameter for set_defaults must be a table.".to_string(),
+        ));
+    }
+
+    let defaults = lua
+        .globals()
+        .get::<Table>("komandan")?
+        .get::<Table>("defaults")?;
+
+    for pair in data.as_table().unwrap().pairs() {
+        let (key, value): (String, Value) = pair?;
+        defaults.set(key, value.clone())?;
+    }
+
+    Ok(())
+}
 
 pub fn dprint(lua: &Lua, value: Value) -> mlua::Result<()> {
     let args = Args::parse();
@@ -155,6 +176,16 @@ pub fn regex_is_match(
     Ok(re.is_match(&text.to_str()?))
 }
 
+pub fn hostname_display(host: &Table) -> String {
+    let address = host.get::<String>("address").unwrap();
+
+    match host.get::<String>("name") {
+        Ok(name) => format!("{} ({})", name, address),
+        Err(_) => format!("{}", address),
+    }
+}
+
+// Tests
 #[cfg(test)]
 mod tests {
     use super::*;
