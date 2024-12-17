@@ -1,6 +1,7 @@
-use crate::args::Args;
+use crate::{args::Args, validator::validate_host};
 use clap::Parser;
-use mlua::{chunk, Lua, Table, Value};
+use mlua::{chunk, Error::RuntimeError, Lua, LuaSerdeExt, Table, Value};
+use std::{fs::File, io::Read};
 
 pub fn dprint(lua: &Lua, value: Value) -> mlua::Result<()> {
     let args = Args::parse();
@@ -89,6 +90,58 @@ pub fn filter_hosts(lua: &Lua, (hosts, pattern): (Value, Value)) -> mlua::Result
         .eval::<Table>()?;
 
     Ok(matched_hosts)
+}
+
+pub fn parse_hosts_json(lua: &Lua, src: Value) -> mlua::Result<Table> {
+    let src = match src.as_string_lossy() {
+        Some(s) => s,
+        None => return Err(RuntimeError(String::from("Invalid src path"))),
+    };
+
+    let mut file = match File::open(&src) {
+        Ok(f) => f,
+        Err(_) => return Err(RuntimeError(String::from("Failed to open JSON file"))),
+    };
+
+    let mut content = String::new();
+    match file.read_to_string(&mut content) {
+        Ok(_) => (),
+        Err(_) => return Err(RuntimeError(String::from("Failed to read JSON file"))),
+    };
+
+    let json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(j) => j,
+        Err(_) => return Err(RuntimeError(String::from("Failed to parse JSON file"))),
+    };
+
+    let hosts = lua.create_table()?;
+
+    let lua_value = match lua.to_value(&json) {
+        Ok(o) => o,
+        Err(_) => return Err(RuntimeError(String::from("Failed to convert JSON to Lua"))),
+    };
+
+    let lua_table = match lua_value.as_table() {
+        Some(t) => t,
+        None => return Err(RuntimeError(String::from("JSON does not contain a table"))),
+    };
+
+    for pair in lua_table.pairs() {
+        let (_, value): (Value, Value) = pair?;
+        match validate_host(&lua, value) {
+            Ok(host) => {
+                hosts.set(hosts.len()? + 1, host)?;
+            }
+            Err(_) => {}
+        };
+    }
+
+    dprint(
+        lua,
+        lua.to_value(&format!("Loaded {} hosts from '{}'", hosts.len()?, src))?,
+    )?;
+
+    Ok(hosts)
 }
 
 pub fn regex_is_match(

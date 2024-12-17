@@ -139,6 +139,7 @@ For detailed explanations, arguments, and examples of each module, please refer 
 Komandan offers built-in functions to enhance scripting capabilities:
 
 -   **`komandan.filter_hosts`**: Filters a list of hosts based on a pattern.
+-   **`komandan.parse_hosts_json`**: Parses a JSON file containing hosts information.
 -   **`komandan.set_defaults`**: Sets default values for host connection parameters.
 
 For detailed descriptions and usage examples of these functions, please visit the [Built-in Functions section of the Komandan Documentation Site](https://komandan.vercel.app/docs/functions/).

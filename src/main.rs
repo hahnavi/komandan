@@ -13,7 +13,7 @@ mod ssh;
 mod util;
 mod validator;
 
-use util::{dprint, filter_hosts, regex_is_match};
+use util::{dprint, filter_hosts, parse_hosts_json, regex_is_match};
 use validator::{validate_host, validate_module, validate_task};
 
 #[tokio::main(flavor = "current_thread")]
@@ -70,6 +70,7 @@ fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     // Add utils
     komandan.set("regex_is_match", lua.create_function(regex_is_match)?)?;
     komandan.set("filter_hosts", lua.create_function(filter_hosts)?)?;
+    komandan.set("parse_hosts_json", lua.create_function(parse_hosts_json)?)?;
     komandan.set("dprint", lua.create_function(dprint)?)?;
 
     // Add core modules
@@ -443,6 +444,7 @@ mod tests {
         assert!(komandan_table.contains_key("komando").unwrap());
         assert!(komandan_table.contains_key("regex_is_match").unwrap());
         assert!(komandan_table.contains_key("filter_hosts").unwrap());
+        assert!(komandan_table.contains_key("parse_hosts_json").unwrap());
         assert!(komandan_table.contains_key("dprint").unwrap());
 
         let modules_table = komandan_table.get::<Table>("modules").unwrap();
