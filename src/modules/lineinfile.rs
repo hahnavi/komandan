@@ -3,7 +3,7 @@ use rand::{distributions::Alphanumeric, Rng};
 
 pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
     let path = match params.get::<String>("path") {
-Ok(path) => path,
+        Ok(path) => path,
         Err(_) => return Err(RuntimeError(String::from("'path' parameter is required"))),
     };
 
@@ -14,13 +14,19 @@ Ok(path) => path,
         Ok(state) => match state.as_str() {
             "present" => state,
             "absent" => state,
-            _ => return Err(RuntimeError(String::from("'state' parameter must be 'present' or 'absent'"))),
+            _ => {
+                return Err(RuntimeError(String::from(
+                    "'state' parameter must be 'present' or 'absent'",
+                )))
+            }
         },
         Err(_) => String::from("present"),
     };
 
     if line.is_nil() && pattern.is_nil() {
-        return Err(RuntimeError(String::from("'line' or 'pattern' parameter is required")));
+        return Err(RuntimeError(String::from(
+            "'line' or 'pattern' parameter is required",
+        )));
     }
 
     let insert_after = params.get::<Value>("insert_after")?;
@@ -50,7 +56,7 @@ Ok(path) => path,
                 if $line ~= nil then
                     cmd = cmd .. " --line \"" .. $line .. "\""
                 end
-                
+
                 if $pattern ~= nil then
                     cmd = cmd .. " --pattern \"" .. $pattern .. "\""
                 end

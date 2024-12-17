@@ -7,7 +7,7 @@ pub fn template(lua: &Lua, params: Table) -> mlua::Result<Table> {
         Ok(s) => s,
         Err(_) => return Err(RuntimeError(String::from("'src' parameter is required"))),
     };
-    
+
     let dst = match params.get::<String>("dst") {
         Ok(s) => s,
         Err(_) => return Err(RuntimeError(String::from("'dst' parameter is required"))),
@@ -15,7 +15,9 @@ pub fn template(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
     let vars = params.get::<Value>("vars")?;
     if !vars.is_nil() && !vars.is_table() {
-        return Err(RuntimeError(String::from("'vars' parameter must be a table")));
+        return Err(RuntimeError(String::from(
+            "'vars' parameter must be a table",
+        )));
     };
 
     if !std::path::Path::new(&src).exists() {

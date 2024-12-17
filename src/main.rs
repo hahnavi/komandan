@@ -280,11 +280,43 @@ async fn komando(lua: Lua, (host, task): (Value, Value)) -> mlua::Result<Table> 
         as_user,
     };
 
-    let mut ssh = SSHSession::connect(
-        (host.get::<String>("address")?.as_str(), port),
+    let known_hosts_file = match host.get::<String>("known_hosts_file") {
+        Ok(known_hosts_file) => Some(known_hosts_file),
+        Err(_) => match defaults.get::<String>("known_hosts_file") {
+            Ok(known_hosts_file) => Some(known_hosts_file),
+            Err(_) => None,
+        },
+    };
+
+    let host_key_check = match host.get::<Value>("host_key_check") {
+        Ok(host_key_check) => match host_key_check {
+            Value::Nil => match defaults.get::<Value>("host_key_check") {
+                Ok(host_key_check) => match host_key_check {
+                    Value::Nil => true,
+                    Value::Boolean(false) => false,
+                    _ => true,
+                },
+                Err(_) => true,
+            },
+            Value::Boolean(false) => false,
+            _ => true,
+        },
+        Err(_) => true,
+    };
+
+    let mut ssh = SSHSession::new()?;
+
+    if host_key_check {
+        ssh.known_hosts_file = known_hosts_file;
+    }
+
+    ssh.elevation = elevation;
+
+    ssh.connect(
+        host.get::<String>("address")?.as_str(),
+        port,
         &user,
         ssh_auth_method,
-        elevation,
     )?;
 
     let env_defaults = defaults.get::<Table>("env").unwrap_or(lua.create_table()?);

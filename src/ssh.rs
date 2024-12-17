@@ -2,13 +2,13 @@ use std::{
     collections::HashMap,
     fs,
     io::{self, Read, Write},
-    net::{TcpStream, ToSocketAddrs},
+    net::TcpStream,
     path::Path,
 };
 
 use anyhow::Result;
 use mlua::UserData;
-use ssh2::{Session, Sftp};
+use ssh2::{CheckResult, KnownHostFileKind, Session, Sftp};
 
 pub enum SSHAuthMethod {
     Password(String),
@@ -31,35 +31,76 @@ pub enum ElevateMethod {
 
 pub struct SSHSession {
     session: Session,
+    pub known_hosts_file: Option<String>,
     env: HashMap<String, String>,
-    elevation: Elevation,
+    pub elevation: Elevation,
     stdout: Option<String>,
     stderr: Option<String>,
     exit_code: Option<i32>,
 }
 
 impl SSHSession {
-    pub fn connect<A: ToSocketAddrs>(
-        addr: A,
+    pub fn new() -> Result<Self> {
+        Ok(Self {
+            session: Session::new()?,
+            known_hosts_file: None,
+            env: HashMap::new(),
+            elevation: Elevation {
+                method: ElevateMethod::None,
+                as_user: None,
+            },
+            stdout: Some(String::new()),
+            stderr: Some(String::new()),
+            exit_code: Some(0),
+        })
+    }
+
+    pub fn connect(
+        &mut self,
+        address: &str,
+        port: u16,
         username: &str,
         auth_method: SSHAuthMethod,
-        elevation: Elevation,
-    ) -> Result<Self> {
-        let tcp = TcpStream::connect(addr)?;
-        let mut session = Session::new()?;
+    ) -> Result<()> {
+        let tcp = TcpStream::connect((address, port))?;
 
-        session.set_tcp_stream(tcp);
-        session.handshake()?;
+        self.session.set_tcp_stream(tcp);
+        self.session.handshake()?;
+
+        match &self.known_hosts_file {
+            Some(file) => {
+                let host_key = self.session.host_key().unwrap();
+                let mut known_hosts = self.session.known_hosts()?;
+                match known_hosts.read_file(Path::new(file.as_str()), KnownHostFileKind::OpenSSH) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        return Err(anyhow::Error::msg(
+                            format!("SSH host key verification failed. Please add the host key to the known_hosts file: {}", file),
+                        ));
+                    }
+                };
+
+                match known_hosts.check(&address, &host_key.0) {
+                    CheckResult::Match => {}
+                    _ => {
+                        return Err(anyhow::Error::msg(
+                            format!("SSH host key verification failed. Please add the host key to the known_hosts file: {}", file),
+                        ));
+                    }
+                };
+            }
+            None => {}
+        }
 
         match auth_method {
             SSHAuthMethod::Password(password) => {
-                session.userauth_password(&username, &password)?;
+                self.session.userauth_password(&username, &password)?;
             }
             SSHAuthMethod::PublicKey {
                 private_key,
                 passphrase,
             } => {
-                session.userauth_pubkey_file(
+                self.session.userauth_pubkey_file(
                     &username,
                     None,
                     Path::new(&private_key),
@@ -68,18 +109,11 @@ impl SSHSession {
             }
         }
 
-        if !session.authenticated() {
+        if !self.session.authenticated() {
             return Err(anyhow::Error::msg("SSH authentication failed."));
         }
 
-        Ok(Self {
-            session,
-            env: HashMap::new(),
-            elevation,
-            stdout: Some(String::new()),
-            stderr: Some(String::new()),
-            exit_code: Some(0),
-        })
+        Ok(())
     }
 
     pub fn set_env(&mut self, key: &str, value: &str) {
