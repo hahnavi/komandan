@@ -37,30 +37,32 @@ pub fn dprint(lua: &Lua, value: Value) -> mlua::Result<()> {
 
 pub fn filter_hosts(lua: &Lua, (hosts, pattern): (Value, Value)) -> mlua::Result<Table> {
     let regex_is_match = lua.create_function(regex_is_match)?;
+    if hosts.is_nil() {
+        return Err(RuntimeError("hosts table must not be nil".to_string()));
+    }
+
+    if !hosts.is_table() {
+        return Err(RuntimeError("hosts must be a table".to_string()));
+    }
+
+    if pattern.is_nil() {
+        return Err(RuntimeError("pattern must not be nil".to_string()));
+    }
+
+    if !pattern.is_table() && !pattern.is_string() {
+        return Err(RuntimeError(
+            "pattern must be a string or table".to_string(),
+        ));
+    }
+
     let matched_hosts = lua
         .load(chunk! {
         local hosts = $hosts
         local pattern = $pattern
 
-        if hosts == nil then
-                error("hosts table must not be nil")
-        end
-
-        if type(hosts) ~= "table" then
-                error("hosts must be a table")
-        end
-
-                    if pattern == nil then
-                    error("hosts pattern must not be nil")
-                    end
-
             if type(pattern) == "string" then
                     -- Treat the single string as a keyword pattern
                     pattern = { pattern }
-            end
-
-            if type(pattern) ~= "table" then
-                error("pattern must be a string or table")
             end
 
             local matched_hosts = {}
@@ -188,44 +190,26 @@ pub fn hostname_display(host: &Table) -> String {
 // Tests
 #[cfg(test)]
 mod tests {
+    use mlua::Integer;
+    use tempfile::NamedTempFile;
+
+    use crate::setup_lua_env;
+
     use super::*;
-    use clap::Parser;
-    use std::env;
+    use std::{env, fs::write, io::Write};
 
     fn setup_lua() -> Lua {
         let lua = Lua::new();
 
-        // Mock Args for testing
-        #[derive(Parser, Debug, Clone)]
-        #[command(author, version, about, long_about = None)]
-        struct MockArgs {
-            #[arg(short, long, default_value = None)]
-            pub main_file: Option<String>,
+        // Initialize komandan table and defaults
+        lua.globals()
+            .set("komandan", lua.create_table().unwrap())
+            .unwrap();
 
-            #[arg(short, long, default_value = None)]
-            pub chunk: Option<String>,
-
-            #[arg(short, long, action)]
-            pub interactive: bool,
-
-            #[arg(short, long, action)]
-            pub verbose: bool,
-
-            #[arg(long, action)]
-            pub version: bool,
-        }
-
-        // Create a dummy implementation of Args::parse() for testing
-        let args = MockArgs {
-            main_file: None,
-            chunk: None,
-            interactive: false,
-            verbose: false,
-            version: false,
-        };
-
-        // Set the mocked Args in the environment for testing
-        env::set_var("MOCK_ARGS", format!("{:?}", args));
+        let komandan = lua.globals().get::<Table>("komandan").unwrap();
+        komandan
+            .set("defaults", lua.create_table().unwrap())
+            .unwrap();
 
         lua
     }
@@ -265,22 +249,49 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_hosts_empty_hosts() {
+    fn test_filter_hosts_invalid_hosts_type() {
         let lua = setup_lua();
         let hosts = Value::Nil;
         let pattern = Value::String(lua.create_string("host1").unwrap());
         let result = filter_hosts(&lua, (hosts, pattern));
         assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("hosts table must not be nil"));
+
+        let hosts = lua.create_string("not_a_table").unwrap();
+        let pattern = Value::String(lua.create_string("host1").unwrap());
+        let result = filter_hosts(&lua, (Value::String(hosts), pattern));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("hosts must be a table"));
     }
 
     #[test]
-    fn test_filter_hosts_empty_pattern() {
+    fn test_filter_hosts_invalid_pattern() {
         let lua = setup_lua();
         let hosts = lua.create_table().unwrap();
         hosts.set("host1", lua.create_table().unwrap()).unwrap();
         let pattern = Value::Nil;
         let result = filter_hosts(&lua, (Value::Table(hosts), pattern));
         assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("pattern must not be nil"));
+
+        let hosts = lua.create_table().unwrap();
+        hosts.set("host2", lua.create_table().unwrap()).unwrap();
+        let pattern = Value::Integer(123);
+        let result = filter_hosts(&lua, (Value::Table(hosts), pattern));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("pattern must be a string or table"));
     }
 
     #[test]
@@ -361,16 +372,6 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_hosts_invalid_pattern() {
-        let lua = setup_lua();
-        let hosts = lua.create_table().unwrap();
-        hosts.set("host1", lua.create_table().unwrap()).unwrap();
-        let pattern = Value::Integer(123);
-        let result = filter_hosts(&lua, (Value::Table(hosts), pattern));
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_regex_is_match_valid_match() {
         let lua = setup_lua();
         let text = lua.create_string("hello world").unwrap();
@@ -395,5 +396,174 @@ mod tests {
         let pattern = lua.create_string("[").unwrap();
         let result = regex_is_match(&lua, (text, pattern)).unwrap();
         assert!(!result);
+    }
+
+    #[test]
+    fn test_set_defaults() {
+        let lua = Lua::new();
+        setup_lua_env(&lua).unwrap();
+
+        // Test setting a default value
+        let defaults_data = lua.create_table().unwrap();
+        defaults_data.set("user", "testuser").unwrap();
+        set_defaults(&lua, Value::Table(defaults_data)).unwrap();
+
+        let defaults = lua
+            .globals()
+            .get::<Table>("komandan")
+            .unwrap()
+            .get::<Table>("defaults")
+            .unwrap();
+        assert_eq!(defaults.get::<String>("user").unwrap(), "testuser");
+
+        // Test setting multiple default values
+        let defaults_data = lua.create_table().unwrap();
+        defaults_data.set("port", 2222).unwrap();
+        defaults_data.set("key", "/path/to/key").unwrap();
+        set_defaults(&lua, Value::Table(defaults_data)).unwrap();
+
+        let defaults = lua
+            .globals()
+            .get::<Table>("komandan")
+            .unwrap()
+            .get::<Table>("defaults")
+            .unwrap();
+        assert_eq!(defaults.get::<Integer>("port").unwrap(), 2222);
+        assert_eq!(defaults.get::<String>("key").unwrap(), "/path/to/key");
+
+        // Test with non-table input
+        let result = set_defaults(
+            &lua,
+            Value::String(lua.create_string("not_a_table").unwrap()),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_hosts_json_valid() {
+        let lua = setup_lua();
+        let temp_file = NamedTempFile::new().unwrap();
+        let json_content = r#"[
+            {
+                "name": "test-host",
+                "address": "192.168.1.1",
+                "tags": ["test", "development"],
+                "user": "admin"
+            }
+        ]"#;
+        write(temp_file.path(), json_content).unwrap();
+
+        let result = parse_hosts_json(
+            &lua,
+            Value::String(
+                lua.create_string(temp_file.path().to_str().unwrap())
+                    .unwrap(),
+            ),
+        );
+        assert!(result.is_ok());
+
+        let hosts = result.unwrap();
+        assert_eq!(hosts.len().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_parse_hosts_json_invalid_path() {
+        let lua = setup_lua();
+        let result = parse_hosts_json(
+            &lua,
+            Value::String(lua.create_string("/nonexistent/path").unwrap()),
+        );
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to open JSON file"));
+    }
+
+    #[test]
+    fn test_parse_hosts_json_invalid_file() {
+        let lua = setup_lua();
+        let temp_file = NamedTempFile::new().unwrap();
+        temp_file
+            .as_file()
+            .write_all(&[0xDE, 0xAD, 0xBE, 0xEF, 0x42])
+            .unwrap();
+
+        let result = parse_hosts_json(
+            &lua,
+            Value::String(
+                lua.create_string(temp_file.path().to_str().unwrap())
+                    .unwrap(),
+            ),
+        );
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to read JSON file"));
+    }
+
+    #[test]
+    fn test_parse_hosts_json_invalid_json() {
+        let lua = setup_lua();
+        let temp_file = NamedTempFile::new().unwrap();
+        write(temp_file.path(), "invalid json content").unwrap();
+
+        let result = parse_hosts_json(
+            &lua,
+            Value::String(
+                lua.create_string(temp_file.path().to_str().unwrap())
+                    .unwrap(),
+            ),
+        );
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to parse JSON file"));
+    }
+
+    #[test]
+    fn test_parse_hosts_json_invalid_to_lua_value() {
+        let lua = setup_lua();
+        let temp_file = NamedTempFile::new().unwrap();
+        write(temp_file.path(), "true").unwrap();
+
+        let result = parse_hosts_json(
+            &lua,
+            Value::String(
+                lua.create_string(temp_file.path().to_str().unwrap())
+                    .unwrap(),
+            ),
+        );
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("JSON does not contain a table"));
+    }
+
+    #[test]
+    fn test_parse_hosts_json_invalid_input_type() {
+        let lua = setup_lua();
+        let result = parse_hosts_json(&lua, Value::Nil);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid src path"));
+    }
+
+    #[test]
+    fn test_hostname_display() {
+        let lua = Lua::new();
+
+        // Test with name
+        let host = lua.create_table().unwrap();
+        host.set("address", "192.168.1.1").unwrap();
+        host.set("name", "test").unwrap();
+        assert_eq!(hostname_display(&host), "test (192.168.1.1)");
+
+        // Test without name
+        let host = lua.create_table().unwrap();
+        host.set("address", "10.0.0.1").unwrap();
+        assert_eq!(hostname_display(&host), "10.0.0.1");
     }
 }

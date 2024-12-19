@@ -1,16 +1,32 @@
-name: coverage
+name: Coverage
 
 on: [push]
 
 jobs:
   test:
     name: coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     container:
       image: xd009642/tarpaulin:develop-nightly
       options: --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup SSH for tests
+        env:
+          USER_TEST: usertest
+        run: |
+          apt update && apt install -y openssh-server
+          service ssh start
+          mkdir ${HOME}/.ssh
+          ssh-keyscan -H localhost | tee -a ${HOME}/.ssh/known_hosts
+          ssh-keygen -t ed25519 -N "" -f ${HOME}/.ssh/id_ed25519
+          useradd -m -d /home/${USER_TEST} -N ${USER_TEST}
+          su ${USER_TEST} -c 'mkdir /home/${USER_TEST}/.ssh'
+          cat ${HOME}/.ssh/id_ed25519.pub | su ${USER_TEST} -c 'tee -a /home/${USER_TEST}/.ssh/authorized_keys'
+          chmod 700 /home/${USER_TEST}/.ssh
+          chmod 600 /home/${USER_TEST}/.ssh/authorized_keys
+          echo "127.0.0.1 localhost2" | tee -a /etc/hosts > /dev/null
 
       - name: Generate coverage report
         run: |
@@ -19,5 +35,5 @@ jobs:
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
-          token: ${{secrets.CODECOV_TOKEN}}
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false

@@ -10,6 +10,7 @@ use anyhow::Result;
 use mlua::UserData;
 use ssh2::{CheckResult, KnownHostFileKind, Session, Sftp};
 
+#[derive(Debug, PartialEq)]
 pub enum SSHAuthMethod {
     Password(String),
     PublicKey {
@@ -23,6 +24,7 @@ pub struct Elevation {
     pub as_user: Option<String>,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum ElevateMethod {
     None,
     Su,
@@ -30,7 +32,7 @@ pub enum ElevateMethod {
 }
 
 pub struct SSHSession {
-    session: Session,
+    pub session: Session,
     pub known_hosts_file: Option<String>,
     env: HashMap<String, String>,
     pub elevation: Elevation,
@@ -80,11 +82,12 @@ impl SSHSession {
                     }
                 };
 
-                match known_hosts.check(&address, &host_key.0) {
+                let known_hosts_check_result = known_hosts.check(&address, &host_key.0);
+                match known_hosts_check_result {
                     CheckResult::Match => {}
                     _ => {
                         return Err(anyhow::Error::msg(
-                            format!("SSH host key verification failed. Please add the host key to the known_hosts file: {}", file),
+                            format!("SSH host key verification failed ({:?}). Please check the known_hosts file: {}", known_hosts_check_result, file),
                         ));
                     }
                 };
@@ -359,5 +362,59 @@ impl UserData for SSHSession {
             table.set("exit_code", this.exit_code.unwrap())?;
             Ok(table)
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ssh_session_new() {
+        let session = SSHSession::new();
+        assert!(session.is_ok());
+        let session = session.unwrap();
+        assert_eq!(session.elevation.method, ElevateMethod::None);
+        assert!(session.env.is_empty());
+    }
+
+    #[test]
+    fn test_set_env() {
+        let mut session = SSHSession::new().unwrap();
+        session.set_env("TEST_KEY", "TEST_VALUE");
+        assert_eq!(session.env.get("TEST_KEY").unwrap(), "TEST_VALUE");
+    }
+
+    #[test]
+    fn test_prepare_command() {
+        let mut session = SSHSession::new().unwrap();
+
+        // Test without elevation
+        let cmd = session.prepare_command("ls -la").unwrap();
+        assert_eq!(cmd, "ls -la");
+
+        // Test with sudo elevation
+        session.elevation.method = ElevateMethod::Sudo;
+        session.elevation.as_user = None;
+        let cmd = session.prepare_command("ls -la").unwrap();
+        assert_eq!(cmd, "sudo ls -la");
+
+        // Test with sudo elevation and user
+        session.elevation.method = ElevateMethod::Sudo;
+        session.elevation.as_user = Some("admin".to_string());
+        let cmd = session.prepare_command("ls -la").unwrap();
+        assert_eq!(cmd, "sudo -u admin ls -la");
+
+        // Test with su elevation
+        session.elevation.method = ElevateMethod::Su;
+        session.elevation.as_user = None;
+        let cmd = session.prepare_command("ls -la").unwrap();
+        assert_eq!(cmd, "su -c 'ls -la'");
+
+        // Test with su elevation and user
+        session.elevation.method = ElevateMethod::Su;
+        session.elevation.as_user = Some("admin".to_string());
+        let cmd = session.prepare_command("ls -la").unwrap();
+        assert_eq!(cmd, "su admin -c 'ls -la'");
     }
 }

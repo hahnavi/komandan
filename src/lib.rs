@@ -1,7 +1,7 @@
 mod args;
 mod defaults;
 mod modules;
-mod ssh;
+pub mod ssh;
 mod util;
 mod validator;
 
@@ -390,6 +390,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_cli_args() {
+        let args = vec!["komandan", "--verbose", "/tmp/test/main.lua"];
+        let args = Args::parse_from(args);
+        assert_eq!(
+            args,
+            Args {
+                chunk: None,
+                interactive: false,
+                verbose: true,
+                version: false,
+                main_file: Some("/tmp/test/main.lua".to_string()),
+            }
+        );
+    }
+
+    #[test]
     fn test_setup_komandan_table() {
         let lua = Lua::new();
         setup_komandan_table(&lua).unwrap();
@@ -413,63 +429,6 @@ mod tests {
         assert!(modules_table.contains_key("template").unwrap());
         assert!(modules_table.contains_key("upload").unwrap());
         assert!(modules_table.contains_key("download").unwrap());
-    }
-
-    #[test]
-    fn test_set_defaults() {
-        let lua = Lua::new();
-        setup_komandan_table(&lua).unwrap();
-
-        // Test setting a default value
-        let defaults_data = lua.create_table().unwrap();
-        defaults_data.set("user", "testuser").unwrap();
-        set_defaults(&lua, Value::Table(defaults_data)).unwrap();
-
-        let defaults = lua
-            .globals()
-            .get::<Table>("komandan")
-            .unwrap()
-            .get::<Table>("defaults")
-            .unwrap();
-        assert_eq!(defaults.get::<String>("user").unwrap(), "testuser");
-
-        // Test setting multiple default values
-        let defaults_data = lua.create_table().unwrap();
-        defaults_data.set("port", 2222).unwrap();
-        defaults_data.set("key", "/path/to/key").unwrap();
-        set_defaults(&lua, Value::Table(defaults_data)).unwrap();
-
-        let defaults = lua
-            .globals()
-            .get::<Table>("komandan")
-            .unwrap()
-            .get::<Table>("defaults")
-            .unwrap();
-        assert_eq!(defaults.get::<Integer>("port").unwrap(), 2222);
-        assert_eq!(defaults.get::<String>("key").unwrap(), "/path/to/key");
-
-        // Test with non-table input
-        let result = set_defaults(
-            &lua,
-            Value::String(lua.create_string("not_a_table").unwrap()),
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_hostname_display() {
-        let lua = Lua::new();
-
-        // Test with name
-        let host = lua.create_table().unwrap();
-        host.set("address", "192.168.1.1").unwrap();
-        host.set("name", "test").unwrap();
-        assert_eq!(hostname_display(&host), "test (192.168.1.1)");
-
-        // Test without name
-        let host = lua.create_table().unwrap();
-        host.set("address", "10.0.0.1").unwrap();
-        assert_eq!(hostname_display(&host), "10.0.0.1");
     }
 
     #[test]

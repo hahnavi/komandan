@@ -11,24 +11,39 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Cache cargo dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Build
-      run: cargo build --verbose
+      - name: Build
+        run: cargo build --verbose
 
-    - name: Run tests
-      run: cargo test --verbose
+      - name: Setup SSH for tests
+        env:
+          USER_TEST: usertest
+        run: |
+          sudo service ssh start
+          mkdir ${HOME}/.ssh
+          ssh-keyscan -H localhost | tee -a ${HOME}/.ssh/known_hosts
+          ssh-keygen -t ed25519 -N "" -f ${HOME}/.ssh/id_ed25519
+          sudo useradd -m -d /home/${USER_TEST} -N ${USER_TEST}
+          sudo -u ${USER_TEST} mkdir /home/${USER_TEST}/.ssh
+          cat ${HOME}/.ssh/id_ed25519.pub | sudo -u ${USER_TEST} tee -a /home/${USER_TEST}/.ssh/authorized_keys
+          sudo chmod 700 /home/${USER_TEST}/.ssh
+          sudo chmod 600 /home/${USER_TEST}/.ssh/authorized_keys
+          echo "127.0.0.1 localhost2" | sudo tee -a /etc/hosts > /dev/null
+
+      - name: Run tests
+        run: cargo test --verbose

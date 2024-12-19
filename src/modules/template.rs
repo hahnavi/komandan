@@ -129,7 +129,9 @@ mod tests {
         writeln!(temp_file, "{{ name }} is {{ age }} years old").unwrap();
         let lua = Lua::new();
         let params = lua.create_table().unwrap();
-        params.set("src", temp_file.path().to_str().unwrap()).unwrap();
+        params
+            .set("src", temp_file.path().to_str().unwrap())
+            .unwrap();
         params.set("dst", "/remote/file").unwrap();
         let vars = lua.create_table().unwrap();
         vars.set("name", "John").unwrap();
