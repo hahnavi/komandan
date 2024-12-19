@@ -12,6 +12,7 @@ fn test_komando_invalid_known_hosts_path() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                user = "usertest",
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
                 known_hosts_file = "/path/to/invalid/known_hosts"
             }
@@ -38,6 +39,7 @@ fn test_komando_known_hosts_check_not_match() {
         .load(chunk! {
             local hosts = {
                 address = "localhost2",
+                user = "usertest",
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
             }
 
@@ -63,6 +65,7 @@ fn test_komando_userauth_invalid_password() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                user = "usertest",
                 password = "passw0rd"
             }
 
@@ -88,6 +91,7 @@ fn test_komando_simple_cmd() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                user = "usertest",
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
             }
 
@@ -116,6 +120,7 @@ fn test_komando_simple_script() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                user = "usertest",
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
             }
 
@@ -150,6 +155,7 @@ fn test_komando_script_from_file() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                user = "usertest",
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
             }
 
