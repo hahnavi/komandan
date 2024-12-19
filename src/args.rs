@@ -1,7 +1,7 @@
 use clap::Parser;
 
 /// Your army commander
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, PartialEq)]
 #[command(about, long_about = None)]
 pub struct Args {
     /// Main file location

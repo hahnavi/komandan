@@ -235,3 +235,70 @@ if [ "$STATE" = "absent" ]; then
   exit 0
 fi
 "#;
+
+// Tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lineinfile_no_path() {
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        let result = lineinfile(&lua, params);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "runtime error: 'path' parameter is required"
+        );
+    }
+
+    #[test]
+    fn test_lineinfile_invalid_state() {
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        params.set("path", "/tmp/test.txt").unwrap();
+        params.set("state", "--invalid-state--").unwrap();
+        let result = lineinfile(&lua, params);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "runtime error: 'state' parameter must be 'present' or 'absent'"
+        );
+    }
+
+    #[test]
+    fn test_lineinfile_no_line_or_pattern() {
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        params.set("path", "/tmp/test.txt").unwrap();
+        let result = lineinfile(&lua, params);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "runtime error: 'line' or 'pattern' parameter is required"
+        );
+    }
+
+    #[test]
+    fn test_lineinfile_present() {
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        params.set("path", "/tmp/test.txt").unwrap();
+        params.set("state", "present").unwrap();
+        params.set("line", "Hello, world!").unwrap();
+        let result = lineinfile(&lua, params);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_lineinfile_absent() {
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        params.set("path", "/tmp/test.txt").unwrap();
+        params.set("state", "absent").unwrap();
+        params.set("line", "Hello, world!").unwrap();
+        let result = lineinfile(&lua, params);
+        assert!(result.is_ok());
+    }
+}

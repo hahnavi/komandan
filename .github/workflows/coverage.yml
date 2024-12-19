@@ -5,12 +5,21 @@ on: [push]
 jobs:
   test:
     name: coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     container:
       image: xd009642/tarpaulin:develop-nightly
       options: --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup SSH for tests
+        run: |
+          sudo service ssh start
+          mkdir ${HOME}/.ssh
+          ssh-keyscan -H localhost > ${HOME}/.ssh/known_hosts
+          ssh-keygen -t ed25519 -N "" -f ${HOME}/.ssh/id_ed25519
+          cat ${HOME}/.ssh/id_ed25519.pub >> $HOME/.ssh/authorized_keys
+          echo "127.0.0.1 localhost2" | sudo tee -a /etc/hosts > /dev/null
 
       - name: Generate coverage report
         run: |
@@ -19,5 +28,5 @@ jobs:
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
-          token: ${{secrets.CODECOV_TOKEN}}
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false

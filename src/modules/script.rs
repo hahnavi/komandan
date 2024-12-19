@@ -89,4 +89,23 @@ mod tests {
             "runtime error: script and from_file parameters cannot be used together"
         );
     }
+
+    #[test]
+    fn test_script() {
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        params.set("script", "echo hello").unwrap();
+        params.set("interpreter", "bash").unwrap();
+        let result = script(&lua, params);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_from_file() {
+        let lua = Lua::new();
+        let params = lua.create_table().unwrap();
+        params.set("from_file", "examples/run_script.lua").unwrap();
+        let result = script(&lua, params);
+        assert!(result.is_ok());
+    }
 }
