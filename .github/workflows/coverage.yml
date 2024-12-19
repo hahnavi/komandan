@@ -1,4 +1,4 @@
-name: coverage
+name: Coverage
 
 on: [push]
 
@@ -14,7 +14,8 @@ jobs:
 
       - name: Setup SSH for tests
         run: |
-          sudo service ssh start
+          apt update && apt install -y openssh-server
+          service ssh start
           mkdir ${HOME}/.ssh
           ssh-keyscan -H localhost > ${HOME}/.ssh/known_hosts
           ssh-keygen -t ed25519 -N "" -f ${HOME}/.ssh/id_ed25519
