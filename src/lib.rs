@@ -11,7 +11,7 @@ use mlua::{chunk, Error::RuntimeError, Integer, Lua, MultiValue, Table, Value};
 use modules::{apt, base_module, cmd, download, lineinfile, script, template, upload};
 use rustyline::DefaultEditor;
 use ssh::{ElevateMethod, Elevation, SSHAuthMethod, SSHSession};
-use std::{env, path::Path};
+use std::{env, fs, path::Path};
 use util::{
     dprint, filter_hosts, host_display, parse_hosts_json, regex_is_match, set_defaults,
     task_display,
@@ -316,12 +316,14 @@ fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
 }
 
 pub fn run_main_file(lua: &Lua, main_file: &String) -> anyhow::Result<()> {
-    let main_file = main_file.clone();
-    lua.load(chunk! {
-        dofile($main_file)
-    })
-    .set_name("main")
-    .exec()?;
+    let script = match fs::read_to_string(main_file) {
+        Ok(script) => script,
+        Err(e) => {
+            return Err(anyhow::anyhow!("Failed to read the main file ({}): {}", main_file, e));
+        }
+    };
+
+    lua.load(&script).set_name(main_file).exec()?;
 
     Ok(())
 }
