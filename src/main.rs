@@ -18,26 +18,17 @@ async fn main() -> anyhow::Result<()> {
 
     setup_lua_env(&lua)?;
 
-    let chunk = args.chunk.clone();
-    match chunk {
-        Some(chunk) => {
-            lua.load(&chunk).eval::<()>()?;
-        }
-        None => {}
+    if let Some(chunk) = args.chunk.clone() {
+        lua.load(&chunk).eval::<()>()?;
     }
 
-    match &args.main_file {
-        Some(main_file) => {
-            run_main_file(&lua, &main_file)?;
-        }
-        None => {
-            if args.chunk.is_none() {
-                repl(&lua);
-            }
-        }
-    };
+    if let Some(main_file) = &args.main_file {
+        run_main_file(&lua, main_file)?;
+    } else if args.chunk.is_none() {
+        repl(&lua);
+    }
 
-    if args.interactive && (!args.main_file.is_none() || !&args.chunk.is_none()) {
+    if args.interactive && (args.main_file.is_some() || args.chunk.is_some()) {
         repl(&lua);
     }
 
