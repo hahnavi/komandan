@@ -178,12 +178,20 @@ pub fn regex_is_match(
     Ok(re.is_match(&text.to_str()?))
 }
 
-pub fn hostname_display(host: &Table) -> String {
+pub fn host_display(host: &Table) -> String {
     let address = host.get::<String>("address").unwrap();
 
     match host.get::<String>("name") {
         Ok(name) => format!("{} ({})", name, address),
         Err(_) => format!("{}", address),
+    }
+}
+
+pub fn task_display(task: &Table) -> String {
+    let module = task.get::<Table>(1).unwrap();
+    match task.get::<String>("name") {
+        Ok(name) => name,
+        Err(_) => module.get::<String>("name").unwrap(),
     }
 }
 
@@ -559,11 +567,11 @@ mod tests {
         let host = lua.create_table().unwrap();
         host.set("address", "192.168.1.1").unwrap();
         host.set("name", "test").unwrap();
-        assert_eq!(hostname_display(&host), "test (192.168.1.1)");
+        assert_eq!(host_display(&host), "test (192.168.1.1)");
 
         // Test without name
         let host = lua.create_table().unwrap();
         host.set("address", "10.0.0.1").unwrap();
-        assert_eq!(hostname_display(&host), "10.0.0.1");
+        assert_eq!(host_display(&host), "10.0.0.1");
     }
 }

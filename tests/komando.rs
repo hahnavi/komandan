@@ -1,6 +1,6 @@
 use komandan::setup_lua_env;
 use mlua::{chunk, Integer, Lua, Table};
-use std::io::Write;
+use std::{env, io::Write};
 use tempfile::NamedTempFile;
 
 #[test]
@@ -80,6 +80,91 @@ fn test_komando_userauth_invalid_password() {
         .eval::<Table>();
 
     assert!(result.is_err());
+}
+
+#[test]
+fn test_komando_use_default_user() {
+    let lua = Lua::new();
+    setup_lua_env(&lua).unwrap();
+
+    let result = lua
+        .load(chunk! {
+            komandan.set_defaults({
+                user = "usertest",
+            })
+
+            local hosts = {
+                address = "localhost",
+                private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
+            }
+
+            local task = {
+                komandan.modules.cmd({
+                    cmd = "echo hello"
+                })
+            }
+
+            return komandan.komando(hosts, task)
+        })
+        .eval::<Table>();
+
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_komando_use_default_user_from_env() {
+    let lua = Lua::new();
+    setup_lua_env(&lua).unwrap();
+    env::set_var("USER", "usertest");
+
+    let result = lua
+        .load(chunk! {
+            local hosts = {
+                address = "localhost",
+                private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
+            }
+
+            local task = {
+                komandan.modules.cmd({
+                    cmd = "echo hello"
+                })
+            }
+
+            return komandan.komando(hosts, task)
+        })
+        .eval::<Table>();
+
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_komando_no_user_specified() {
+    let lua = Lua::new();
+    setup_lua_env(&lua).unwrap();
+    env::remove_var("USER");
+
+    let result = lua
+        .load(chunk! {
+            local hosts = {
+                address = "localhost",
+                private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
+            }
+
+            local task = {
+                komandan.modules.cmd({
+                    cmd = "echo hello"
+                })
+            }
+
+            return komandan.komando(hosts, task)
+        })
+        .eval::<Table>();
+
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("No user specified for task"));
 }
 
 #[test]

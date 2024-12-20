@@ -13,9 +13,10 @@ use rustyline::DefaultEditor;
 use ssh::{ElevateMethod, Elevation, SSHAuthMethod, SSHSession};
 use std::{env, path::Path};
 use util::{
-    dprint, filter_hosts, hostname_display, parse_hosts_json, regex_is_match, set_defaults,
+    dprint, filter_hosts, host_display, parse_hosts_json, regex_is_match, set_defaults,
+    task_display,
 };
-use validator::{validate_host, validate_module, validate_task};
+use validator::{validate_host, validate_task};
 
 pub fn setup_lua_env(lua: &Lua) -> mlua::Result<()> {
     let args = Args::parse();
@@ -86,16 +87,10 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
 async fn komando(lua: Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
     let host = lua.create_function(validate_host)?.call::<Table>(&host)?;
     let task = lua.create_function(validate_task)?.call::<Table>(&task)?;
-    let module = lua
-        .create_function(validate_module)?
-        .call::<Table>(task.get::<Table>(1).unwrap())?;
+    let module = task.get::<Table>(1)?;
 
-    let host_display = hostname_display(&host);
-
-    let task_display = match task.get::<String>("name") {
-        Ok(name) => name,
-        Err(_) => module.get::<String>("name")?,
-    };
+    let host_display = host_display(&host);
+    let task_display = task_display(&task);
 
     let defaults = lua
         .globals()
@@ -287,14 +282,13 @@ async fn komando(lua: Lua, (host, task): (Value, Value)) -> mlua::Result<Table> 
         ssh.set_env(&key, &value);
     }
 
-    let module_clone = module.clone();
     let results = lua
         .load(chunk! {
             print("Running task '" .. $task_display .. "' on host '" .. $host_display .."' ...")
-            $module_clone.ssh = $ssh
-            $module_clone:run()
+            $module.ssh = $ssh
+            $module:run()
 
-            local results = $module_clone.ssh:get_session_results()
+            local results = $module.ssh:get_session_results()
             komandan.dprint(results.stdout)
             if results.exit_code ~= 0 then
                 print("Task '" .. $task_display .. "' on host '" .. $host_display .."' failed with exit code " .. results.exit_code .. ": " .. results.stderr)
@@ -302,16 +296,13 @@ async fn komando(lua: Lua, (host, task): (Value, Value)) -> mlua::Result<Table> 
                 print("Task '" .. $task_display .. "' on host '" .. $host_display .."' succeeded.")
             end
 
+            if $module.cleanup ~= nil then
+                $module:cleanup()
+            end
+
             return results
         })
         .eval::<Table>()?;
-
-    lua.load(chunk! {
-        if $module.cleanup ~= nil then
-        $module:cleanup()
-    end
-    })
-    .eval::<()>()?;
 
     let ignore_exit_code = task
         .get::<bool>("ignore_exit_code")
