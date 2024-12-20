@@ -1,4 +1,6 @@
 local hosts = komandan.parse_hosts_json("/path/to/hosts.json")
+-- or use a URL
+-- local hosts = komandan.parse_hosts_json("http://localhost:8000/hosts.json")
 
 komandan.set_defaults({
     user = "user1",

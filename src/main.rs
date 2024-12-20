@@ -5,8 +5,7 @@ use clap::Parser;
 use komandan::{print_version, repl, run_main_file, setup_lua_env};
 use mlua::Lua;
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     if args.version {

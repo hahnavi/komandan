@@ -60,7 +60,7 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     komandan.set("KomandanModule", base_module)?;
 
     komandan.set("set_defaults", lua.create_function(set_defaults)?)?;
-    komandan.set("komando", lua.create_async_function(komando)?)?;
+    komandan.set("komando", lua.create_function(komando)?)?;
 
     // Add utils
     komandan.set("regex_is_match", lua.create_function(regex_is_match)?)?;
@@ -84,7 +84,7 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     Ok(())
 }
 
-async fn komando(lua: Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
+fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
     let host = lua.create_function(validate_host)?.call::<Table>(&host)?;
     let task = lua.create_function(validate_task)?.call::<Table>(&task)?;
     let module = task.get::<Table>(1)?;
