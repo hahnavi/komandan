@@ -423,3 +423,145 @@ impl UserData for Defaults {
         });
     }
 }
+
+// Tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_defaults_new() {
+        let defaults = Defaults::new();
+
+        // Test default values
+        assert_eq!(*defaults.port.lock().unwrap(), 22);
+        assert_eq!(*defaults.user.lock().unwrap(), None);
+        assert_eq!(*defaults.private_key_file.lock().unwrap(), None);
+        assert_eq!(*defaults.private_key_pass.lock().unwrap(), None);
+        assert_eq!(*defaults.password.lock().unwrap(), None);
+        assert_eq!(*defaults.ignore_exit_code.lock().unwrap(), false);
+        assert_eq!(*defaults.elevate.lock().unwrap(), false);
+        assert_eq!(*defaults.elevation_method.lock().unwrap(), "sudo");
+        assert_eq!(*defaults.as_user.lock().unwrap(), None);
+        assert_eq!(*defaults.host_key_check.lock().unwrap(), true);
+
+        // Test default environment variables
+        let env = defaults.env.lock().unwrap();
+        assert_eq!(
+            env.get("DEBIAN_FRONTEND"),
+            Some(&"noninteractive".to_string())
+        );
+    }
+
+    #[test]
+    fn test_global_singleton() {
+        let defaults1 = Defaults::global();
+        let defaults2 = Defaults::global();
+
+        // Modify a value using the first instance
+        *defaults1.port.lock().unwrap() = 2222;
+
+        // Check if the change is reflected in the second instance
+        assert_eq!(*defaults2.port.lock().unwrap(), 2222);
+    }
+
+    #[test]
+    fn test_lua_interface() -> mlua::Result<()> {
+        let lua = mlua::Lua::new();
+        let defaults = Defaults::new();
+
+        // Register the defaults instance with Lua
+        lua.globals().set("defaults", defaults.clone())?;
+
+        // Test port
+        lua.load("assert(defaults:get_port() == 22)").exec()?;
+        lua.load("defaults:set_port(2222)").exec()?;
+        lua.load("assert(defaults:get_port() == 2222)").exec()?;
+
+        // Test user
+        lua.load("assert(defaults:get_user() == nil)").exec()?;
+        lua.load("defaults:set_user('testuser')").exec()?;
+        lua.load("assert(defaults:get_user() == 'testuser')")
+            .exec()?;
+        lua.load("defaults:set_user(nil)").exec()?;
+        lua.load("assert(defaults:get_user() == nil)").exec()?;
+
+        // Test private key file
+        lua.load("assert(defaults:get_private_key_file() == nil)")
+            .exec()?;
+        lua.load("defaults:set_private_key_file('/path/to/key')")
+            .exec()?;
+        lua.load("assert(defaults:get_private_key_file() == '/path/to/key')")
+            .exec()?;
+
+        // Test private key password
+        lua.load("assert(defaults:get_private_key_pass() == nil)")
+            .exec()?;
+        lua.load("defaults:set_private_key_pass('password123')")
+            .exec()?;
+        lua.load("assert(defaults:get_private_key_pass() == 'password123')")
+            .exec()?;
+
+        // Test password
+        lua.load("assert(defaults:get_password() == nil)").exec()?;
+        lua.load("defaults:set_password('secret123')").exec()?;
+        lua.load("assert(defaults:get_password() == 'secret123')")
+            .exec()?;
+
+        // Test ignore exit code
+        lua.load("assert(defaults:get_ignore_exit_code() == false)")
+            .exec()?;
+        lua.load("defaults:set_ignore_exit_code(true)").exec()?;
+        lua.load("assert(defaults:get_ignore_exit_code() == true)")
+            .exec()?;
+
+        // Test elevate
+        lua.load("assert(defaults:get_elevate() == false)").exec()?;
+        lua.load("defaults:set_elevate(true)").exec()?;
+        lua.load("assert(defaults:get_elevate() == true)").exec()?;
+
+        // Test elevation method
+        lua.load("assert(defaults:get_elevation_method() == 'sudo')")
+            .exec()?;
+        lua.load("defaults:set_elevation_method('doas')").exec()?;
+        lua.load("assert(defaults:get_elevation_method() == 'doas')")
+            .exec()?;
+
+        // Test as user
+        lua.load("assert(defaults:get_as_user() == nil)").exec()?;
+        lua.load("defaults:set_as_user('root')").exec()?;
+        lua.load("assert(defaults:get_as_user() == 'root')")
+            .exec()?;
+
+        // Test host key check
+        lua.load("assert(defaults:get_host_key_check() == true)")
+            .exec()?;
+        lua.load("defaults:set_host_key_check(false)").exec()?;
+        lua.load("assert(defaults:get_host_key_check() == false)")
+            .exec()?;
+
+        // Test known hosts file
+        lua.load(
+            r#"
+            local known_hosts = defaults:get_known_hosts_file()
+            assert(known_hosts:match('/.ssh/known_hosts$') ~= nil)
+            defaults:set_known_hosts_file('/custom/known_hosts')
+            assert(defaults:get_known_hosts_file() == '/custom/known_hosts')
+        "#,
+        )
+        .exec()?;
+
+        // Test environment variables
+        lua.load("assert(defaults:get_env('TEST_ENV') == '')")
+            .exec()?;
+        lua.load("defaults:set_env('TEST_ENV', 'test_value')")
+            .exec()?;
+        lua.load("assert(defaults:get_env('TEST_ENV') == 'test_value')")
+            .exec()?;
+        lua.load("defaults:remove_env('TEST_ENV')").exec()?;
+        lua.load("assert(defaults:get_env('TEST_ENV') == '')")
+            .exec()?;
+
+        Ok(())
+    }
+}
