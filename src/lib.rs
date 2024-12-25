@@ -18,7 +18,8 @@ use util::{
 };
 use validator::{validate_host, validate_task};
 
-pub fn setup_lua_env(lua: &Lua) -> mlua::Result<()> {
+pub fn create_lua() -> mlua::Result<Lua> {
+    let lua = Lua::new();
     let args = Args::parse();
 
     let project_dir = match args.main_file.clone() {
@@ -48,7 +49,7 @@ pub fn setup_lua_env(lua: &Lua) -> mlua::Result<()> {
 
     setup_komandan_table(&lua)?;
 
-    Ok(())
+    Ok(lua)
 }
 
 pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {

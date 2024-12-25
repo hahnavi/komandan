@@ -2,8 +2,7 @@ mod args;
 
 use args::Args;
 use clap::Parser;
-use komandan::{print_version, repl, run_main_file, setup_lua_env};
-use mlua::Lua;
+use komandan::{create_lua, print_version, repl, run_main_file};
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -13,9 +12,7 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let lua = Lua::new();
-
-    setup_lua_env(&lua)?;
+    let lua = create_lua()?;
 
     if let Some(chunk) = args.chunk.clone() {
         lua.load(&chunk).eval::<()>()?;

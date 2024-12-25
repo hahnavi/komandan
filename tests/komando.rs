@@ -1,12 +1,11 @@
-use komandan::setup_lua_env;
-use mlua::{chunk, Integer, Lua, Table};
+use komandan::create_lua;
+use mlua::{chunk, Integer, Table};
 use std::{env, io::Write};
 use tempfile::NamedTempFile;
 
 #[test]
 fn test_komando_invalid_known_hosts_path() {
-    let lua = Lua::new();
-    setup_lua_env(&lua).unwrap();
+    let lua = create_lua().unwrap();
 
     let result = lua
         .load(chunk! {
@@ -32,8 +31,7 @@ fn test_komando_invalid_known_hosts_path() {
 
 #[test]
 fn test_komando_known_hosts_check_not_match() {
-    let lua = Lua::new();
-    setup_lua_env(&lua).unwrap();
+    let lua = create_lua().unwrap();
 
     let result = lua
         .load(chunk! {
@@ -58,8 +56,7 @@ fn test_komando_known_hosts_check_not_match() {
 
 #[test]
 fn test_komando_userauth_invalid_password() {
-    let lua = Lua::new();
-    setup_lua_env(&lua).unwrap();
+    let lua = create_lua().unwrap();
 
     let result = lua
         .load(chunk! {
@@ -84,8 +81,7 @@ fn test_komando_userauth_invalid_password() {
 
 #[test]
 fn test_komando_use_default_user() {
-    let lua = Lua::new();
-    setup_lua_env(&lua).unwrap();
+    let lua = create_lua().unwrap();
 
     let result = lua
         .load(chunk! {
@@ -113,8 +109,7 @@ fn test_komando_use_default_user() {
 
 #[test]
 fn test_komando_use_default_user_from_env() {
-    let lua = Lua::new();
-    setup_lua_env(&lua).unwrap();
+    let lua = create_lua().unwrap();
     env::set_var("USER", "usertest");
 
     let result = lua
@@ -139,8 +134,7 @@ fn test_komando_use_default_user_from_env() {
 
 #[test]
 fn test_komando_no_user_specified() {
-    let lua = Lua::new();
-    setup_lua_env(&lua).unwrap();
+    let lua = create_lua().unwrap();
     env::remove_var("USER");
 
     let result = lua
@@ -169,8 +163,7 @@ fn test_komando_no_user_specified() {
 
 #[test]
 fn test_komando_simple_cmd() {
-    let lua = Lua::new();
-    setup_lua_env(&lua).unwrap();
+    let lua = create_lua().unwrap();
 
     let result_table = lua
         .load(chunk! {
@@ -198,8 +191,7 @@ fn test_komando_simple_cmd() {
 
 #[test]
 fn test_komando_simple_script() {
-    let lua = Lua::new();
-    setup_lua_env(&lua).unwrap();
+    let lua = create_lua().unwrap();
 
     let result_table = lua
         .load(chunk! {
@@ -228,8 +220,7 @@ fn test_komando_simple_script() {
 
 #[test]
 fn test_komando_script_from_file() {
-    let lua = Lua::new();
-    setup_lua_env(&lua).unwrap();
+    let lua = create_lua().unwrap();
 
     let mut temp_file = NamedTempFile::new().unwrap();
     writeln!(temp_file, "echo hello").unwrap();
