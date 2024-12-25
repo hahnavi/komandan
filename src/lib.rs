@@ -13,8 +13,8 @@ use rustyline::DefaultEditor;
 use ssh::{ElevateMethod, Elevation, SSHAuthMethod, SSHSession};
 use std::{env, fs, path::Path};
 use util::{
-    dprint, filter_hosts, host_display, parse_hosts_json, regex_is_match, set_defaults,
-    task_display,
+    dprint, filter_hosts, host_display, parse_hosts_json_file, parse_hosts_json_url,
+    regex_is_match, set_defaults, task_display,
 };
 use validator::{validate_host, validate_task};
 
@@ -65,7 +65,14 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     // Add utils
     komandan.set("regex_is_match", lua.create_function(regex_is_match)?)?;
     komandan.set("filter_hosts", lua.create_function(filter_hosts)?)?;
-    komandan.set("parse_hosts_json", lua.create_function(parse_hosts_json)?)?;
+    komandan.set(
+        "parse_hosts_json_file",
+        lua.create_function(parse_hosts_json_file)?,
+    )?;
+    komandan.set(
+        "parse_hosts_json_url",
+        lua.create_function(parse_hosts_json_url)?,
+    )?;
     komandan.set("dprint", lua.create_function(dprint)?)?;
 
     // Add core modules
@@ -319,7 +326,11 @@ pub fn run_main_file(lua: &Lua, main_file: &String) -> anyhow::Result<()> {
     let script = match fs::read_to_string(main_file) {
         Ok(script) => script,
         Err(e) => {
-            return Err(anyhow::anyhow!("Failed to read the main file ({}): {}", main_file, e));
+            return Err(anyhow::anyhow!(
+                "Failed to read the main file ({}): {}",
+                main_file,
+                e
+            ));
         }
     };
 
@@ -411,7 +422,10 @@ mod tests {
         assert!(komandan_table.contains_key("komando").unwrap());
         assert!(komandan_table.contains_key("regex_is_match").unwrap());
         assert!(komandan_table.contains_key("filter_hosts").unwrap());
-        assert!(komandan_table.contains_key("parse_hosts_json").unwrap());
+        assert!(komandan_table
+            .contains_key("parse_hosts_json_file")
+            .unwrap());
+        assert!(komandan_table.contains_key("parse_hosts_json_url").unwrap());
         assert!(komandan_table.contains_key("dprint").unwrap());
 
         let modules_table = komandan_table.get::<Table>("modules").unwrap();

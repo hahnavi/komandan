@@ -1,10 +1,9 @@
 use crate::args::Args;
 use crate::validator::validate_host;
 use clap::Parser;
+use http_client::create_client_from_url;
 use mlua::{chunk, Error::RuntimeError, Lua, LuaSerdeExt, Table, Value};
-use reqwest::blocking::get;
 use std::{fs::File, io::Read};
-use url::Url;
 
 pub fn set_defaults(lua: &Lua, data: Value) -> mlua::Result<()> {
     if !data.is_table() {
@@ -117,55 +116,102 @@ pub fn filter_hosts(lua: &Lua, (hosts, pattern): (Value, Value)) -> mlua::Result
     Ok(matched_hosts)
 }
 
-pub fn parse_hosts_json(lua: &Lua, src: Value) -> mlua::Result<Table> {
-    let src = match src.as_string_lossy() {
-        Some(s) => s,
-        None => return Err(RuntimeError(String::from("Invalid src path"))),
+pub fn parse_hosts_json_file(lua: &Lua, path: Value) -> mlua::Result<Table> {
+    let path = match path.as_str() {
+        Some(path) => path.to_owned(),
+        None => return Err(RuntimeError(String::from("Path must be a string"))),
     };
+    let mut file = match File::open(&path) {
+        Ok(f) => f,
+        Err(_) => return Err(RuntimeError(String::from("Failed to open JSON file"))),
+    };
+    let mut content = String::new();
 
-    let content = if src.starts_with("http://") || src.starts_with("https://") {
-        let url = match Url::parse(&src) {
-            Ok(url) => url,
-            Err(_) => return Err(RuntimeError(String::from("Invalid URL"))),
-        };
-
-        match get(url) {
-            Ok(response) => {
-                if !response.status().is_success() {
-                    return Err(RuntimeError(format!(
-                        "HTTP request failed with status: {}",
-                        response.status()
-                    )));
-                }
-                match response.text() {
-                    Ok(text) => text,
-                    Err(_) => {
-                        return Err(RuntimeError(String::from("Failed to read response body")))
-                    }
-                }
+    let hosts = match file.read_to_string(&mut content) {
+        Ok(_) => match parse_hosts_json(lua, content) {
+            Ok(h) => h,
+            Err(_) => {
+                return Err(RuntimeError(String::from(format!(
+                    "Failed to parse JSON file from '{}'",
+                    path
+                ))));
             }
-            Err(_) => return Err(RuntimeError(String::from("Failed to fetch URL"))),
-        }
-    } else {
-        let mut file = match File::open(&src) {
-            Ok(f) => f,
-            Err(_) => return Err(RuntimeError(String::from("Failed to open JSON file"))),
-        };
+        },
+        Err(_) => return Err(RuntimeError(String::from("Failed to read JSON file"))),
+    };
 
-        let mut content = String::new();
-        match file.read_to_string(&mut content) {
-            Ok(_) => content,
-            Err(_) => return Err(RuntimeError(String::from("Failed to read JSON file"))),
+    dprint(
+        lua,
+        Value::String(
+            lua.create_string(format!(
+                "Loaded {} hosts from JSON file '{}'",
+                hosts.len()?,
+                path
+            ))
+            .unwrap(),
+        ),
+    )?;
+
+    Ok(hosts)
+}
+
+pub fn parse_hosts_json_url(lua: &Lua, url: Value) -> mlua::Result<Table> {
+    let url = match url.as_str() {
+        Some(url) => url,
+        None => return Err(RuntimeError(String::from("URL must be a string"))),
+    };
+    let (client, path) = create_client_from_url(&url).unwrap();
+
+    let content = match client.get(&path) {
+        Ok(response) => {
+            if !response.is_success() {
+                return Err(RuntimeError(format!(
+                    "HTTP request failed with status: {}",
+                    response.status_code
+                )));
+            }
+            String::from_utf8_lossy(&response.body).to_string()
+        }
+        Err(e) => {
+            return Err(RuntimeError(String::from(format!(
+                "Failed to fetch URL: {:?}",
+                e
+            ))));
         }
     };
 
+    let hosts = match parse_hosts_json(lua, content) {
+        Ok(h) => h,
+        Err(_) => {
+            return Err(RuntimeError(String::from(format!(
+                "Failed to parse JSON from '{}'",
+                url
+            ))));
+        }
+    };
+
+    dprint(
+        lua,
+        Value::String(
+            lua.create_string(format!(
+                "Loaded {} hosts from JSON url '{}'",
+                hosts.len()?,
+                url
+            ))
+            .unwrap(),
+        ),
+    )?;
+
+    Ok(hosts)
+}
+
+fn parse_hosts_json(lua: &Lua, content: String) -> mlua::Result<Table> {
     let json: serde_json::Value = match serde_json::from_str(&content) {
         Ok(j) => j,
         Err(_) => return Err(RuntimeError(String::from("Failed to parse JSON"))),
     };
 
     let hosts = lua.create_table()?;
-
     let lua_value = match lua.to_value(&json) {
         Ok(o) => o,
         Err(_) => return Err(RuntimeError(String::from("Failed to convert JSON to Lua"))),
@@ -185,11 +231,6 @@ pub fn parse_hosts_json(lua: &Lua, src: Value) -> mlua::Result<Table> {
             Err(_) => {}
         };
     }
-
-    dprint(
-        &lua,
-        lua.to_value(&format!("Loaded {} hosts from '{}'", hosts.len()?, src))?,
-    )?;
 
     Ok(hosts)
 }
@@ -491,7 +532,7 @@ mod tests {
         let lua_string = lua
             .create_string(temp_file.path().to_str().unwrap())
             .unwrap();
-        let result = parse_hosts_json(&lua, Value::String(lua_string));
+        let result = parse_hosts_json_file(&lua, Value::String(lua_string));
         assert!(result.is_ok());
     }
 
@@ -499,7 +540,7 @@ mod tests {
     fn test_parse_hosts_json_invalid_path() {
         let lua = setup_lua();
         let lua_string = Value::String(lua.create_string("/nonexistent/path").unwrap());
-        let result = parse_hosts_json(&lua, lua_string);
+        let result = parse_hosts_json_file(&lua, lua_string);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -519,7 +560,7 @@ mod tests {
         let lua_string = lua
             .create_string(temp_file.path().to_str().unwrap())
             .unwrap();
-        let result = parse_hosts_json(&lua, Value::String(lua_string));
+        let result = parse_hosts_json_file(&lua, Value::String(lua_string));
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -536,7 +577,7 @@ mod tests {
         let lua_string = lua
             .create_string(temp_file.path().to_str().unwrap())
             .unwrap();
-        let result = parse_hosts_json(&lua, Value::String(lua_string));
+        let result = parse_hosts_json_file(&lua, Value::String(lua_string));
         assert!(result.is_err());
     }
 
@@ -549,7 +590,7 @@ mod tests {
         let lua_string = lua
             .create_string(temp_file.path().to_str().unwrap())
             .unwrap();
-        let result = parse_hosts_json(&lua, Value::String(lua_string));
+        let result = parse_hosts_json_file(&lua, Value::String(lua_string));
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -560,7 +601,7 @@ mod tests {
     #[test]
     fn test_parse_hosts_json_invalid_input_type() {
         let lua = setup_lua();
-        let result = parse_hosts_json(&lua, Value::Nil);
+        let result = parse_hosts_json_url(&lua, Value::Nil);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid src path"));
     }
