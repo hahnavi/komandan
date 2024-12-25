@@ -85,9 +85,7 @@ fn test_komando_use_default_user() {
 
     let result = lua
         .load(chunk! {
-            komandan.set_defaults({
-                user = "usertest",
-            })
+            komandan.defaults:set_user("usertest")
 
             local hosts = {
                 address = "localhost",

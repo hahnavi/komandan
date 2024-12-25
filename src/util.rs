@@ -5,26 +5,6 @@ use http_client::create_client_from_url;
 use mlua::{chunk, Error::RuntimeError, Lua, LuaSerdeExt, Table, Value};
 use std::{fs::File, io::Read};
 
-pub fn set_defaults(lua: &Lua, data: Value) -> mlua::Result<()> {
-    if !data.is_table() {
-        return Err(RuntimeError(
-            "Parameter for set_defaults must be a table.".to_string(),
-        ));
-    }
-
-    let defaults = lua
-        .globals()
-        .get::<Table>("komandan")?
-        .get::<Table>("defaults")?;
-
-    for pair in data.as_table().unwrap().pairs() {
-        let (key, value): (String, Value) = pair?;
-        defaults.set(key, value.clone())?;
-    }
-
-    Ok(())
-}
-
 pub fn dprint(lua: &Lua, value: Value) -> mlua::Result<()> {
     let args = Args::parse();
     if args.verbose {
@@ -266,7 +246,6 @@ pub fn task_display(task: &Table) -> String {
 // Tests
 #[cfg(test)]
 mod tests {
-    use mlua::Integer;
     use tempfile::NamedTempFile;
 
     use crate::create_lua;
@@ -456,46 +435,6 @@ mod tests {
         let pattern = lua.create_string("[").unwrap();
         let result = regex_is_match(&lua, (text, pattern)).unwrap();
         assert!(!result);
-    }
-
-    #[test]
-    fn test_set_defaults() {
-        let lua = create_lua().unwrap();
-
-        // Test setting a default value
-        let defaults_data = lua.create_table().unwrap();
-        defaults_data.set("user", "testuser").unwrap();
-        set_defaults(&lua, Value::Table(defaults_data)).unwrap();
-
-        let defaults = lua
-            .globals()
-            .get::<Table>("komandan")
-            .unwrap()
-            .get::<Table>("defaults")
-            .unwrap();
-        assert_eq!(defaults.get::<String>("user").unwrap(), "testuser");
-
-        // Test setting multiple default values
-        let defaults_data = lua.create_table().unwrap();
-        defaults_data.set("port", 2222).unwrap();
-        defaults_data.set("key", "/path/to/key").unwrap();
-        set_defaults(&lua, Value::Table(defaults_data)).unwrap();
-
-        let defaults = lua
-            .globals()
-            .get::<Table>("komandan")
-            .unwrap()
-            .get::<Table>("defaults")
-            .unwrap();
-        assert_eq!(defaults.get::<Integer>("port").unwrap(), 2222);
-        assert_eq!(defaults.get::<String>("key").unwrap(), "/path/to/key");
-
-        // Test with non-table input
-        let result = set_defaults(
-            &lua,
-            Value::String(lua.create_string("not_a_table").unwrap()),
-        );
-        assert!(result.is_err());
     }
 
     #[test]

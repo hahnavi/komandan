@@ -20,12 +20,12 @@ pub enum SSHAuthMethod {
 }
 
 pub struct Elevation {
-    pub method: ElevateMethod,
+    pub method: ElevationMethod,
     pub as_user: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ElevateMethod {
+pub enum ElevationMethod {
     None,
     Su,
     Sudo,
@@ -48,7 +48,7 @@ impl SSHSession {
             known_hosts_file: None,
             env: HashMap::new(),
             elevation: Elevation {
-                method: ElevateMethod::None,
+                method: ElevationMethod::None,
                 as_user: None,
             },
             stdout: Some(String::new()),
@@ -153,11 +153,11 @@ impl SSHSession {
 
     pub fn prepare_command(&mut self, command: &str) -> Result<String> {
         let command = match self.elevation.method {
-            ElevateMethod::Su => match &self.elevation.as_user {
+            ElevationMethod::Su => match &self.elevation.as_user {
                 Some(user) => format!("su {} -c '{}'", user, command),
                 None => format!("su -c '{}'", command),
             },
-            ElevateMethod::Sudo => match &self.elevation.as_user {
+            ElevationMethod::Sudo => match &self.elevation.as_user {
                 Some(user) => format!("sudo -u {} {}", user, command),
                 None => format!("sudo {}", command),
             },
@@ -374,7 +374,7 @@ mod tests {
         let session = SSHSession::new();
         assert!(session.is_ok());
         let session = session.unwrap();
-        assert_eq!(session.elevation.method, ElevateMethod::None);
+        assert_eq!(session.elevation.method, ElevationMethod::None);
         assert!(session.env.is_empty());
     }
 
@@ -394,25 +394,25 @@ mod tests {
         assert_eq!(cmd, "ls -la");
 
         // Test with sudo elevation
-        session.elevation.method = ElevateMethod::Sudo;
+        session.elevation.method = ElevationMethod::Sudo;
         session.elevation.as_user = None;
         let cmd = session.prepare_command("ls -la").unwrap();
         assert_eq!(cmd, "sudo ls -la");
 
         // Test with sudo elevation and user
-        session.elevation.method = ElevateMethod::Sudo;
+        session.elevation.method = ElevationMethod::Sudo;
         session.elevation.as_user = Some("admin".to_string());
         let cmd = session.prepare_command("ls -la").unwrap();
         assert_eq!(cmd, "sudo -u admin ls -la");
 
         // Test with su elevation
-        session.elevation.method = ElevateMethod::Su;
+        session.elevation.method = ElevationMethod::Su;
         session.elevation.as_user = None;
         let cmd = session.prepare_command("ls -la").unwrap();
         assert_eq!(cmd, "su -c 'ls -la'");
 
         // Test with su elevation and user
-        session.elevation.method = ElevateMethod::Su;
+        session.elevation.method = ElevationMethod::Su;
         session.elevation.as_user = Some("admin".to_string());
         let cmd = session.prepare_command("ls -la").unwrap();
         assert_eq!(cmd, "su admin -c 'ls -la'");
