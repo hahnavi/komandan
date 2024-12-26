@@ -27,6 +27,8 @@ Komandan is a server automation tool that simplifies remote server management by
 - [`komando` function](#komando-function)
 - [Modules](#modules)
 - [Built-in functions](#built-in-functions)
+- [Default Values](#default-values)
+- [Parallel Execution](#parallel-execution)
 - [Error Handling](#error-handling)
 - [Contributing](#contributing)
 - [License](#license)
@@ -165,6 +167,78 @@ local private_key_pass = komandan.defaults:get_private_key_pass()
 local host_key_check = komandan.defaults:get_host_key_check()
 local env = komandan.defaults:get_env("ENV_VAR")
 local env_all = komandan.defaults:get_all_env()
+```
+
+## Parallel Execution
+
+Komandan supports parallel execution of tasks on multiple hosts using the `komando_parallel_hosts` function, and `komando_parallel_tasks` function for parallel execution of tasks on the same host.
+
+```lua
+-- parallel execution of a task on multiple hosts
+local hosts = {
+    {
+        name = "server1",
+        address = "localhost",
+        user = "usertest",
+        private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
+    },
+    {
+        name = "server2",
+        address = "localhost",
+        user = "usertest",
+        private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
+    },
+    {
+        name = "server3",
+        address = "localhost",
+        user = "usertest",
+        private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
+    }
+}
+
+local task = {
+    name = "Ping Google",
+    komandan.modules.cmd({
+        cmd = "ping google.com -c 5",
+    }),
+}
+
+komandan.komando_parallel_hosts(hosts, task)
+```
+
+```lua
+-- parallel execution of a task on the same host
+local host = {
+    name = "My Server",
+    address = "localhost",
+    user = "usertest",
+    private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
+}
+
+local tasks = {
+    {
+        name = "Task 1",
+        komandan.modules.cmd({
+            cmd = "uname -a",
+        }),
+    },
+    {
+        name = "Task 2",
+        komandan.modules.cmd({
+            cmd = "ping google.com -c 7",
+        }),
+    },
+    {
+        name = "Task 3",
+        komandan.modules.apt({
+            package = "neovim",
+            update_cache = true
+        }),
+        elevate = true,
+    }
+}
+
+komandan.komando_parallel_tasks(host, tasks)
 ```
 
 ## Error Handling
