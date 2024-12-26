@@ -1,16 +1,15 @@
 use mlua::{chunk, ExternalResult, Lua, Table};
 
 pub fn download(lua: &Lua, params: Table) -> mlua::Result<Table> {
-    let src = params.get::<String>("src")?;
-    let dst = params.get::<String>("dst")?;
-
     let base_module = super::base_module(&lua);
     let module = lua
         .load(chunk! {
             local module = $base_module:new({ name = "download" })
 
-            function module:run()
-                module.ssh:download($src, $dst)
+            module.params = $params
+
+            module.run = function(self)
+                self.ssh:download(self.params.src, self.params.dst)
             end
 
             return module

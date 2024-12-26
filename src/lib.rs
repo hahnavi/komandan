@@ -8,11 +8,17 @@ mod validator;
 use args::Args;
 use clap::Parser;
 use defaults::Defaults;
-use mlua::{chunk, Error::RuntimeError, Integer, Lua, MultiValue, Table, Value};
+use mlua::{
+    chunk,
+    Error::{self, RuntimeError},
+    FromLua, Integer, IntoLua, Lua, LuaSerdeExt, MultiValue, Table, UserData, Value,
+};
 use modules::{apt, base_module, cmd, download, lineinfile, script, template, upload};
+use rayon::prelude::*;
 use rustyline::DefaultEditor;
+use serde::{Deserialize, Serialize};
 use ssh::{Elevation, ElevationMethod, SSHAuthMethod, SSHSession};
-use std::{env, fs, path::Path};
+use std::{collections::HashMap, env, fs, path::Path};
 use util::{
     dprint, filter_hosts, host_display, parse_hosts_json_file, parse_hosts_json_url,
     regex_is_match, task_display,
@@ -63,6 +69,14 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     komandan.set("KomandanModule", base_module)?;
 
     komandan.set("komando", lua.create_function(komando)?)?;
+    komandan.set(
+        "komando_parallel_tasks",
+        lua.create_function(komando_parallel_tasks)?,
+    )?;
+    komandan.set(
+        "komando_parallel_hosts",
+        lua.create_function(komando_parallel_hosts)?,
+    )?;
 
     // Add utils
     komandan.set("regex_is_match", lua.create_function(regex_is_match)?)?;
@@ -95,9 +109,9 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
 
 fn get_user(host: &Table, task: &Table) -> mlua::Result<String> {
     let defaults = Defaults::global();
-    let default_user = match defaults.user.lock() {
+    let default_user = match defaults.user.read() {
         Ok(user) => user,
-        Err(_) => return Err(RuntimeError("Failed to acquire lock".to_string())),
+        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
     let user = match host.get::<String>("user") {
         Ok(user) => user,
@@ -126,19 +140,19 @@ fn get_auth_config(host: &Table, task: &Table) -> mlua::Result<(String, SSHAuthM
 
     let defaults = Defaults::global();
 
-    let default_private_key_file = match defaults.private_key_file.lock() {
+    let default_private_key_file = match defaults.private_key_file.read() {
         Ok(private_key_file) => private_key_file,
-        Err(_) => return Err(RuntimeError("Failed to acquire lock".to_string())),
+        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
-    let default_private_key_pass = match defaults.private_key_pass.lock() {
+    let default_private_key_pass = match defaults.private_key_pass.read() {
         Ok(private_key_pass) => private_key_pass,
-        Err(_) => return Err(RuntimeError("Failed to acquire lock".to_string())),
+        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
-    let default_password = match defaults.password.lock() {
+    let default_password = match defaults.password.read() {
         Ok(password) => password,
-        Err(_) => return Err(RuntimeError("Failed to acquire lock".to_string())),
+        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
     let ssh_auth_method = match host.get::<String>("private_key_file") {
@@ -184,9 +198,9 @@ fn get_auth_config(host: &Table, task: &Table) -> mlua::Result<(String, SSHAuthM
 fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevation> {
     let defaults = Defaults::global();
 
-    let default_elevate = match defaults.elevate.lock() {
+    let default_elevate = match defaults.elevate.read() {
         Ok(elevate) => elevate,
-        Err(_) => return Err(RuntimeError("Failed to acquire lock".to_string())),
+        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
     let elevate = task
@@ -200,9 +214,9 @@ fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevation> {
         });
     }
 
-    let default_elevation_method = match defaults.elevation_method.lock() {
+    let default_elevation_method = match defaults.elevation_method.read() {
         Ok(elevation_method) => elevation_method,
-        Err(_) => return Err(RuntimeError("Failed to acquire lock".to_string())),
+        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
     let elevation_method_str = task.get::<String>("elevation_method").unwrap_or(
@@ -220,9 +234,9 @@ fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevation> {
         ))),
     };
 
-    let default_as_user = match defaults.as_user.lock() {
+    let default_as_user = match defaults.as_user.read() {
         Ok(as_user) => as_user,
-        Err(_) => return Err(RuntimeError("Failed to acquire lock".to_string())),
+        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
     let as_user = task.get::<Option<String>>("as_user").unwrap_or(
@@ -240,9 +254,9 @@ fn setup_ssh_session(host: &Table) -> mlua::Result<SSHSession> {
     let defaults = Defaults::global();
     let mut ssh = SSHSession::new()?;
 
-    let default_host_key_check = match defaults.host_key_check.lock() {
+    let default_host_key_check = match defaults.host_key_check.read() {
         Ok(host_key_check) => host_key_check,
-        Err(_) => return Err(RuntimeError("Failed to acquire lock".to_string())),
+        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
     let host_key_check = match host.get::<Value>("host_key_check") {
@@ -254,9 +268,9 @@ fn setup_ssh_session(host: &Table) -> mlua::Result<SSHSession> {
         Err(_) => true,
     };
 
-    let default_known_hosts_file = match defaults.known_hosts_file.lock() {
+    let default_known_hosts_file = match defaults.known_hosts_file.read() {
         Ok(known_hosts_file) => known_hosts_file,
-        Err(_) => return Err(RuntimeError("Failed to acquire lock".to_string())),
+        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
     if host_key_check {
@@ -272,9 +286,9 @@ fn setup_ssh_session(host: &Table) -> mlua::Result<SSHSession> {
 fn setup_environment(ssh: &mut SSHSession, host: &Table, task: &Table) -> mlua::Result<()> {
     let defaults = Defaults::global();
 
-    let default_env = match defaults.env.lock() {
+    let default_env = match defaults.env.read() {
         Ok(env) => env,
-        Err(_) => return Err(RuntimeError("Failed to acquire lock".to_string())),
+        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
     let env_host = host.get::<Option<Table>>("env")?;
@@ -343,9 +357,9 @@ fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
     let (user, ssh_auth_method) = get_auth_config(&host, &task)?;
     let elevation = get_elevation_config(&host, &task)?;
 
-    let default_port = match defaults.port.lock() {
+    let default_port = match defaults.port.read() {
         Ok(port) => port,
-        Err(_) => return Err(RuntimeError("Failed to acquire lock".to_string())),
+        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
     let port = host
@@ -366,9 +380,9 @@ fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
 
     let results = execute_task(lua, &module, ssh, &task_display, &host_display)?;
 
-    let default_ignore_exit_code = match defaults.ignore_exit_code.lock() {
+    let default_ignore_exit_code = match defaults.ignore_exit_code.read() {
         Ok(ignore_exit_code) => ignore_exit_code,
-        Err(_) => return Err(RuntimeError("Failed to acquire lock".to_string())),
+        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
     let ignore_exit_code = task
@@ -380,6 +394,277 @@ fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
     }
 
     Ok(results)
+}
+
+#[derive(Clone, Debug)]
+struct Host {
+    name: Option<String>,
+    address: String,
+    port: Option<u16>,
+    user: Option<String>,
+    private_key_file: Option<String>,
+    private_key_pass: Option<String>,
+    password: Option<String>,
+    elevate: Option<bool>,
+    elevation_method: Option<ElevationMethod>,
+    as_user: Option<String>,
+    env: Option<HashMap<String, String>>,
+}
+
+impl FromLua for Host {
+    fn from_lua(lua_value: Value, _: &Lua) -> mlua::Result<Self> {
+        let table = lua_value.as_table().unwrap();
+        Ok(Host {
+            name: table.get("name")?,
+            address: table.get("address")?,
+            port: table.get("port")?,
+            user: table.get("user")?,
+            private_key_file: table.get("private_key_file")?,
+            private_key_pass: table.get("private_key_pass")?,
+            password: table.get("password")?,
+            elevate: table.get("elevate")?,
+            elevation_method: match table.get::<String>("elevation_method") {
+                Ok(elevation_method) => match elevation_method.as_str() {
+                    "none" => Some(ElevationMethod::None),
+                    "sudo" => Some(ElevationMethod::Sudo),
+                    "su" => Some(ElevationMethod::Su),
+                    _ => None,
+                },
+                Err(_) => None,
+            },
+            as_user: table.get("as_user")?,
+            env: table.get("env")?,
+        })
+    }
+}
+
+impl IntoLua for Host {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        let table = lua.create_table()?;
+        if self.name.is_some() {
+            table.set("name", self.name.unwrap())?;
+        }
+        table.set("address", self.address)?;
+        if self.port.is_some() {
+            table.set("port", self.port.unwrap())?;
+        }
+        if self.user.is_some() {
+            table.set("user", self.user.unwrap())?;
+        }
+        if self.private_key_file.is_some() {
+            table.set("private_key_file", self.private_key_file.unwrap())?;
+        }
+        if self.private_key_pass.is_some() {
+            table.set("private_key_pass", self.private_key_pass.unwrap())?;
+        }
+        if self.password.is_some() {
+            table.set("password", self.password.unwrap())?;
+        }
+        if self.elevate.is_some() {
+            table.set("elevate", self.elevate.unwrap())?;
+        }
+        if self.elevation_method.is_some() {
+            match self.elevation_method.unwrap() {
+                ElevationMethod::None => table.set("elevation_method", "none")?,
+                ElevationMethod::Sudo => table.set("elevation_method", "sudo")?,
+                ElevationMethod::Su => table.set("elevation_method", "su")?,
+            }
+        }
+        if self.as_user.is_some() {
+            table.set("as_user", self.as_user.unwrap())?;
+        }
+        if self.env.is_some() {
+            table.set("env", self.env.unwrap())?;
+        }
+        Ok(Value::Table(table))
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Task {
+    name: Option<String>,
+    module: Module,
+    ignore_exit_code: Option<bool>,
+    elevate: Option<bool>,
+    elevation_method: Option<ElevationMethod>,
+    as_user: Option<String>,
+    env: Option<HashMap<String, String>>,
+}
+
+impl FromLua for Task {
+    fn from_lua(lua_value: Value, lua: &Lua) -> mlua::Result<Self> {
+        let table = lua_value.as_table().unwrap();
+        Ok(Task {
+            name: table.get("name")?,
+            module: Module::from_lua(table.get(1)?, lua)?,
+            ignore_exit_code: table.get("ignore_exit_code")?,
+            elevate: table.get("elevate")?,
+            elevation_method: match table.get::<String>("elevation_method") {
+                Ok(elevation_method) => match elevation_method.as_str() {
+                    "none" => Some(ElevationMethod::None),
+                    "sudo" => Some(ElevationMethod::Sudo),
+                    "su" => Some(ElevationMethod::Su),
+                    _ => None,
+                },
+                Err(_) => None,
+            },
+            as_user: table.get("as_user")?,
+            env: table.get("env")?,
+        })
+    }
+}
+
+impl IntoLua for Task {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        let table = lua.create_table()?;
+        if self.name.is_some() {
+            table.set("name", self.name.unwrap())?;
+        }
+        table.set(1, self.module.into_lua(lua)?)?;
+        if self.ignore_exit_code.is_some() {
+            table.set("ignore_exit_code", self.ignore_exit_code.unwrap())?;
+        }
+        if self.elevate.is_some() {
+            table.set("elevate", self.elevate.unwrap())?;
+        }
+        if self.elevation_method.is_some() {
+            match self.elevation_method.unwrap() {
+                ElevationMethod::None => table.set("elevation_method", "none")?,
+                ElevationMethod::Sudo => table.set("elevation_method", "sudo")?,
+                ElevationMethod::Su => table.set("elevation_method", "su")?,
+            }
+        }
+        if self.as_user.is_some() {
+            table.set("as_user", self.as_user.unwrap())?;
+        }
+        if self.env.is_some() {
+            table.set("env", self.env.unwrap())?;
+        }
+        Ok(Value::Table(table))
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Module {
+    functions: HashMap<String, Vec<u8>>,
+    others: HashMap<String, String>,
+}
+
+impl FromLua for Module {
+    fn from_lua(value: Value, _: &Lua) -> mlua::Result<Self> {
+        let table = value.as_table().unwrap();
+        let mut functions: HashMap<String, Vec<u8>> = HashMap::new();
+        let mut others: HashMap<String, String> = HashMap::new();
+        for pair in table.pairs::<Value, Value>() {
+            let (key, value) = pair.unwrap();
+            if value.is_function() {
+                functions.insert(key.to_string()?, value.as_function().unwrap().dump(true));
+            } else {
+                others.insert(
+                    key.to_string()?,
+                    serde_json::to_string(&value).map_err(Error::external)?,
+                );
+            }
+        }
+        Ok(Module { functions, others })
+    }
+}
+
+impl IntoLua for Module {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        let table = lua.create_table()?;
+        self.functions.iter().for_each(|(key, value)| {
+            table
+                .set(key.as_str(), lua.load(value).into_function().unwrap())
+                .unwrap();
+        });
+        self.others.iter().for_each(|(key, value)| {
+            let json: serde_json::Value = serde_json::from_str(value).unwrap();
+            table
+                .set(key.as_str(), lua.to_value(&json).unwrap())
+                .unwrap();
+        });
+        Ok(Value::Table(table))
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct KomandoResult {
+    stdout: String,
+    stderr: String,
+    exit_code: i32,
+}
+
+impl UserData for KomandoResult {}
+
+fn komando_parallel_tasks(lua: &Lua, (host, tasks): (Value, Value)) -> mlua::Result<Table> {
+    let host = Host::from_lua(host, lua)?;
+    let mut tasks_hm = HashMap::<u32, Task>::new();
+    for pair in tasks.as_table().unwrap().pairs::<u32, Value>() {
+        let (key, value): (u32, Value) = pair?;
+        let task = Task::from_lua(value, lua)?;
+        tasks_hm.insert(key, task);
+    }
+
+    let results: HashMap<u32, KomandoResult> = tasks_hm
+        .par_iter()
+        .map(|(i, task)| {
+            let lua = create_lua().unwrap();
+            let host = host.clone().into_lua(&lua).unwrap();
+            let task = task.clone().into_lua(&lua).unwrap();
+            let result = komando(&lua, (host, task)).unwrap();
+
+            return (
+                *i,
+                lua.from_value::<KomandoResult>(Value::Table(result))
+                    .unwrap(),
+            );
+        })
+        .collect::<HashMap<u32, KomandoResult>>();
+
+    let results_table = lua.create_table()?;
+    results.iter().for_each(|(i, result)| {
+        results_table
+            .set(*i, lua.to_value(result).unwrap())
+            .unwrap();
+    });
+
+    Ok(results_table)
+}
+
+fn komando_parallel_hosts(lua: &Lua, (hosts, task): (Value, Value)) -> mlua::Result<Table> {
+    let task = Task::from_lua(task, lua)?;
+    let mut hosts_hm = HashMap::<u32, Host>::new();
+    for pair in hosts.as_table().unwrap().pairs::<u32, Value>() {
+        let (key, value): (u32, Value) = pair?;
+        let host = Host::from_lua(value, lua)?;
+        hosts_hm.insert(key, host);
+    }
+
+    let results: HashMap<u32, KomandoResult> = hosts_hm
+        .par_iter()
+        .map(|(i, host)| {
+            let lua = create_lua().unwrap();
+            let host = host.clone().into_lua(&lua).unwrap();
+            let task = task.clone().into_lua(&lua).unwrap();
+            let result = komando(&lua, (host, task)).unwrap();
+
+            return (
+                *i,
+                lua.from_value::<KomandoResult>(Value::Table(result))
+                    .unwrap(),
+            );
+        })
+        .collect::<HashMap<u32, KomandoResult>>();
+
+    let results_table = lua.create_table()?;
+    results.iter().for_each(|(i, result)| {
+        results_table
+            .set(*i, lua.to_value(result).unwrap())
+            .unwrap();
+    });
+
+    Ok(results_table)
 }
 
 pub fn run_main_file(lua: &Lua, main_file: &String) -> anyhow::Result<()> {

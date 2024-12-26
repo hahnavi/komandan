@@ -21,17 +21,16 @@ pub fn base_module(lua: &mlua::Lua) -> Table {
         .load(chunk! {
                 local KomandanModule = {}
 
-        function KomandanModule:new(data)
+        KomandanModule.new = function(self,data)
             local o = setmetatable({}, { __index = self })
             o.name = data.name
-            o.script = data.script
             return o
         end
 
-        function KomandanModule:run()
+        KomandanModule.run = function(self)
         end
 
-        function KomandanModule:cleanup()
+        KomandanModule.cleanup = function(self)
         end
 
         return KomandanModule

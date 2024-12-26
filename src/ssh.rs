@@ -19,18 +19,20 @@ pub enum SSHAuthMethod {
     },
 }
 
+#[derive(Clone, Debug)]
 pub struct Elevation {
     pub method: ElevationMethod,
     pub as_user: Option<String>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ElevationMethod {
     None,
     Su,
     Sudo,
 }
 
+#[derive(Clone)]
 pub struct SSHSession {
     pub session: Session,
     pub known_hosts_file: Option<String>,

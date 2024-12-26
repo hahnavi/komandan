@@ -1,24 +1,7 @@
-use mlua::{chunk, Error::RuntimeError, Lua, Table, Value};
+use mlua::{chunk, Lua, Table};
 use rand::{distributions::Alphanumeric, Rng};
 
 pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
-    let script = params.get::<Value>("script")?;
-    let from_file = params.get::<Value>("from_file")?;
-
-    if script.is_nil() && from_file.is_nil() {
-        return Err(RuntimeError(String::from(
-            "script or from_file parameter is required",
-        )));
-    }
-
-    if !script.is_nil() && !from_file.is_nil() {
-        return Err(RuntimeError(String::from(
-            "script and from_file parameters cannot be used together",
-        )));
-    }
-
-    let interpreter = params.get::<Value>("interpreter").unwrap();
-
     let random_file_name: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .map(char::from)
@@ -28,28 +11,39 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
     let base_module = super::base_module(&lua);
     let module = lua
         .load(chunk! {
+            if params.script == nil and params.from_file == nil then
+                error("script or from_file parameter is required")
+            end
+
+            if params.script ~= nil and params.from_file ~= nil then
+                error("script and from_file parameters cannot be used together")
+            end
+
             local module = $base_module:new({ name = "script" })
 
-            function module:run()
-                local tmpdir = module.ssh:get_tmpdir()
-                module.remote_path = tmpdir .. "/." .. $random_file_name
+            module.params = $params
+            module.random_file_name = $random_file_name
 
-                if $script ~= nil then
-                    module.ssh:write_remote_file(module.remote_path, $script)
-                elseif $from_file ~= nil then
-                    module.ssh:upload($from_file, module.remote_path)
+            module.run = function(self)
+                local tmpdir = self.ssh:get_tmpdir()
+                self.remote_path = tmpdir .. "/." .. self.random_file_name
+
+                if self.params.script ~= nil then
+                    self.ssh:write_remote_file(self.remote_path, self.params.script)
+                elseif self.params.from_file ~= nil then
+                    self.ssh:upload(self.params.from_file, self.remote_path)
                 end
 
-                if $interpreter ~= nil then
-                    module.ssh:cmd($interpreter .. " " .. module.remote_path)
+                if self.params.interpreter ~= nil then
+                    self.ssh:cmd(self.params.interpreter .. " " .. self.remote_path)
                 else
-                    module.ssh:chmod(module.remote_path, "+x")
-                    module.ssh:cmd(module.remote_path)
+                    self.ssh:chmod(self.remote_path, "+x")
+                    self.ssh:cmd(self.remote_path)
                 end
             end
 
-            function module:cleanup()
-                module.ssh:cmd("rm " .. module.remote_path)
+            module.cleanup = function(self)
+                self.ssh:cmd("rm " .. self.remote_path)
             end
 
             return module
@@ -70,10 +64,10 @@ mod tests {
         let params = lua.create_table().unwrap();
         let result = script(&lua, params);
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "runtime error: script or from_file parameter is required"
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("script or from_file parameter is required"));
     }
 
     #[test]
@@ -84,10 +78,10 @@ mod tests {
         params.set("from_file", "examples/run_script.lua").unwrap();
         let result = script(&lua, params);
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "runtime error: script and from_file parameters cannot be used together"
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("script and from_file parameters cannot be used together"));
     }
 
     #[test]

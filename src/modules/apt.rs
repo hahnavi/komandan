@@ -1,41 +1,49 @@
-use mlua::{chunk, Error::RuntimeError, ExternalResult, Lua, Table};
+use mlua::{chunk, ExternalResult, Lua, Table};
 
 pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
-    let package = match params.get::<String>("package") {
-        Ok(p) => p,
-        Err(_) => return Err(RuntimeError("package is required".into())),
-    };
-    let action = params
-        .get::<String>("action")
-        .unwrap_or(String::from("install"));
-    let update_cache = params.get::<bool>("update_cache").unwrap_or(false);
-    let install_recommends = params.get::<bool>("install_recommends").unwrap_or(true);
-
     let base_module = super::base_module(&lua);
     let module = lua
         .load(chunk! {
+            if params.update_cache == nil then
+                params.update_cache = false
+            end
+
+            if params.package == nil then
+                error("package is required")
+            end
+
+            if params.install_recommends == nil then
+                params.install_recommends = true
+            end
+
+            if params.action == nil then
+                params.action = "install"
+            end
+
             local module = $base_module:new({ name = "apt" })
 
-            function module:run()
-                if $update_cache then
-                    module.ssh:cmd("apt update")
+            module.params = $params
+
+            module.run = function(self)
+                if self.params.update_cache then
+                    self.ssh:cmd("apt update")
                 end
 
                 local install_opts = ""
-                if not $install_recommends then
+                if not self.params.install_recommends then
                     install_opts = install_opts .. " --no-install-recommends"
                 end
 
-                if $action == "install" then
-                    module.ssh:cmd("apt install -y " .. $package .. install_opts)
-                elseif $action == "remove" then
-                    module.ssh:cmd("apt remove -y " .. $package)
-                elseif $action == "purge" then
-                    module.ssh:cmd("apt purge -y " .. $package)
-                elseif $action == "upgrade" then
-                    module.ssh:cmd("apt upgrade -y")
-                elseif $action == "autoremove" then
-                    module.ssh:cmd("apt autoremove -y")
+                if self.params.action == "install" then
+                    self.ssh:cmd("apt install -y " .. self.params.package .. install_opts)
+                elseif self.params.action == "remove" then
+                    self.ssh:cmd("apt remove -y " .. self.params.package)
+                elseif self.params.action == "purge" then
+                    self.ssh:cmd("apt purge -y " .. self.params.package)
+                elseif self.params.action == "upgrade" then
+                    self.ssh:cmd("apt upgrade -y")
+                elseif self.params.action == "autoremove" then
+                    self.ssh:cmd("apt autoremove -y")
                 end
             end
 
@@ -58,10 +66,10 @@ mod tests {
         let params = lua.create_table().unwrap();
         let result = apt(&lua, params);
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "runtime error: package is required"
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("package is required"));
     }
 
     #[test]
