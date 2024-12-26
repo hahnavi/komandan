@@ -46,4 +46,4 @@ jobs:
           echo "127.0.0.1 localhost2" | sudo tee -a /etc/hosts > /dev/null
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --verbose --workspace

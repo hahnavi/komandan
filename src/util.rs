@@ -1,28 +1,9 @@
 use crate::args::Args;
 use crate::validator::validate_host;
 use clap::Parser;
+use http_client::create_client_from_url;
 use mlua::{chunk, Error::RuntimeError, Lua, LuaSerdeExt, Table, Value};
 use std::{fs::File, io::Read};
-
-pub fn set_defaults(lua: &Lua, data: Value) -> mlua::Result<()> {
-    if !data.is_table() {
-        return Err(RuntimeError(
-            "Parameter for set_defaults must be a table.".to_string(),
-        ));
-    }
-
-    let defaults = lua
-        .globals()
-        .get::<Table>("komandan")?
-        .get::<Table>("defaults")?;
-
-    for pair in data.as_table().unwrap().pairs() {
-        let (key, value): (String, Value) = pair?;
-        defaults.set(key, value.clone())?;
-    }
-
-    Ok(())
-}
 
 pub fn dprint(lua: &Lua, value: Value) -> mlua::Result<()> {
     let args = Args::parse();
@@ -115,30 +96,102 @@ pub fn filter_hosts(lua: &Lua, (hosts, pattern): (Value, Value)) -> mlua::Result
     Ok(matched_hosts)
 }
 
-pub fn parse_hosts_json(lua: &Lua, src: Value) -> mlua::Result<Table> {
-    let src = match src.as_string_lossy() {
-        Some(s) => s,
-        None => return Err(RuntimeError(String::from("Invalid src path"))),
+pub fn parse_hosts_json_file(lua: &Lua, path: Value) -> mlua::Result<Table> {
+    let path = match path.as_str() {
+        Some(path) => path.to_owned(),
+        None => return Err(RuntimeError(String::from("Path must be a string"))),
     };
-
-    let mut file = match File::open(&src) {
+    let mut file = match File::open(&path) {
         Ok(f) => f,
         Err(_) => return Err(RuntimeError(String::from("Failed to open JSON file"))),
     };
-
     let mut content = String::new();
-    match file.read_to_string(&mut content) {
-        Ok(_) => (),
+
+    let hosts = match file.read_to_string(&mut content) {
+        Ok(_) => match parse_hosts_json(lua, content) {
+            Ok(h) => h,
+            Err(_) => {
+                return Err(RuntimeError(String::from(format!(
+                    "Failed to parse JSON file from '{}'",
+                    path
+                ))));
+            }
+        },
         Err(_) => return Err(RuntimeError(String::from("Failed to read JSON file"))),
     };
 
+    dprint(
+        lua,
+        Value::String(
+            lua.create_string(format!(
+                "Loaded {} hosts from JSON file '{}'",
+                hosts.len()?,
+                path
+            ))
+            .unwrap(),
+        ),
+    )?;
+
+    Ok(hosts)
+}
+
+pub fn parse_hosts_json_url(lua: &Lua, url: Value) -> mlua::Result<Table> {
+    let url = match url.as_str() {
+        Some(url) => url,
+        None => return Err(RuntimeError(String::from("URL must be a string"))),
+    };
+    let (client, path) = create_client_from_url(&url).unwrap();
+
+    let content = match client.get(&path) {
+        Ok(response) => {
+            if !response.is_success() {
+                return Err(RuntimeError(format!(
+                    "HTTP request failed with status: {}",
+                    response.status_code
+                )));
+            }
+            String::from_utf8_lossy(&response.body).to_string()
+        }
+        Err(e) => {
+            return Err(RuntimeError(String::from(format!(
+                "Failed to fetch URL: {:?}",
+                e
+            ))));
+        }
+    };
+
+    let hosts = match parse_hosts_json(lua, content) {
+        Ok(h) => h,
+        Err(_) => {
+            return Err(RuntimeError(String::from(format!(
+                "Failed to parse JSON from '{}'",
+                url
+            ))));
+        }
+    };
+
+    dprint(
+        lua,
+        Value::String(
+            lua.create_string(format!(
+                "Loaded {} hosts from JSON url '{}'",
+                hosts.len()?,
+                url
+            ))
+            .unwrap(),
+        ),
+    )?;
+
+    Ok(hosts)
+}
+
+fn parse_hosts_json(lua: &Lua, content: String) -> mlua::Result<Table> {
     let json: serde_json::Value = match serde_json::from_str(&content) {
         Ok(j) => j,
-        Err(_) => return Err(RuntimeError(String::from("Failed to parse JSON file"))),
+        Err(_) => return Err(RuntimeError(String::from("Failed to parse JSON"))),
     };
 
     let hosts = lua.create_table()?;
-
     let lua_value = match lua.to_value(&json) {
         Ok(o) => o,
         Err(_) => return Err(RuntimeError(String::from("Failed to convert JSON to Lua"))),
@@ -159,11 +212,6 @@ pub fn parse_hosts_json(lua: &Lua, src: Value) -> mlua::Result<Table> {
         };
     }
 
-    dprint(
-        lua,
-        lua.to_value(&format!("Loaded {} hosts from '{}'", hosts.len()?, src))?,
-    )?;
-
     Ok(hosts)
 }
 
@@ -178,7 +226,7 @@ pub fn regex_is_match(
     Ok(re.is_match(&text.to_str()?))
 }
 
-pub fn hostname_display(host: &Table) -> String {
+pub fn host_display(host: &Table) -> String {
     let address = host.get::<String>("address").unwrap();
 
     match host.get::<String>("name") {
@@ -187,32 +235,23 @@ pub fn hostname_display(host: &Table) -> String {
     }
 }
 
+pub fn task_display(task: &Table) -> String {
+    let module = task.get::<Table>(1).unwrap();
+    match task.get::<String>("name") {
+        Ok(name) => name,
+        Err(_) => module.get::<String>("name").unwrap(),
+    }
+}
+
 // Tests
 #[cfg(test)]
 mod tests {
-    use mlua::Integer;
     use tempfile::NamedTempFile;
 
-    use crate::setup_lua_env;
+    use crate::create_lua;
 
     use super::*;
     use std::{env, fs::write, io::Write};
-
-    fn setup_lua() -> Lua {
-        let lua = Lua::new();
-
-        // Initialize komandan table and defaults
-        lua.globals()
-            .set("komandan", lua.create_table().unwrap())
-            .unwrap();
-
-        let komandan = lua.globals().get::<Table>("komandan").unwrap();
-        komandan
-            .set("defaults", lua.create_table().unwrap())
-            .unwrap();
-
-        lua
-    }
 
     #[test]
     fn test_dprint_verbose() {
@@ -226,7 +265,7 @@ mod tests {
         };
         env::set_var("MOCK_ARGS", format!("{:?}", args));
 
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let value = Value::String(lua.create_string("Test verbose print").unwrap());
         assert!(dprint(&lua, value).is_ok());
     }
@@ -243,14 +282,14 @@ mod tests {
         };
         env::set_var("MOCK_ARGS", format!("{:?}", args));
 
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let value = Value::String(lua.create_string("Test non-verbose print").unwrap());
         assert!(dprint(&lua, value).is_ok());
     }
 
     #[test]
     fn test_filter_hosts_invalid_hosts_type() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let hosts = Value::Nil;
         let pattern = Value::String(lua.create_string("host1").unwrap());
         let result = filter_hosts(&lua, (hosts, pattern));
@@ -272,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_filter_hosts_invalid_pattern() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let hosts = lua.create_table().unwrap();
         hosts.set("host1", lua.create_table().unwrap()).unwrap();
         let pattern = Value::Nil;
@@ -296,7 +335,7 @@ mod tests {
 
     #[test]
     fn test_filter_hosts_single_string_pattern() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let hosts = lua.create_table().unwrap();
         let host_data = lua.create_table().unwrap();
         host_data
@@ -313,7 +352,7 @@ mod tests {
 
     #[test]
     fn test_filter_hosts_table_pattern() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let hosts = lua.create_table().unwrap();
         let host_data = lua.create_table().unwrap();
         host_data
@@ -330,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_filter_hosts_regex_pattern_host() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let hosts = lua.create_table().unwrap();
         let host_data = lua.create_table().unwrap();
         host_data
@@ -347,7 +386,7 @@ mod tests {
 
     #[test]
     fn test_filter_hosts_regex_pattern_tag() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let hosts = lua.create_table().unwrap();
         let host_data = lua.create_table().unwrap();
         host_data
@@ -364,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_filter_hosts_invalid_hosts() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let hosts = Value::String(lua.create_string("not_a_table").unwrap());
         let pattern = Value::String(lua.create_string("host1").unwrap());
         let result = filter_hosts(&lua, (hosts, pattern));
@@ -373,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_regex_is_match_valid_match() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let text = lua.create_string("hello world").unwrap();
         let pattern = lua.create_string("hello").unwrap();
         let result = regex_is_match(&lua, (text, pattern)).unwrap();
@@ -382,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_regex_is_match_valid_no_match() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let text = lua.create_string("hello world").unwrap();
         let pattern = lua.create_string("goodbye").unwrap();
         let result = regex_is_match(&lua, (text, pattern)).unwrap();
@@ -391,7 +430,7 @@ mod tests {
 
     #[test]
     fn test_regex_is_match_invalid_regex() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let text = lua.create_string("hello world").unwrap();
         let pattern = lua.create_string("[").unwrap();
         let result = regex_is_match(&lua, (text, pattern)).unwrap();
@@ -399,49 +438,8 @@ mod tests {
     }
 
     #[test]
-    fn test_set_defaults() {
-        let lua = Lua::new();
-        setup_lua_env(&lua).unwrap();
-
-        // Test setting a default value
-        let defaults_data = lua.create_table().unwrap();
-        defaults_data.set("user", "testuser").unwrap();
-        set_defaults(&lua, Value::Table(defaults_data)).unwrap();
-
-        let defaults = lua
-            .globals()
-            .get::<Table>("komandan")
-            .unwrap()
-            .get::<Table>("defaults")
-            .unwrap();
-        assert_eq!(defaults.get::<String>("user").unwrap(), "testuser");
-
-        // Test setting multiple default values
-        let defaults_data = lua.create_table().unwrap();
-        defaults_data.set("port", 2222).unwrap();
-        defaults_data.set("key", "/path/to/key").unwrap();
-        set_defaults(&lua, Value::Table(defaults_data)).unwrap();
-
-        let defaults = lua
-            .globals()
-            .get::<Table>("komandan")
-            .unwrap()
-            .get::<Table>("defaults")
-            .unwrap();
-        assert_eq!(defaults.get::<Integer>("port").unwrap(), 2222);
-        assert_eq!(defaults.get::<String>("key").unwrap(), "/path/to/key");
-
-        // Test with non-table input
-        let result = set_defaults(
-            &lua,
-            Value::String(lua.create_string("not_a_table").unwrap()),
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_parse_hosts_json_valid() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let temp_file = NamedTempFile::new().unwrap();
         let json_content = r#"[
             {
@@ -453,26 +451,18 @@ mod tests {
         ]"#;
         write(temp_file.path(), json_content).unwrap();
 
-        let result = parse_hosts_json(
-            &lua,
-            Value::String(
-                lua.create_string(temp_file.path().to_str().unwrap())
-                    .unwrap(),
-            ),
-        );
+        let lua_string = lua
+            .create_string(temp_file.path().to_str().unwrap())
+            .unwrap();
+        let result = parse_hosts_json_file(&lua, Value::String(lua_string));
         assert!(result.is_ok());
-
-        let hosts = result.unwrap();
-        assert_eq!(hosts.len().unwrap(), 1);
     }
 
     #[test]
     fn test_parse_hosts_json_invalid_path() {
-        let lua = setup_lua();
-        let result = parse_hosts_json(
-            &lua,
-            Value::String(lua.create_string("/nonexistent/path").unwrap()),
-        );
+        let lua = create_lua().unwrap();
+        let lua_string = Value::String(lua.create_string("/nonexistent/path").unwrap());
+        let result = parse_hosts_json_file(&lua, lua_string);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -482,20 +472,17 @@ mod tests {
 
     #[test]
     fn test_parse_hosts_json_invalid_file() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let temp_file = NamedTempFile::new().unwrap();
         temp_file
             .as_file()
             .write_all(&[0xDE, 0xAD, 0xBE, 0xEF, 0x42])
             .unwrap();
 
-        let result = parse_hosts_json(
-            &lua,
-            Value::String(
-                lua.create_string(temp_file.path().to_str().unwrap())
-                    .unwrap(),
-            ),
-        );
+        let lua_string = lua
+            .create_string(temp_file.path().to_str().unwrap())
+            .unwrap();
+        let result = parse_hosts_json_file(&lua, Value::String(lua_string));
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -505,50 +492,43 @@ mod tests {
 
     #[test]
     fn test_parse_hosts_json_invalid_json() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let temp_file = NamedTempFile::new().unwrap();
         write(temp_file.path(), "invalid json content").unwrap();
 
-        let result = parse_hosts_json(
-            &lua,
-            Value::String(
-                lua.create_string(temp_file.path().to_str().unwrap())
-                    .unwrap(),
-            ),
-        );
+        let lua_string = lua
+            .create_string(temp_file.path().to_str().unwrap())
+            .unwrap();
+        let result = parse_hosts_json_file(&lua, Value::String(lua_string));
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to parse JSON file"));
     }
 
     #[test]
     fn test_parse_hosts_json_invalid_to_lua_value() {
-        let lua = setup_lua();
+        let lua = create_lua().unwrap();
         let temp_file = NamedTempFile::new().unwrap();
         write(temp_file.path(), "true").unwrap();
 
-        let result = parse_hosts_json(
-            &lua,
-            Value::String(
-                lua.create_string(temp_file.path().to_str().unwrap())
-                    .unwrap(),
-            ),
-        );
+        let lua_string = lua
+            .create_string(temp_file.path().to_str().unwrap())
+            .unwrap();
+        let result = parse_hosts_json_file(&lua, Value::String(lua_string));
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("JSON does not contain a table"));
+            .contains("Failed to parse JSON file from"));
     }
 
     #[test]
     fn test_parse_hosts_json_invalid_input_type() {
-        let lua = setup_lua();
-        let result = parse_hosts_json(&lua, Value::Nil);
+        let lua = create_lua().unwrap();
+        let result = parse_hosts_json_url(&lua, Value::Nil);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid src path"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("URL must be a strin"));
     }
 
     #[test]
@@ -559,11 +539,11 @@ mod tests {
         let host = lua.create_table().unwrap();
         host.set("address", "192.168.1.1").unwrap();
         host.set("name", "test").unwrap();
-        assert_eq!(hostname_display(&host), "test (192.168.1.1)");
+        assert_eq!(host_display(&host), "test (192.168.1.1)");
 
         // Test without name
         let host = lua.create_table().unwrap();
         host.set("address", "10.0.0.1").unwrap();
-        assert_eq!(hostname_display(&host), "10.0.0.1");
+        assert_eq!(host_display(&host), "10.0.0.1");
     }
 }

@@ -1,40 +1,7 @@
-use mlua::{chunk, Error::RuntimeError, ExternalResult, Lua, Table, Value};
+use mlua::{chunk, ExternalResult, Lua, Table};
 use rand::{distributions::Alphanumeric, Rng};
 
 pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
-    let path = match params.get::<String>("path") {
-        Ok(path) => path,
-        Err(_) => return Err(RuntimeError(String::from("'path' parameter is required"))),
-    };
-
-    let line = params.get::<Value>("line")?;
-    let pattern = params.get::<Value>("pattern")?;
-
-    let state = match params.get::<String>("state") {
-        Ok(state) => match state.as_str() {
-            "present" => state,
-            "absent" => state,
-            _ => {
-                return Err(RuntimeError(String::from(
-                    "'state' parameter must be 'present' or 'absent'",
-                )))
-            }
-        },
-        Err(_) => String::from("present"),
-    };
-
-    if line.is_nil() && pattern.is_nil() {
-        return Err(RuntimeError(String::from(
-            "'line' or 'pattern' parameter is required",
-        )));
-    }
-
-    let insert_after = params.get::<Value>("insert_after")?;
-    let insert_before = params.get::<Value>("insert_before")?;
-
-    let create = params.get::<bool>("create").unwrap_or(false);
-    let backup = params.get::<bool>("backup").unwrap_or(false);
-
     let random_file_name: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .map(char::from)
@@ -44,36 +11,64 @@ pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
     let base_module = super::base_module(&lua);
     let module = lua
         .load(chunk! {
-            local module = $base_module:new({ name = "lineinfile" })
-
-            function module:run()
-                local tmpdir = module.ssh:get_tmpdir()
-                module.remote_script = tmpdir .. "/." .. $random_file_name 
-                module.ssh:write_remote_file(module.remote_script, $LINEINFILE_SCRIPT)
-                module.ssh:chmod(module.remote_script, "+x")
-
-                local cmd = module.remote_script .. " --path \"" .. $path .. "\" --create " .. tostring($create) .. " --backup " .. tostring($backup) .. " --state " .. $state
-                if $line ~= nil then
-                    cmd = cmd .. " --line \"" .. $line .. "\""
-                end
-
-                if $pattern ~= nil then
-                    cmd = cmd .. " --pattern \"" .. $pattern .. "\""
-                end
-
-                if $insert_after ~= nil then
-                    cmd = cmd .. " --insert_after \"" .. $insert_after .. "\""
-                end
-
-                if $insert_before ~= nil then
-                    cmd = cmd .. " --insert_before \"" .. $insert_before .. "\""
-                end
-
-                module.ssh:cmd(cmd)
+            if params.path == nil then
+                error("'path' parameter is required")
             end
 
-            function module:cleanup()
-                module.ssh:cmd("rm " .. module.remote_script)
+            if params.line == nil and params.pattern == nil then
+                error("'line' or 'pattern' parameter is required")
+            end
+
+            if params.state == nil then
+                params.state = "present"
+            end
+
+            if params.state ~= "present" and params.state ~= "absent" then
+                error("'state' parameter must be 'present' or 'absent'")
+            end
+
+            if params.create == nil then
+                params.create = false
+            end
+
+            if params.backup == nil then
+                params.backup = false
+            end
+
+            local module = $base_module:new({ name = "lineinfile" })
+
+            module.params = $params
+            module.random_file_name = $random_file_name
+            module.lineinfile_script = $LINEINFILE_SCRIPT
+
+            module.run = function(self)
+                local tmpdir = self.ssh:get_tmpdir()
+                module.remote_script = tmpdir .. "/." .. self.random_file_name 
+                self.ssh:write_remote_file(module.remote_script, self.lineinfile_script)
+                self.ssh:chmod(module.remote_script, "+x")
+
+                local cmd = module.remote_script .. " --path \"" .. self.params.path .. "\" --create " .. tostring(self.params.create) .. " --backup " .. tostring(self.params.backup) .. " --state " .. self.params.state
+                if self.params.line ~= nil then
+                    cmd = cmd .. " --line \"" .. self.params.line .. "\""
+                end
+
+                if self.params.pattern ~= nil then
+                    cmd = cmd .. " --pattern \"" .. self.params.pattern .. "\""
+                end
+
+                if self.params.insert_after ~= nil then
+                    cmd = cmd .. " --insert_after \"" .. self.params.insert_after .. "\""
+                end
+
+                if self.params.insert_before ~= nil then
+                    cmd = cmd .. " --insert_before \"" .. self.params.insert_before .. "\""
+                end
+
+                self.ssh:cmd(cmd)
+            end
+
+            module.cleanup = function(self)
+                self.ssh:cmd("rm " .. module.remote_script)
             end
 
             return module
@@ -247,10 +242,10 @@ mod tests {
         let params = lua.create_table().unwrap();
         let result = lineinfile(&lua, params);
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "runtime error: 'path' parameter is required"
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("'path' parameter is required"));
     }
 
     #[test]
@@ -258,13 +253,14 @@ mod tests {
         let lua = Lua::new();
         let params = lua.create_table().unwrap();
         params.set("path", "/tmp/test.txt").unwrap();
+        params.set("line", "Hello, world!").unwrap();
         params.set("state", "--invalid-state--").unwrap();
         let result = lineinfile(&lua, params);
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "runtime error: 'state' parameter must be 'present' or 'absent'"
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("'state' parameter must be 'present' or 'absent'"));
     }
 
     #[test]
@@ -274,10 +270,10 @@ mod tests {
         params.set("path", "/tmp/test.txt").unwrap();
         let result = lineinfile(&lua, params);
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "runtime error: 'line' or 'pattern' parameter is required"
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("'line' or 'pattern' parameter is required"));
     }
 
     #[test]

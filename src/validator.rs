@@ -1,4 +1,4 @@
-use mlua::{chunk, Error::RuntimeError, Integer, Lua, Table, Value};
+use mlua::{chunk, Error::RuntimeError, ExternalResult, Integer, Lua, Table, Value};
 
 pub fn validate_host(lua: &Lua, host: Value) -> mlua::Result<Table> {
     if !host.is_table() {
@@ -33,16 +33,19 @@ fn validate_port(_: &Lua, port: Value) -> mlua::Result<Integer> {
     Ok(port.as_integer().unwrap())
 }
 
-pub fn validate_task(_: &Lua, task: Value) -> mlua::Result<Table> {
+pub fn validate_task(lua: &Lua, task: Value) -> mlua::Result<Table> {
     if !task.is_table() {
         return Err(RuntimeError("Task is not a table.".to_string()));
     }
 
-    if task.as_table().unwrap().get::<Value>(1)?.is_nil() {
+    let task = task.as_table().unwrap();
+    if task.get::<Value>(1)?.is_nil() {
         return Err(RuntimeError("Task is invalid.".to_string()));
     }
 
-    Ok(task.as_table().unwrap().to_owned())
+    validate_module(lua, task.get::<Value>(1)?).into_lua_err()?;
+
+    Ok(task.to_owned())
 }
 
 pub fn validate_module(lua: &Lua, module: Value) -> mlua::Result<Table> {
@@ -206,7 +209,9 @@ mod tests {
     fn test_validate_task_valid() {
         let lua = Lua::new();
         let task = lua.create_table().unwrap();
-        task.set(1, "cmd").unwrap();
+        let module = lua.create_table().unwrap();
+        module.set("name", "cmd").unwrap();
+        task.set(1, module).unwrap();
 
         let result = super::validate_task(&lua, mlua::Value::Table(task));
         assert!(result.is_ok());

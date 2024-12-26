@@ -46,11 +46,11 @@ pub fn template(lua: &Lua, params: Table) -> mlua::Result<Table> {
         .load(chunk! {
             local module = $base_module:new({ name = "template" })
 
-            function module:run()
-                local tmpdir = module.ssh:get_tmpdir()
+            module.run = function(self)
+                local tmpdir = self.ssh:get_tmpdir()
                 local tmpfile = tmpdir .. "/." .. $random_file_name
-                module.ssh:write_remote_file(tmpfile, $rendered)
-                module.ssh:cmd("mv " .. tmpfile .. " " .. $dst)
+                self.ssh:write_remote_file(tmpfile, $rendered)
+                self.ssh:cmd("mv " .. tmpfile .. " " .. $dst)
             end
 
             return module

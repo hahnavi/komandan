@@ -27,6 +27,8 @@ Komandan is a server automation tool that simplifies remote server management by
 - [`komando` function](#komando-function)
 - [Modules](#modules)
 - [Built-in functions](#built-in-functions)
+- [Default Values](#default-values)
+- [Parallel Execution](#parallel-execution)
 - [Error Handling](#error-handling)
 - [Contributing](#contributing)
 - [License](#license)
@@ -139,10 +141,105 @@ For detailed explanations, arguments, and examples of each module, please refer 
 Komandan offers built-in functions to enhance scripting capabilities:
 
 -   **`komandan.filter_hosts`**: Filters a list of hosts based on a pattern.
--   **`komandan.parse_hosts_json`**: Parses a JSON file containing hosts information.
--   **`komandan.set_defaults`**: Sets default values for host connection parameters.
+-   **`komandan.parse_hosts_json_file`**: Parses a JSON file containing hosts information.
+-   **`komandan.parse_hosts_json_url`**: Parses a JSON file from a URL containing hosts information.
 
 For detailed descriptions and usage examples of these functions, please visit the [Built-in Functions section of the Komandan Documentation Site](https://komandan.vercel.app/docs/functions/).
+
+## Default Values
+
+Komandan provides default values for various parameters, such as the user, private key file path, and SSH port. These values can be set using the `komandan.defaults` userdata.
+
+```lua
+-- set default values
+komandan.defaults:set_port(22)
+komandan.defaults:set_user("user1")
+komandan.defaults:set_private_key_file(os.getenv("HOME") .. "/.ssh/id_ed25519")
+komandan.defaults:set_private_key_pass("passphrase")
+komandan.defaults:set_host_key_check(false)
+komandan.defaults:set_env("ENV_VAR", "value")
+
+-- get default values
+local port = komandan.defaults:get_port()
+local user = komandan.defaults:get_user()
+local private_key_file = komandan.defaults:get_private_key_file()
+local private_key_pass = komandan.defaults:get_private_key_pass()
+local host_key_check = komandan.defaults:get_host_key_check()
+local env = komandan.defaults:get_env("ENV_VAR")
+local env_all = komandan.defaults:get_all_env()
+```
+
+## Parallel Execution
+
+Komandan supports parallel execution of tasks on multiple hosts using the `komando_parallel_hosts` function, and `komando_parallel_tasks` function for parallel execution of tasks on the same host.
+
+```lua
+-- parallel execution of a task on multiple hosts
+local hosts = {
+    {
+        name = "server1",
+        address = "localhost",
+        user = "usertest",
+        private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
+    },
+    {
+        name = "server2",
+        address = "localhost",
+        user = "usertest",
+        private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
+    },
+    {
+        name = "server3",
+        address = "localhost",
+        user = "usertest",
+        private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
+    }
+}
+
+local task = {
+    name = "Ping Google",
+    komandan.modules.cmd({
+        cmd = "ping google.com -c 5",
+    }),
+}
+
+komandan.komando_parallel_hosts(hosts, task)
+```
+
+```lua
+-- parallel execution of a task on the same host
+local host = {
+    name = "My Server",
+    address = "localhost",
+    user = "usertest",
+    private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
+}
+
+local tasks = {
+    {
+        name = "Task 1",
+        komandan.modules.cmd({
+            cmd = "uname -a",
+        }),
+    },
+    {
+        name = "Task 2",
+        komandan.modules.cmd({
+            cmd = "ping google.com -c 7",
+        }),
+    },
+    {
+        name = "Task 3",
+        komandan.modules.apt({
+            package = "neovim",
+            update_cache = true
+        }),
+        elevate = true,
+    }
+}
+
+komandan.komando_parallel_tasks(host, tasks)
+```
 
 ## Error Handling
 

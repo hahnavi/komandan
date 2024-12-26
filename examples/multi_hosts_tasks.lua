@@ -1,9 +1,7 @@
 local hosts = require("hosts")
 
-komandan.set_defaults({
-	user = "user1",
-	private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
-})
+komandan.defaults:set_user("user1")
+komandan.defaults:set_private_key_file(os.getenv("HOME") .. "/.ssh/id_ed25519")
 
 local tasks = {
 	{
