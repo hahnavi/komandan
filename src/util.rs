@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::validator::validate_host;
 use clap::Parser;
-use http_client::create_client_from_url;
+use http_klien::create_client_from_url;
 use mlua::{chunk, Error::RuntimeError, Lua, LuaSerdeExt, Table, Value};
 use std::{fs::File, io::Read};
 
@@ -534,7 +534,13 @@ mod tests {
     #[test]
     fn test_parse_hosts_json_url_not_found() {
         let lua = create_lua().unwrap();
-        let result = parse_hosts_json_url(&lua, Value::String(lua.create_string("https://komandan.vercel.app/examples/hosts.json").unwrap()));
+        let result = parse_hosts_json_url(
+            &lua,
+            Value::String(
+                lua.create_string("https://komandan.vercel.app/examples/hosts.json")
+                    .unwrap(),
+            ),
+        );
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -545,7 +551,13 @@ mod tests {
     #[test]
     fn test_parse_hosts_json_url_valid() {
         let lua = create_lua().unwrap();
-        let result = parse_hosts_json_url(&lua, Value::String(lua.create_string("https://komandan.surge.sh/examples/hosts.json").unwrap()));
+        let result = parse_hosts_json_url(
+            &lua,
+            Value::String(
+                lua.create_string("https://komandan.surge.sh/examples/hosts.json")
+                    .unwrap(),
+            ),
+        );
         assert!(result.is_ok());
     }
 

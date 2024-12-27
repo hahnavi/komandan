@@ -9,7 +9,9 @@ edition = "2021"
 anyhow = "1.0.93"
 base64 = "0.22.1"
 clap = { version = "4.5.21", features = ["derive"] }
-http-client = { path = "http-client" }
+http-klien = { git = "https://github.com/hahnavi/http-klien-rs", branch = "main", features = [
+    "vendored-openssl",
+] }
 minijinja = "2.5.0"
 mlua = { version = "0.10.1", features = [
     "anyhow",
@@ -31,9 +33,3 @@ tempfile = "3.14.0"
 
 [profile.release]
 lto = "fat"
-
-[workspace]
-members = [".", "http-client"]
-
-[workspace.dependencies]
-openssl = { version = "0.10.68", features = ["vendored"] }
