@@ -73,6 +73,7 @@ pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             return module
         })
+        .set_name("lineinfile")
         .eval::<Table>()
         .into_lua_err()?;
 

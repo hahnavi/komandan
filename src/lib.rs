@@ -203,9 +203,16 @@ fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevation> {
         Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
-    let elevate = task
-        .get::<bool>("elevate")
-        .unwrap_or(host.get::<bool>("elevate").unwrap_or(*default_elevate));
+    let task_elevate = task.get::<Value>("elevate")?;
+    let host_elevate = host.get::<Value>("elevate")?;
+
+    let elevate = if !task_elevate.is_nil() {
+        task_elevate.as_boolean().unwrap()
+    } else if !host_elevate.is_nil() {
+        host_elevate.as_boolean().unwrap()
+    } else {
+        *default_elevate
+    };
 
     if !elevate {
         return Ok(Elevation {
@@ -341,6 +348,7 @@ fn execute_task(
 
         return results
     })
+    .set_name("execute_task")
     .eval::<Table>()
 }
 
