@@ -48,6 +48,7 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             return module
         })
+        .set_name("script")
         .eval::<Table>()?;
 
     Ok(module)

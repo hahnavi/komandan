@@ -8,9 +8,8 @@ pub fn template(lua: &Lua, params: Table) -> mlua::Result<Table> {
         Err(_) => return Err(RuntimeError(String::from("'src' parameter is required"))),
     };
 
-    let dst = match params.get::<String>("dst") {
-        Ok(s) => s,
-        Err(_) => return Err(RuntimeError(String::from("'dst' parameter is required"))),
+    if params.get::<String>("dst").is_err() {
+        return Err(RuntimeError(String::from("'dst' parameter is required")));
     };
 
     let vars = params.get::<Value>("vars")?;
@@ -46,15 +45,20 @@ pub fn template(lua: &Lua, params: Table) -> mlua::Result<Table> {
         .load(chunk! {
             local module = $base_module:new({ name = "template" })
 
+            module.params = $params
+            module.rendered = $rendered
+            module.random_file_name = $random_file_name
+
             module.run = function(self)
                 local tmpdir = self.ssh:get_tmpdir()
-                local tmpfile = tmpdir .. "/." .. $random_file_name
-                self.ssh:write_remote_file(tmpfile, $rendered)
-                self.ssh:cmd("mv " .. tmpfile .. " " .. $dst)
+                local tmpfile = tmpdir .. "/." .. self.random_file_name
+                self.ssh:write_remote_file(tmpfile, self.rendered)
+                self.ssh:cmd("mv " .. tmpfile .. " " .. self.params.dst)
             end
 
             return module
         })
+        .set_name("template")
         .eval::<Table>()
         .into_lua_err()?;
 

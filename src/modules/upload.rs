@@ -14,6 +14,7 @@ pub fn upload(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             return module
         })
+        .set_name("upload")
         .eval::<Table>()
         .into_lua_err()?;
 

@@ -14,6 +14,7 @@ pub fn download(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             return module
         })
+        .set_name("download")
         .eval::<Table>()
         .into_lua_err()?;
 

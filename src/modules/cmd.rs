@@ -14,6 +14,7 @@ pub fn cmd(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             return module
         })
+        .set_name("cmd")
         .eval::<Table>()
         .into_lua_err()?;
 

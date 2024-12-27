@@ -8,7 +8,7 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 params.update_cache = false
             end
 
-            if params.package == nil then
+            if params.package == nil and params.update_cache == false then
                 error("package is required")
             end
 
@@ -27,6 +27,10 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
             module.run = function(self)
                 if self.params.update_cache then
                     self.ssh:cmd("apt update")
+                end
+
+                if self.params.package == nill then
+                    return
                 end
 
                 local install_opts = ""
@@ -49,6 +53,7 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             return module
         })
+        .set_name("apt")
         .eval::<Table>()
         .into_lua_err()?;
 
