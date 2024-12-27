@@ -24,6 +24,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Change Cargo.toml version
+        run: |
+          VERSION="${{ github.event.inputs.version }}-build${{ needs.get_build_number.outputs.build_number }}"
+          sed -i "s/^version[ ]*=[ ]*\"[^\"]*\"/version = \"${VERSION}\"/" Cargo.toml
+          echo "Updated version in Cargo.toml:"
+          grep "^version" Cargo.toml
+
       - name: Build
         run: cargo build --release --target x86_64-unknown-linux-gnu
 
@@ -50,8 +57,13 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-        with:
-          repository: hahnavi/komandan
+
+      - name: Change Cargo.toml version
+        run: |
+          VERSION="${{ github.event.inputs.version }}-build${{ needs.get_build_number.outputs.build_number }}"
+          sed -i "s/^version[ ]*=[ ]*\"[^\"]*\"/version = \"${VERSION}\"/" Cargo.toml
+          echo "Updated version in Cargo.toml:"
+          grep "^version" Cargo.toml
 
       - name: Add target aarch64-unknown-linux-gnu
         run: rustup target add aarch64-unknown-linux-gnu
@@ -82,7 +94,7 @@ jobs:
 
   release:
     runs-on: ubuntu-22.04
-    needs: [build-x86_64, build-aarch64]
+    needs: [get_build_number, build-x86_64, build-aarch64]
     permissions:
       contents: write
     steps:
