@@ -9,11 +9,12 @@ on:
 
 jobs:
   get_build_number:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     permissions:
       actions: write
     outputs:
       build_number: ${{ steps.get_number.outputs.result }}
+    
     steps:
       - name: Get and increment build number
         id: get_number
@@ -32,16 +33,25 @@ jobs:
               console.log('No existing BUILD_NUMBER, starting at 1');
             }
             
-            await github.rest.actions.createOrUpdateRepoVariable({
+            await github.rest.actions.updateRepoVariable({
               owner: context.repo.owner,
               repo: context.repo.repo,
               name: 'BUILD_NUMBER',
               value: buildNumber.toString()
+            }).catch(async () => {
+              // If variable doesn't exist, create it
+              await github.rest.actions.createRepoVariable({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'BUILD_NUMBER',
+                value: buildNumber.toString()
+              });
             });
             
             return buildNumber;
 
   build-x86_64:
+    needs: get_build_number
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -68,6 +78,7 @@ jobs:
             komandan_${{ env.RELEASE_TAG }}-linux-x86_64.zip
 
   build-aarch64:
+    needs: get_build_number
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
