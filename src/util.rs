@@ -438,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_hosts_json_valid() {
+    fn test_parse_hosts_json_file_valid() {
         let lua = create_lua().unwrap();
         let temp_file = NamedTempFile::new().unwrap();
         let json_content = r#"[
@@ -459,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_hosts_json_invalid_path() {
+    fn test_parse_hosts_json_file_invalid_path() {
         let lua = create_lua().unwrap();
         let lua_string = Value::String(lua.create_string("/nonexistent/path").unwrap());
         let result = parse_hosts_json_file(&lua, lua_string);
@@ -471,7 +471,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_hosts_json_invalid_file() {
+    fn test_parse_hosts_json_file_invalid_file() {
         let lua = create_lua().unwrap();
         let temp_file = NamedTempFile::new().unwrap();
         temp_file
@@ -491,7 +491,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_hosts_json_invalid_json() {
+    fn test_parse_hosts_json_file_invalid_json() {
         let lua = create_lua().unwrap();
         let temp_file = NamedTempFile::new().unwrap();
         write(temp_file.path(), "invalid json content").unwrap();
@@ -504,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_hosts_json_invalid_to_lua_value() {
+    fn test_parse_hosts_json_file_invalid_to_lua_value() {
         let lua = create_lua().unwrap();
         let temp_file = NamedTempFile::new().unwrap();
         write(temp_file.path(), "true").unwrap();
@@ -521,14 +521,32 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_hosts_json_invalid_input_type() {
+    fn test_parse_hosts_json_url_invalid_input_type() {
         let lua = create_lua().unwrap();
         let result = parse_hosts_json_url(&lua, Value::Nil);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("URL must be a strin"));
+            .contains("URL must be a string"));
+    }
+
+    #[test]
+    fn test_parse_hosts_json_url_not_found() {
+        let lua = create_lua().unwrap();
+        let result = parse_hosts_json_url(&lua, Value::String(lua.create_string("https://komandan.vercel.app/examples/hosts.json").unwrap()));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("HTTP request failed with status"));
+    }
+
+    #[test]
+    fn test_parse_hosts_json_url_valid() {
+        let lua = create_lua().unwrap();
+        let result = parse_hosts_json_url(&lua, Value::String(lua.create_string("https://komandan.surge.sh/examples/hosts.json").unwrap()));
+        assert!(result.is_ok());
     }
 
     #[test]
