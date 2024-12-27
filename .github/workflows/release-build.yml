@@ -1,0 +1,132 @@
+name: Release Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g. 0.1.0)'
+        required: true
+
+jobs:
+  get_build_number:
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: write
+    outputs:
+      build_number: ${{ steps.get_number.outputs.result }}
+    steps:
+      - name: Get and increment build number
+        id: get_number
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let buildNumber = 1;
+            try {
+              const variable = await github.rest.actions.getRepoVariable({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'BUILD_NUMBER'
+              });
+              buildNumber = parseInt(variable.data.value) + 1;
+            } catch (e) {
+              console.log('No existing BUILD_NUMBER, starting at 1');
+            }
+            
+            await github.rest.actions.createOrUpdateRepoVariable({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'BUILD_NUMBER',
+              value: buildNumber.toString()
+            });
+            
+            return buildNumber;
+
+  build-x86_64:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Strip binary
+        run: strip target/x86_64-unknown-linux-gnu/release/komandan
+
+      - name: Create Release Tag
+        run: |
+          TAG="v${{ github.event.inputs.version }}-build${{ needs.get_build_number.outputs.build_number }}"
+          echo "RELEASE_TAG=${TAG}" >> $GITHUB_ENV
+
+      - name: Zip artifact
+        run: zip -j komandan_${{ env.RELEASE_TAG }}-linux-x86_64.zip target/x86_64-unknown-linux-gnu/release/komandan
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-x86_64-artifact
+          path: |
+            komandan_${{ env.RELEASE_TAG }}-linux-x86_64.zip
+
+  build-aarch64:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: hahnavi/komandan
+
+      - name: Add target aarch64-unknown-linux-gnu
+        run: rustup target add aarch64-unknown-linux-gnu
+
+      - name: Install aarch64-linux-gnu-gcc
+        run: sudo apt update && sudo apt install -y gcc-aarch64-linux-gnu
+
+      - name: Build
+        run: cargo build --release --target aarch64-unknown-linux-gnu
+      
+      - name: Strip binary
+        run: aarch64-linux-gnu-strip target/aarch64-unknown-linux-gnu/release/komandan
+
+      - name: Create Release Tag
+        run: |
+          TAG="v${{ github.event.inputs.version }}-build${{ needs.get_build_number.outputs.build_number }}"
+          echo "RELEASE_TAG=${TAG}" >> $GITHUB_ENV
+
+      - name: Zip artifact
+        run: zip -j komandan_${{ env.RELEASE_TAG }}-linux-aarch64.zip target/aarch64-unknown-linux-gnu/release/komandan
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-aarch64-artifact
+          path: |
+            komandan_${{ env.RELEASE_TAG }}-linux-aarch64.zip
+
+  release:
+    runs-on: ubuntu-22.04
+    needs: [build-x86_64, build-aarch64]
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifact x86_64
+        uses: actions/download-artifact@v4
+        with:
+          name: build-x86_64-artifact
+
+      - name: Download artifact aarch64
+        uses: actions/download-artifact@v4
+        with:
+          name: build-aarch64-artifact
+
+      - name: Create Release Tag
+        run: |
+          TAG="v${{ github.event.inputs.version }}-build${{ needs.get_build_number.outputs.build_number }}"
+          echo "RELEASE_TAG=${TAG}" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          name: ${{ env.RELEASE_TAG }}
+          body: Release ${{ env.RELEASE_TAG }}
+          artifacts: |
+            komandan_${{ env.RELEASE_TAG }}-linux-x86_64.zip
+            komandan_${{ env.RELEASE_TAG }}-linux-aarch64.zip
