@@ -10,45 +10,13 @@ on:
 jobs:
   get_build_number:
     runs-on: ubuntu-latest
-    permissions:
-      actions: write
     outputs:
-      build_number: ${{ steps.get_number.outputs.result }}
-    
+      build_number: ${{ steps.set_number.outputs.build_number }}
     steps:
-      - name: Get and increment build number
-        id: get_number
-        uses: actions/github-script@v7
-        with:
-          script: |
-            let buildNumber = 1;
-            try {
-              const variable = await github.rest.actions.getRepoVariable({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                name: 'BUILD_NUMBER'
-              });
-              buildNumber = parseInt(variable.data.value) + 1;
-            } catch (e) {
-              console.log('No existing BUILD_NUMBER, starting at 1');
-            }
-            
-            await github.rest.actions.updateRepoVariable({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              name: 'BUILD_NUMBER',
-              value: buildNumber.toString()
-            }).catch(async () => {
-              // If variable doesn't exist, create it
-              await github.rest.actions.createRepoVariable({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                name: 'BUILD_NUMBER',
-                value: buildNumber.toString()
-              });
-            });
-            
-            return buildNumber;
+      - name: Generate build number
+        id: set_number
+        run: |
+          echo "build_number=$(( $GITHUB_RUN_NUMBER ))" >> $GITHUB_OUTPUT
 
   build-x86_64:
     needs: get_build_number
