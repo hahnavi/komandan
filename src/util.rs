@@ -36,7 +36,7 @@ pub fn filter_hosts(lua: &Lua, (hosts, pattern): (Value, Value)) -> mlua::Result
         ));
     }
 
-    let matched_hosts = lua
+    let filtered_hosts = lua
         .load(chunk! {
         local hosts = $hosts
         local pattern = $pattern
@@ -50,16 +50,16 @@ pub fn filter_hosts(lua: &Lua, (hosts, pattern): (Value, Value)) -> mlua::Result
 
             for host_key, host_data in pairs(hosts) do
                 for _, p in ipairs(pattern) do
-                    if type(p) ~= "string" then
+                    if type(p) ~= "string" or host_data.name == nil then
                         goto continue
                     end
                     if p:sub(1, 1) ~= "~" then
-                        if host_key == p then
+                        if host_data.name == p then
                             matched_hosts[host_key] = host_data
                             break
                         end
                     else
-                        if $regex_is_match(host_key, p:sub(2)) then
+                        if $regex_is_match(host_data.name, p:sub(2)) then
                             matched_hosts[host_key] = host_data
                             break
                         end
@@ -88,12 +88,17 @@ pub fn filter_hosts(lua: &Lua, (hosts, pattern): (Value, Value)) -> mlua::Result
                 end
             end
 
-            return matched_hosts
+            local filtered_hosts = {}
+            for _, host_data in pairs(matched_hosts) do
+                table.insert(filtered_hosts, host_data)
+            end
+
+            return filtered_hosts
             })
         .set_name("filter_hosts")
         .eval::<Table>()?;
 
-    Ok(matched_hosts)
+    Ok(filtered_hosts)
 }
 
 pub fn parse_hosts_json_file(lua: &Lua, path: Value) -> mlua::Result<Table> {
@@ -338,16 +343,17 @@ mod tests {
         let lua = create_lua().unwrap();
         let hosts = lua.create_table().unwrap();
         let host_data = lua.create_table().unwrap();
+        host_data.set("name", "host1").unwrap();
         host_data
             .set(
                 "tags",
                 lua.create_sequence_from(vec!["tag1", "tag2"]).unwrap(),
             )
             .unwrap();
-        hosts.set("host1", host_data).unwrap();
+        hosts.set(11, host_data).unwrap();
         let pattern = Value::String(lua.create_string("host1").unwrap());
         let result = filter_hosts(&lua, (Value::Table(hosts), pattern)).unwrap();
-        assert!(result.contains_key("host1").unwrap());
+        assert!(result.contains_key(1).unwrap());
     }
 
     #[test]
@@ -361,10 +367,10 @@ mod tests {
                 lua.create_sequence_from(vec!["tag1", "tag2"]).unwrap(),
             )
             .unwrap();
-        hosts.set("host1", host_data).unwrap();
+        hosts.set(3, host_data).unwrap();
         let pattern = Value::Table(lua.create_sequence_from(vec!["host1", "tag2"]).unwrap());
         let result = filter_hosts(&lua, (Value::Table(hosts), pattern)).unwrap();
-        assert!(result.contains_key("host1").unwrap());
+        assert!(result.contains_key(1).unwrap());
     }
 
     #[test]
@@ -372,16 +378,17 @@ mod tests {
         let lua = create_lua().unwrap();
         let hosts = lua.create_table().unwrap();
         let host_data = lua.create_table().unwrap();
+        host_data.set("name", "host1").unwrap();
         host_data
             .set(
                 "tags",
                 lua.create_sequence_from(vec!["tag1", "tag2"]).unwrap(),
             )
             .unwrap();
-        hosts.set("host1", host_data).unwrap();
+        hosts.set(10, host_data).unwrap();
         let pattern = Value::Table(lua.create_sequence_from(vec!["~^host.*$"]).unwrap());
         let result = filter_hosts(&lua, (Value::Table(hosts), pattern)).unwrap();
-        assert!(result.contains_key("host1").unwrap());
+        assert!(result.contains_key(1).unwrap());
     }
 
     #[test]
@@ -395,10 +402,10 @@ mod tests {
                 lua.create_sequence_from(vec!["tag1", "tag2"]).unwrap(),
             )
             .unwrap();
-        hosts.set("host1", host_data).unwrap();
+        hosts.set(4, host_data).unwrap();
         let pattern = Value::Table(lua.create_sequence_from(vec!["~^tag.*$"]).unwrap());
         let result = filter_hosts(&lua, (Value::Table(hosts), pattern)).unwrap();
-        assert!(result.contains_key("host1").unwrap());
+        assert!(result.contains_key(1).unwrap());
     }
 
     #[test]
