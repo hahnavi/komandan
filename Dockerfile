@@ -8,7 +8,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN cargo build --release
+RUN cargo build --features vendored-openssl --release
 
 RUN strip target/release/komandan
 
