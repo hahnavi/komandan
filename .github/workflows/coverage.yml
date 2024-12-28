@@ -30,7 +30,7 @@ jobs:
 
       - name: Generate coverage report
         run: |
-          cargo +nightly tarpaulin --verbose --out Xml --implicit-test-threads --workspace
+          cargo +nightly tarpaulin --verbose --out Xml --implicit-test-threads
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5

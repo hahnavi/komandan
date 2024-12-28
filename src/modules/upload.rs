@@ -21,14 +21,16 @@ pub fn upload(lua: &Lua, params: Table) -> mlua::Result<Table> {
     Ok(module)
 }
 
+// Tests
 #[cfg(test)]
 mod tests {
+    use crate::create_lua;
+
     use super::*;
-    use mlua::Lua;
 
     #[test]
     fn test_upload_success() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         params.set("src", "examples/run_script.lua").unwrap();
         params.set("dst", "/tmp/test_upload.lua").unwrap();

@@ -42,7 +42,10 @@ impl Defaults {
             elevate: Arc::new(RwLock::new(false)),
             elevation_method: Arc::new(RwLock::new("sudo".to_string())),
             as_user: Arc::new(RwLock::new(None)),
-            known_hosts_file: Arc::new(RwLock::new(format!("{}/.ssh/known_hosts", std::env::var("HOME").unwrap()))),
+            known_hosts_file: Arc::new(RwLock::new(format!(
+                "{}/.ssh/known_hosts",
+                std::env::var("HOME").unwrap()
+            ))),
             host_key_check: Arc::new(RwLock::new(true)),
             env,
         }

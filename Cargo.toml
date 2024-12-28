@@ -5,11 +5,14 @@ authors = ["Abdul Munif Hanafi"]
 license = "MIT"
 edition = "2021"
 
+[features]
+vendored-openssl = ["http-klien/vendored-openssl", "ssh2/vendored-openssl"]
+
 [dependencies]
 anyhow = "1.0.93"
 base64 = "0.22.1"
 clap = { version = "4.5.21", features = ["derive"] }
-http-client = { path = "http-client" }
+http-klien = { git = "https://github.com/hahnavi/http-klien-rs", branch = "main" }
 minijinja = "2.5.0"
 mlua = { version = "0.10.1", features = [
     "anyhow",
@@ -24,16 +27,10 @@ regex = "1.11.1"
 rustyline = "15.0.0"
 serde = { version = "1.0.216", features = ["derive"] }
 serde_json = "1.0.133"
-ssh2 = { version = "0.9.4", features = ["vendored-openssl"] }
+ssh2 = { version = "0.9.4" }
 
 [dev-dependencies]
 tempfile = "3.14.0"
 
 [profile.release]
 lto = "fat"
-
-[workspace]
-members = [".", "http-client"]
-
-[workspace.dependencies]
-openssl = { version = "0.10.68", features = ["vendored"] }

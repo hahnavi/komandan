@@ -43,11 +43,11 @@ pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.run = function(self)
                 local tmpdir = self.ssh:get_tmpdir()
-                module.remote_script = tmpdir .. "/." .. self.random_file_name 
-                self.ssh:write_remote_file(module.remote_script, self.lineinfile_script)
-                self.ssh:chmod(module.remote_script, "+x")
+                self.remote_script = tmpdir .. "/." .. self.random_file_name 
+                self.ssh:write_remote_file(self.remote_script, self.lineinfile_script)
+                self.ssh:chmod(self.remote_script, "+x")
 
-                local cmd = module.remote_script .. " --path \"" .. self.params.path .. "\" --create " .. tostring(self.params.create) .. " --backup " .. tostring(self.params.backup) .. " --state " .. self.params.state
+                local cmd = self.remote_script .. " --path \"" .. self.params.path .. "\" --create " .. tostring(self.params.create) .. " --backup " .. tostring(self.params.backup) .. " --state " .. self.params.state
                 if self.params.line ~= nil then
                     cmd = cmd .. " --line \"" .. self.params.line .. "\""
                 end
@@ -68,7 +68,7 @@ pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
             end
 
             module.cleanup = function(self)
-                self.ssh:cmd("rm " .. module.remote_script)
+                self.ssh:cmd("rm " .. self.remote_script)
             end
 
             return module
@@ -81,7 +81,8 @@ pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
 }
 
 const LINEINFILE_SCRIPT: &str = r#"#!/bin/sh
-# Default values
+
+# Initialize default values
 STATE="present"
 CREATE="false"
 BACKUP="false"
@@ -123,21 +124,26 @@ while [ $# -gt 0 ]; do
       ;;
     *)
       echo "Unknown option: $1"
+      exit 1
       ;;
   esac
 done
 
 # Validate required arguments
 if [ -z "$FILE_PATH" ]; then
-  echo "Error: 'path' is required"
+  echo "Error: '--path' is required"
+  exit 1
 fi
 
-# Check if the file exists
-if [ ! -f "$FILE_PATH" -a "$CREATE" = "false" ]; then
-  echo "Error: File '$FILE_PATH' does not exist and 'create' is set to 'false'"
-  exit 1
-elif [ ! -f "$FILE_PATH" -a "$CREATE" = "true" ]; then
-  touch "$FILE_PATH"
+# Create the file if it doesn't exist and --create is true
+if [ ! -f "$FILE_PATH" ]; then
+  if [ "$CREATE" = "true" ]; then
+    touch "$FILE_PATH"
+    echo "File created: $FILE_PATH"
+  else
+    echo "Error: File '$FILE_PATH' does not exist and '--create' is set to false"
+    exit 1
+  fi
 fi
 
 # Create a backup if requested
@@ -147,99 +153,88 @@ if [ "$BACKUP" = "true" ]; then
   echo "Backup created: $BACKUP_FILE"
 fi
 
-# Handle present state
+# Handle the 'present' state
 if [ "$STATE" = "present" ]; then
-  # Handle insertion or replacement if 'line' is provided
-  if [ -n "$LINE" ]; then
-    # Check if line already exists
-    if grep -q "$LINE" "$FILE_PATH"; then
-      echo "Line already exists in the file"
-      exit 0
-    fi
+  if [ -z "$LINE" ]; then
+    echo "Error: '--line' is required for 'present' state"
+    exit 1
+  fi
 
-    # Handle replacement
-    if [ -n "$REGEXP" ]; then
-      if grep -q "$REGEXP" "$FILE_PATH"; then
-        # Use a temporary file for sed
-        sed "s/$REGEXP/$LINE/" "$FILE_PATH" > "$FILE_PATH.tmp"
-        mv "$FILE_PATH.tmp" "$FILE_PATH"
-        echo "Line replaced in the file"
-        exit 0
-      fi
-    fi
-
-    # Handle insertion
-    if [ -n "$INSERTAFTER" ]; then
-      if [ "$INSERTAFTER" = "EOF" ]; then
-        echo "$LINE" >> "$FILE_PATH"
-        echo "Line inserted at end of file"
-      else
-        # Use a temporary file for sed
-        sed "/$INSERTAFTER/a $LINE" "$FILE_PATH" > "$FILE_PATH.tmp"
-        mv "$FILE_PATH.tmp" "$FILE_PATH"
-        echo "Line inserted after '$INSERTAFTER'"
-      fi
-      exit 0
-    elif [ -n "$INSERTBEFORE" ]; then
-      if [ "$INSERTBEFORE" = "BOF" ]; then
-        # Use a temporary file for sed
-        sed "1s/^/$LINE\n/" "$FILE_PATH" > "$FILE_PATH.tmp"
-        mv "$FILE_PATH.tmp" "$FILE_PATH"
-        echo "Line inserted at beginning of file"
-      else
-        # Use a temporary file for sed
-        sed "/$INSERTBEFORE/i $LINE" "$FILE_PATH" > "$FILE_PATH.tmp"
-        mv "$FILE_PATH.tmp" "$FILE_PATH"
-        echo "Line inserted before '$INSERTBEFORE'"
-      fi
-      exit 0
-    else
-      echo "$LINE" >> "$FILE_PATH"
-      echo "Line appended to the file"
-      exit 0
-    fi
-  # If 'line' is not provided, check for regexp match when state is present
-  elif [ -n "$REGEXP" ]; then
-    if ! grep -q "$REGEXP" "$FILE_PATH"; then
-      echo "No lines match '$REGEXP' when expecting at least one match"
-    fi
+  # Check if the line already exists
+  if grep -Fxq "$LINE" "$FILE_PATH"; then
+    echo "Line already exists, no changes made."
     exit 0
-  else
-    echo "Error: 'line' or 'pattern' is required when state is 'present'"
-    exit 1
-  fi
-fi
-
-# Handle absent state
-if [ "$STATE" = "absent" ]; then
-  if [ -z "$REGEXP" -a -z "$LINE" ]; then
-    echo "Error: Either 'pattern' or 'line' is required when state is 'absent'"
-    exit 1
   fi
 
+  # Handle pattern replacement
   if [ -n "$REGEXP" ]; then
-    # Use a temporary file for sed
-    sed "/$REGEXP/d" "$FILE_PATH" > "$FILE_PATH.tmp"
-    mv "$FILE_PATH.tmp" "$FILE_PATH"
-    echo "Lines matching '$REGEXP' removed from the file"
-  elif [ -n "$LINE" ]; then
-    # Use a temporary file for sed
-    sed "/$(echo "$LINE" | sed 's/[^^]/[&]/g; s/\^/\\^/g')/d" "$FILE_PATH" > "$FILE_PATH.tmp"
-    mv "$FILE_PATH.tmp" "$FILE_PATH"
-    echo "Lines matching '$LINE' removed from the file"
+    if grep -q "$REGEXP" "$FILE_PATH"; then
+      sed -i.bak "/$REGEXP/c\$LINE" "$FILE_PATH"
+      echo "Line replaced matching pattern: $REGEXP"
+      exit 0
+    fi
+  fi
+
+  # Handle line insertion
+  if [ -n "$INSERTAFTER" ]; then
+    if [ "$INSERTAFTER" = "EOF" ]; then
+      echo "$LINE" >> "$FILE_PATH"
+      echo "Line appended to the end of the file."
+    else
+      sed -i.bak "/$INSERTAFTER/a\$LINE" "$FILE_PATH"
+      echo "Line inserted after pattern: $INSERTAFTER"
+    fi
+  elif [ -n "$INSERTBEFORE" ]; then
+    if [ "$INSERTBEFORE" = "BOF" ]; then
+      sed -i.bak "1i\$LINE" "$FILE_PATH"
+      echo "Line inserted at the beginning of the file."
+    else
+      sed -i.bak "/$INSERTBEFORE/i\$LINE" "$FILE_PATH"
+      echo "Line inserted before pattern: $INSERTBEFORE"
+    fi
+  else
+    echo "$LINE" >> "$FILE_PATH"
+    echo "Line appended to the file."
   fi
   exit 0
 fi
+
+# Handle the 'absent' state
+if [ "$STATE" = "absent" ]; then
+  if [ -z "$REGEXP" ] && [ -z "$LINE" ]; then
+    echo "Error: '--pattern' or '--line' is required for 'absent' state"
+    exit 1
+  fi
+
+  # Remove lines matching the exact line
+  if [ -n "$LINE" ]; then
+    sed -i.bak "/^$(echo "$LINE" | sed 's/[^^]/[&]/g; s/\^/\\^/g')$/d" "$FILE_PATH"
+    echo "Removed line: $LINE"
+  fi
+
+  # Remove lines matching the regex
+  if [ -n "$REGEXP" ]; then
+    sed -i.bak "/$REGEXP/d" "$FILE_PATH"
+    echo "Removed lines matching pattern: $REGEXP"
+  fi
+  exit 0
+fi
+
+# If no valid state is provided
+echo "Error: Invalid state '$STATE'. Use 'present' or 'absent'."
+exit 1
 "#;
 
 // Tests
 #[cfg(test)]
 mod tests {
+    use crate::create_lua;
+
     use super::*;
 
     #[test]
     fn test_lineinfile_no_path() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         let result = lineinfile(&lua, params);
         assert!(result.is_err());
@@ -251,7 +246,7 @@ mod tests {
 
     #[test]
     fn test_lineinfile_invalid_state() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         params.set("path", "/tmp/test.txt").unwrap();
         params.set("line", "Hello, world!").unwrap();
@@ -266,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_lineinfile_no_line_or_pattern() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         params.set("path", "/tmp/test.txt").unwrap();
         let result = lineinfile(&lua, params);
@@ -279,7 +274,7 @@ mod tests {
 
     #[test]
     fn test_lineinfile_present() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         params.set("path", "/tmp/test.txt").unwrap();
         params.set("state", "present").unwrap();
@@ -290,7 +285,7 @@ mod tests {
 
     #[test]
     fn test_lineinfile_absent() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         params.set("path", "/tmp/test.txt").unwrap();
         params.set("state", "absent").unwrap();

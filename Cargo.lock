@@ -304,8 +304,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "http-client"
+name = "http-klien"
 version = "0.1.0"
+source = "git+https://github.com/hahnavi/http-klien-rs?branch=main#b0a089265997c13b2414988111a1c5751207d861"
 dependencies = [
  "base64",
  "openssl",
@@ -348,7 +349,7 @@ dependencies = [
  "anyhow",
  "base64",
  "clap",
- "http-client",
+ "http-klien",
  "minijinja",
  "mlua",
  "rand",

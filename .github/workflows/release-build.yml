@@ -122,3 +122,37 @@ jobs:
           artifacts: |
             komandan_${{ env.RELEASE_TAG }}-linux-x86_64.zip
             komandan_${{ env.RELEASE_TAG }}-linux-aarch64.zip
+
+  docker-build-and-push:
+    runs-on: ubuntu-22.04
+    needs: [get_build_number, release]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        run: |
+          VERSION="${{ github.event.inputs.version }}-build${{ needs.get_build_number.outputs.build_number }}"
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Change Cargo.toml version
+        run: |
+          sed -i "s/^version[ ]*=[ ]*\"[^\"]*\"/version = \"${{ env.VERSION }}\"/" Cargo.toml
+          echo "Updated version in Cargo.toml:"
+          grep "^version" Cargo.toml
+
+      - name: Build Docker image
+        run: docker build -t hahnavi/komandan:${{ env.VERSION }} .
+
+      - name: Retag image
+        run: docker tag hahnavi/komandan:${{ env.VERSION }} hahnavi/komandan:latest
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+
+      - name: Push Docker images
+        run: |
+          docker push hahnavi/komandan:${{ env.VERSION }}
+          docker push hahnavi/komandan:latest

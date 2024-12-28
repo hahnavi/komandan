@@ -70,10 +70,8 @@ local hosts = {
   },
 }
 
-komandan.set_defaults({
-  user = "user1",
-  private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
-})
+komandan.defaults:set_user("user1")
+komandan.defaults:set_private_key_file(os.getenv("HOME") .. "/.ssh/id_ed25519"),
 
 local webservers = komandan.filter_hosts(hosts, "webserver")
 
@@ -133,6 +131,7 @@ Komandan provides built-in modules for common tasks, accessible through the `kom
 -   **`apt`**: Manage packages on Debian/Ubuntu systems using `apt`.
 -   **`lineinfile`**: Insert or replace lines in a file.
 -   **`template`**: Render a jinja template file on the remote host.
+-   **`systemd_service`**: Manage systemd services on the remote host.
 
 For detailed explanations, arguments, and examples of each module, please refer to the [Modules section of the Komandan Documentation Site](https://komandan.vercel.app/docs/modules).
 
