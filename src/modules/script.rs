@@ -54,14 +54,16 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
     Ok(module)
 }
 
+// Tests
 #[cfg(test)]
 mod tests {
+    use crate::create_lua;
+
     use super::*;
-    use mlua::Lua;
 
     #[test]
     fn test_script_or_from_file_required() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         let result = script(&lua, params);
         assert!(result.is_err());
@@ -73,7 +75,7 @@ mod tests {
 
     #[test]
     fn test_script_and_from_file_exclusive() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         params.set("script", "echo hello").unwrap();
         params.set("from_file", "examples/run_script.lua").unwrap();
@@ -87,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_script() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         params.set("script", "echo hello").unwrap();
         params.set("interpreter", "bash").unwrap();
@@ -97,7 +99,7 @@ mod tests {
 
     #[test]
     fn test_from_file() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         params.set("from_file", "examples/run_script.lua").unwrap();
         let result = script(&lua, params);

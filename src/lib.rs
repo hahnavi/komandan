@@ -13,7 +13,7 @@ use mlua::{
     Error::{self, RuntimeError},
     FromLua, Integer, IntoLua, Lua, LuaSerdeExt, MultiValue, Table, UserData, Value,
 };
-use modules::{apt, base_module, cmd, download, lineinfile, script, template, upload};
+use modules::{base_module, collect_modules};
 use rayon::prelude::*;
 use rustyline::DefaultEditor;
 use serde::{Deserialize, Serialize};
@@ -92,15 +92,7 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     komandan.set("dprint", lua.create_function(dprint)?)?;
 
     // Add core modules
-    let modules_table = lua.create_table()?;
-    modules_table.set("apt", lua.create_function(apt)?)?;
-    modules_table.set("cmd", lua.create_function(cmd)?)?;
-    modules_table.set("lineinfile", lua.create_function(lineinfile)?)?;
-    modules_table.set("script", lua.create_function(script)?)?;
-    modules_table.set("template", lua.create_function(template)?)?;
-    modules_table.set("upload", lua.create_function(upload)?)?;
-    modules_table.set("download", lua.create_function(download)?)?;
-    komandan.set("modules", modules_table)?;
+    komandan.set("modules", collect_modules(lua))?;
 
     lua.globals().set("komandan", &komandan)?;
 
@@ -330,16 +322,16 @@ fn execute_task(
     host_display: &str,
 ) -> mlua::Result<Table> {
     lua.load(chunk! {
-        print("Running task '" .. $task_display .. "' on host '" .. $host_display .."' ...")
+        print(">> Running task '" .. $task_display .. "' on host '" .. $host_display .."' ...")
         $module.ssh = $ssh
         $module:run()
 
         local results = $module.ssh:get_session_results()
         komandan.dprint(results.stdout)
         if results.exit_code ~= 0 then
-            print("Task '" .. $task_display .. "' on host '" .. $host_display .."' failed with exit code " .. results.exit_code .. ": " .. results.stderr)
+            print(">> Task '" .. $task_display .. "' on host '" .. $host_display .."' failed with exit code " .. results.exit_code .. ": " .. results.stderr)
         else
-            print("Task '" .. $task_display .. "' on host '" .. $host_display .."' succeeded.")
+            print(">> Task '" .. $task_display .. "' on host '" .. $host_display .."' succeeded.")
         end
 
         if $module.cleanup ~= nil then
@@ -764,8 +756,7 @@ mod tests {
 
     #[test]
     fn test_setup_komandan_table() {
-        let lua = Lua::new();
-        setup_komandan_table(&lua).unwrap();
+        let lua = create_lua().unwrap();
 
         // Assert that the komandan table is set up correctly
         let komandan_table = lua.globals().get::<Table>("komandan").unwrap();
@@ -785,6 +776,7 @@ mod tests {
         assert!(modules_table.contains_key("cmd").unwrap());
         assert!(modules_table.contains_key("lineinfile").unwrap());
         assert!(modules_table.contains_key("script").unwrap());
+        assert!(modules_table.contains_key("systemd_service").unwrap());
         assert!(modules_table.contains_key("template").unwrap());
         assert!(modules_table.contains_key("upload").unwrap());
         assert!(modules_table.contains_key("download").unwrap());
@@ -792,7 +784,7 @@ mod tests {
 
     #[test]
     fn test_run_main_file() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
 
         // Test with a valid Lua file
         let main_file = "examples/hosts.lua".to_string();
@@ -812,7 +804,12 @@ mod tests {
 
         let module_params = lua.create_table().unwrap();
         module_params.set("cmd", "echo test").unwrap();
-        let module = cmd(&lua, module_params).unwrap();
+        let module = lua
+            .load(chunk! {
+                return komandan.modules.cmd($module_params)
+            })
+            .eval::<Table>()
+            .unwrap();
         let task = lua.create_table().unwrap();
         task.set(1, module).unwrap();
 
@@ -846,7 +843,7 @@ mod tests {
 
     #[test]
     fn test_get_elevation_config() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let host = lua.create_table().unwrap();
         let task = lua.create_table().unwrap();
 

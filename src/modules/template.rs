@@ -68,14 +68,15 @@ pub fn template(lua: &Lua, params: Table) -> mlua::Result<Table> {
 // Tests
 #[cfg(test)]
 mod tests {
+    use crate::create_lua;
+
     use super::*;
-    use mlua::Lua;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
     #[test]
     fn test_template_src_required() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         let result = template(&lua, params);
         assert!(result.is_err());
@@ -87,7 +88,7 @@ mod tests {
 
     #[test]
     fn test_template_dst_required() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         params.set("src", "example.src").unwrap();
         let result = template(&lua, params);
@@ -100,7 +101,7 @@ mod tests {
 
     #[test]
     fn test_template_vars_must_be_table() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         params.set("src", "example.src").unwrap();
         params.set("dst", "example.dst").unwrap();
@@ -115,7 +116,7 @@ mod tests {
 
     #[test]
     fn test_template_src_file_exists() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         params.set("src", "non_existent_file.src").unwrap();
         params.set("dst", "example.dst").unwrap();
@@ -131,7 +132,7 @@ mod tests {
     fn test_template_success() {
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "{{ name }} is {{ age }} years old").unwrap();
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         params
             .set("src", temp_file.path().to_str().unwrap())

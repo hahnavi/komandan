@@ -570,7 +570,7 @@ mod tests {
 
     #[test]
     fn test_hostname_display() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
 
         // Test with name
         let host = lua.create_table().unwrap();

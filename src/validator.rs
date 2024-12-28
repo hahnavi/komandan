@@ -69,13 +69,11 @@ pub fn validate_module(lua: &Lua, module: Value) -> mlua::Result<Table> {
 // Tests
 #[cfg(test)]
 mod tests {
-    use crate::modules::cmd;
-
-    use super::*;
+    use crate::create_lua;
 
     #[test]
     fn test_validate_host_valid() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let host = lua.create_table().unwrap();
         host.set("address", "127.0.0.1").unwrap();
         host.set("port", 22).unwrap();
@@ -86,7 +84,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_not_table() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let result = super::validate_host(&lua, mlua::Value::Nil);
         assert!(result.is_err());
         assert_eq!(
@@ -97,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_missing_address() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let host = lua.create_table().unwrap();
         host.set("port", 22).unwrap();
 
@@ -111,7 +109,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_invalid_address_type() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let host = lua.create_table().unwrap();
         host.set("address", 123).unwrap();
         host.set("port", 22).unwrap();
@@ -126,7 +124,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_valid_port() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let host = lua.create_table().unwrap();
         host.set("address", "127.0.0.1").unwrap();
         host.set("port", 22).unwrap();
@@ -137,7 +135,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_invalid_port_type() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let host = lua.create_table().unwrap();
         host.set("address", "127.0.0.1").unwrap();
         host.set("port", "22").unwrap();
@@ -153,7 +151,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_port_out_of_range() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let host = lua.create_table().unwrap();
         host.set("address", "127.0.0.1").unwrap();
         host.set("port", 65536).unwrap();
@@ -169,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_validate_port_valid_min() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let result = super::validate_port(&lua, mlua::Value::Integer(0));
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
@@ -177,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_validate_port_valid_max() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let result = super::validate_port(&lua, mlua::Value::Integer(65535));
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 65535);
@@ -185,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_validate_port_invalid_negative() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let result = super::validate_port(&lua, mlua::Value::Integer(-1));
         assert!(result.is_err());
         assert_eq!(
@@ -196,7 +194,7 @@ mod tests {
 
     #[test]
     fn test_validate_port_invalid_too_large() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let result = super::validate_port(&lua, mlua::Value::Integer(65536));
         assert!(result.is_err());
         assert_eq!(
@@ -207,7 +205,7 @@ mod tests {
 
     #[test]
     fn test_validate_task_valid() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let task = lua.create_table().unwrap();
         let module = lua.create_table().unwrap();
         module.set("name", "cmd").unwrap();
@@ -219,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_validate_task_not_table() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let result = super::validate_task(&lua, mlua::Value::Nil);
         assert!(result.is_err());
         assert_eq!(
@@ -230,7 +228,7 @@ mod tests {
 
     #[test]
     fn test_validate_task_empty() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let task = lua.create_table().unwrap();
 
         let result = super::validate_task(&lua, mlua::Value::Table(task));
@@ -243,37 +241,7 @@ mod tests {
 
     #[test]
     fn test_validate_module_valid_string() {
-        let lua = Lua::new();
-        let komandan = lua.create_table().unwrap();
-
-        let komandan_module = lua
-            .load(chunk! {
-                    local KomandanModule = {}
-
-            function KomandanModule:new(data)
-                local o = setmetatable({}, { __index = self })
-                o.name = data.name
-                o.script = data.script
-                return o
-            end
-
-            function KomandanModule:run_module()
-            self:run()
-            end
-
-            return KomandanModule
-                })
-            .eval::<Table>()
-            .unwrap();
-
-        komandan.set("KomandanModule", komandan_module).unwrap();
-
-        let modules = lua.create_table().unwrap();
-        modules
-            .set("cmd", lua.create_function(cmd).unwrap())
-            .unwrap();
-        komandan.set("modules", modules).unwrap();
-        lua.globals().set("komandan", komandan).unwrap();
+        let lua = create_lua().unwrap();
 
         let result =
             super::validate_module(&lua, mlua::Value::String(lua.create_string("ls").unwrap()));
@@ -283,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_validate_module_valid_table() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let module = lua.create_table().unwrap();
         module.set("cmd", "ls").unwrap();
 
@@ -293,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_validate_module_invalid() {
-        let lua = Lua::new();
+        let lua = create_lua().unwrap();
         let result = super::validate_module(&lua, mlua::Value::Nil);
         assert!(result.is_err());
         assert_eq!(
