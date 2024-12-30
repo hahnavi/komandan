@@ -160,8 +160,8 @@ impl SSHSession {
                 None => format!("su -c '{}'", command),
             },
             ElevationMethod::Sudo => match &self.elevation.as_user {
-                Some(user) => format!("sudo -u {} {}", user, command),
-                None => format!("sudo {}", command),
+                Some(user) => format!("sudo -E -u {} {}", user, command),
+                None => format!("sudo -E {}", command),
             },
             _ => command.to_string(),
         };

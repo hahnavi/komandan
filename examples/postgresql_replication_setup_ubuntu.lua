@@ -33,8 +33,11 @@ local tasks_postgresql_install = {
     },
     {
         name = "Add PostgreSQL repository",
+        env = {
+            YES = "yes",
+        },
         komandan.modules.cmd({
-            cmd = "YES=yes /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh",
+            cmd = "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh",
         }),
     },
     {
