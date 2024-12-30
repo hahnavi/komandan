@@ -321,24 +321,40 @@ fn execute_task(
     task_display: &str,
     host_display: &str,
 ) -> mlua::Result<Table> {
+    let dry_run = Args::parse().dry_run;
+
     lua.load(chunk! {
         print(">> Running task '" .. $task_display .. "' on host '" .. $host_display .."' ...")
         $module.ssh = $ssh
-        $module:run()
 
-        local results = $module.ssh:get_session_results()
-        komandan.dprint(results.stdout)
-        if results.exit_code ~= 0 then
-            print(">> Task '" .. $task_display .. "' on host '" .. $host_display .."' failed with exit code " .. results.exit_code .. ": " .. results.stderr)
+        if $dry_run then
+            if $module.dry_run ~= nil then
+                $module:dry_run()
+            else
+                print("[[ Task '" .. $task_display .. "' on host '" .. $host_display .."' does not support dry-run. Assuming 'changed' is true. ]]")
+                $module.ssh:set_changed(true)
+            end
         else
-            print(">> Task '" .. $task_display .. "' on host '" .. $host_display .."' succeeded.")
+            $module:run()
+        end
+
+        local result = $module.ssh:get_session_result()
+        komandan.dprint(result.stdout)
+        if result.exit_code ~= 0 then
+            print(">> Task '" .. $task_display .. "' on host '" .. $host_display .."' failed with exit code " .. result.exit_code .. ": " .. result.stderr)
+        else
+            local state = "[OK]"
+            if result.changed then
+                state = "[Changed]"
+            end
+            print(">> Task '" .. $task_display .. "' on host '" .. $host_display .."' succeeded. " .. state)
         end
 
         if $module.cleanup ~= nil then
             $module:cleanup()
         end
 
-        return results
+        return result
     })
     .set_name("execute_task")
     .eval::<Table>()
@@ -746,6 +762,7 @@ mod tests {
             args,
             Args {
                 chunk: None,
+                dry_run: false,
                 interactive: false,
                 verbose: true,
                 version: false,

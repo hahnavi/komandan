@@ -264,6 +264,7 @@ mod tests {
         let args = Args {
             main_file: None,
             chunk: None,
+            dry_run: false,
             interactive: false,
             verbose: true,
             version: false,
@@ -281,6 +282,7 @@ mod tests {
         let args = Args {
             main_file: None,
             chunk: None,
+            dry_run: false,
             interactive: false,
             verbose: false,
             version: false,

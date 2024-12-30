@@ -249,3 +249,30 @@ fn test_komando_script_from_file() {
     assert!(result_table.get::<String>("stdout").unwrap() == "hello");
     assert!(result_table.get::<String>("stderr").unwrap() == "");
 }
+
+#[test]
+fn test_komando_apt() {
+    let lua = create_lua().unwrap();
+
+    let result_table = lua
+        .load(chunk! {
+            local hosts = {
+                address = "localhost",
+                user = "usertest",
+                private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
+            }
+
+            local task = {
+                komandan.modules.apt({
+                    package = "tar",
+                }),
+                elevate = true
+            }
+
+            return komandan.komando(hosts, task)
+        })
+        .eval::<Table>()
+        .unwrap();
+
+    assert!(result_table.get::<Integer>("exit_code").unwrap() == 0);
+}

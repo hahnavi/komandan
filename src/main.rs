@@ -18,6 +18,10 @@ fn main() -> anyhow::Result<()> {
         lua.load(&chunk).eval::<()>()?;
     }
 
+    if args.dry_run {
+        println!("[[[ Running in dry-run mode ]]]");
+    }
+
     if let Some(main_file) = &args.main_file {
         run_main_file(&lua, main_file)?;
     } else if args.chunk.is_none() {

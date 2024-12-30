@@ -41,6 +41,7 @@ pub struct SSHSession {
     stdout: Option<String>,
     stderr: Option<String>,
     exit_code: Option<i32>,
+    changed: Option<bool>,
 }
 
 impl SSHSession {
@@ -56,6 +57,7 @@ impl SSHSession {
             stdout: Some(String::new()),
             stderr: Some(String::new()),
             exit_code: Some(0),
+            changed: Some(true),
         })
     }
 
@@ -149,6 +151,20 @@ impl SSHSession {
         self.stdout.as_mut().unwrap().push_str(&stdout);
         self.stderr.as_mut().unwrap().push_str(&stderr);
         self.exit_code = Some(exit_code);
+
+        Ok((stdout, stderr, exit_code))
+    }
+
+    pub fn cmdq(&mut self, command: &str) -> Result<(String, String, i32)> {
+        let mut channel = self.execute_command(command)?;
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+
+        channel.read_to_string(&mut stdout)?;
+        channel.stderr().read_to_string(&mut stderr)?;
+        stdout = stdout.trim_end_matches('\n').to_string();
+        channel.wait_close()?;
+        let exit_code = channel.exit_status()?;
 
         Ok((stdout, stderr, exit_code))
     }
@@ -312,6 +328,19 @@ impl UserData for SSHSession {
             Ok(table)
         });
 
+        methods.add_method_mut("cmdq", |lua, this, command: String| {
+            let command = this.prepare_command(command.as_str())?;
+            let cmd_result = this.cmdq(&command);
+            let (stdout, stderr, exit_code) = cmd_result?;
+
+            let table = lua.create_table()?;
+            table.set("stdout", stdout)?;
+            table.set("stderr", stderr)?;
+            table.set("exit_code", exit_code)?;
+
+            Ok(table)
+        });
+
         methods.add_method_mut(
             "write_remote_file",
             |_, this, (remote_path, content): (String, String)| {
@@ -357,11 +386,17 @@ impl UserData for SSHSession {
             Ok(())
         });
 
-        methods.add_method("get_session_results", |lua, this, ()| {
+        methods.add_method_mut("set_changed", |_, this, changed: bool| {
+            this.changed = Some(changed);
+            Ok(())
+        });
+
+        methods.add_method("get_session_result", |lua, this, ()| {
             let table = lua.create_table()?;
             table.set("stdout", this.stdout.as_ref().unwrap().clone())?;
             table.set("stderr", this.stderr.as_ref().unwrap().clone())?;
             table.set("exit_code", this.exit_code.unwrap())?;
+            table.set("changed", this.changed.unwrap())?;
             Ok(table)
         });
     }
@@ -399,13 +434,13 @@ mod tests {
         session.elevation.method = ElevationMethod::Sudo;
         session.elevation.as_user = None;
         let cmd = session.prepare_command("ls -la").unwrap();
-        assert_eq!(cmd, "sudo ls -la");
+        assert_eq!(cmd, "sudo -E ls -la");
 
         // Test with sudo elevation and user
         session.elevation.method = ElevationMethod::Sudo;
         session.elevation.as_user = Some("admin".to_string());
         let cmd = session.prepare_command("ls -la").unwrap();
-        assert_eq!(cmd, "sudo -u admin ls -la");
+        assert_eq!(cmd, "sudo -E -u admin ls -la");
 
         // Test with su elevation
         session.elevation.method = ElevationMethod::Su;

@@ -8,7 +8,11 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 params.update_cache = false
             end
 
-            if params.package == nil and params.update_cache == false then
+            if params.action == nil then
+                params.action = "install"
+            end
+
+            if (params.action == "install" or params.action == "remove" or params.action == "purge") and params.package == nil then
                 error("package is required")
             end
 
@@ -16,13 +20,52 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 params.install_recommends = true
             end
 
-            if params.action == nil then
-                params.action = "install"
+            params.install_opts = ""
+            if not params.install_recommends then
+                params.install_opts = params.install_opts .. " --no-install-recommends"
             end
 
             local module = $base_module:new({ name = "apt" })
 
             module.params = $params
+
+            module.is_installed = function(self)
+                if self.params.package == nil then
+                    return false
+                end
+
+                local pkg_check = self.ssh:cmdq("dpkg-query -W -f='${Status}' " .. self.params.package .. " 2>/dev/null | grep -q 'ok installed'")
+                if pkg_check.exit_code == 0 then
+                    return true
+                else
+                    return false
+                end
+            end
+
+            module.dry_run = function(self)
+                local installed = self:is_installed()
+
+                if self.params.action == "install" then
+                    self.ssh:cmd("apt -s install " .. self.params.package .. self.params.install_opts)
+                    if installed then
+                        self.ssh:set_changed(false)
+                    end
+                elseif self.params.action == "remove" then
+                    self.ssh:cmd("apt -s remove " .. self.params.package)
+                    if not installed then
+                        self.ssh:set_changed(false)
+                    end
+                elseif self.params.action == "purge" then
+                    self.ssh:cmd("apt -s purge " .. self.params.package)
+                    if not installed then
+                        self.ssh:set_changed(false)
+                    end
+                elseif self.params.action == "upgrade" then
+                    self.ssh:cmd("apt -s upgrade")
+                elseif self.params.action == "autoremove" then
+                    self.ssh:cmd("apt -s autoremove")
+                end
+            end
 
             module.run = function(self)
                 if self.params.update_cache then
@@ -33,17 +76,23 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                     return
                 end
 
-                local install_opts = ""
-                if not self.params.install_recommends then
-                    install_opts = install_opts .. " --no-install-recommends"
-                end
+                local installed = self:is_installed()
 
                 if self.params.action == "install" then
-                    self.ssh:cmd("apt install -y " .. self.params.package .. install_opts)
+                    self.ssh:cmd("apt install -y " .. self.params.package .. self.params.install_opts)
+                    if installed then
+                        self.ssh:set_changed(false)
+                    end
                 elseif self.params.action == "remove" then
                     self.ssh:cmd("apt remove -y " .. self.params.package)
+                    if not installed then
+                        self.ssh:set_changed(false)
+                    end
                 elseif self.params.action == "purge" then
                     self.ssh:cmd("apt purge -y " .. self.params.package)
+                    if not installed then
+                        self.ssh:set_changed(false)
+                    end
                 elseif self.params.action == "upgrade" then
                     self.ssh:cmd("apt upgrade -y")
                 elseif self.params.action == "autoremove" then
@@ -68,7 +117,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_package_required() {
+    fn test_apt_package_required() {
         let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         let result = apt(&lua, params);
@@ -80,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn test_valid_package() {
+    fn test_apt_valid_package() {
         let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
         params.set("package", "vim").unwrap();
