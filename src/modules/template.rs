@@ -40,7 +40,7 @@ pub fn template(lua: &Lua, params: Table) -> mlua::Result<Table> {
         .take(10)
         .collect();
 
-    let base_module = super::base_module(&lua);
+    let base_module = super::base_module(lua)?;
     let module = lua
         .load(chunk! {
             local module = $base_module:new({ name = "template" })

@@ -5,6 +5,7 @@ pub mod ssh;
 mod util;
 mod validator;
 
+use anyhow::Result;
 use args::Args;
 use clap::Parser;
 use defaults::Defaults;
@@ -13,7 +14,7 @@ use mlua::{
     Error::{self, RuntimeError},
     FromLua, Integer, IntoLua, Lua, LuaSerdeExt, MultiValue, Table, UserData, Value,
 };
-use modules::{base_module, collect_modules};
+use modules::{base_module, collect_core_modules};
 use rayon::prelude::*;
 use rustyline::DefaultEditor;
 use serde::{Deserialize, Serialize};
@@ -62,10 +63,10 @@ pub fn create_lua() -> mlua::Result<Lua> {
 pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     let komandan = lua.create_table()?;
 
-    let defaults = Defaults::global();
+    let defaults = Defaults::global()?;
     komandan.set("defaults", defaults)?;
 
-    let base_module = base_module(&lua);
+    let base_module = base_module(lua)?;
     komandan.set("KomandanModule", base_module)?;
 
     komandan.set("komando", lua.create_function(komando)?)?;
@@ -92,7 +93,7 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     komandan.set("dprint", lua.create_function(dprint)?)?;
 
     // Add core modules
-    komandan.set("modules", collect_modules(lua))?;
+    komandan.set("modules", collect_core_modules(lua)?)?;
 
     lua.globals().set("komandan", &komandan)?;
 
@@ -100,7 +101,7 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
 }
 
 fn get_user(host: &Table, task: &Table) -> mlua::Result<String> {
-    let defaults = Defaults::global();
+    let defaults = Defaults::global()?;
     let default_user = match defaults.user.read() {
         Ok(user) => user,
         Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
@@ -130,7 +131,7 @@ fn get_auth_config(host: &Table, task: &Table) -> mlua::Result<(String, SSHAuthM
 
     let user = get_user(host, task)?;
 
-    let defaults = Defaults::global();
+    let defaults = Defaults::global()?;
 
     let default_private_key_file = match defaults.private_key_file.read() {
         Ok(private_key_file) => private_key_file,
@@ -152,10 +153,7 @@ fn get_auth_config(host: &Table, task: &Table) -> mlua::Result<(String, SSHAuthM
             private_key: private_key_file,
             passphrase: match host.get::<String>("private_key_pass") {
                 Ok(passphrase) => Some(passphrase),
-                Err(_) => match *default_private_key_pass {
-                    Some(ref private_key_pass) => Some(private_key_pass.clone()),
-                    None => None,
-                },
+                Err(_) => (*default_private_key_pass).clone(),
             },
         },
         Err(_) => match *default_private_key_file {
@@ -163,10 +161,7 @@ fn get_auth_config(host: &Table, task: &Table) -> mlua::Result<(String, SSHAuthM
                 private_key: private_key_file.clone(),
                 passphrase: match host.get::<String>("private_key_pass") {
                     Ok(passphrase) => Some(passphrase),
-                    Err(_) => match *default_private_key_pass {
-                        Some(ref passphrase) => Some(passphrase.clone()),
-                        None => None,
-                    },
+                    Err(_) => (*default_private_key_pass).clone(),
                 },
             },
             None => match host.get::<String>("password") {
@@ -188,7 +183,7 @@ fn get_auth_config(host: &Table, task: &Table) -> mlua::Result<(String, SSHAuthM
 }
 
 fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevation> {
-    let defaults = Defaults::global();
+    let defaults = Defaults::global()?;
 
     let default_elevate = match defaults.elevate.read() {
         Ok(elevate) => elevate,
@@ -250,7 +245,7 @@ fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevation> {
 }
 
 fn setup_ssh_session(host: &Table) -> mlua::Result<SSHSession> {
-    let defaults = Defaults::global();
+    let defaults = Defaults::global()?;
     let mut ssh = SSHSession::new()?;
 
     let default_host_key_check = match defaults.host_key_check.read() {
@@ -260,7 +255,7 @@ fn setup_ssh_session(host: &Table) -> mlua::Result<SSHSession> {
 
     let host_key_check = match host.get::<Value>("host_key_check") {
         Ok(host_key_check) => match host_key_check {
-            Value::Nil => default_host_key_check.clone(),
+            Value::Nil => *default_host_key_check,
             Value::Boolean(false) => false,
             _ => true,
         },
@@ -283,7 +278,7 @@ fn setup_ssh_session(host: &Table) -> mlua::Result<SSHSession> {
 }
 
 fn setup_environment(ssh: &mut SSHSession, host: &Table, task: &Table) -> mlua::Result<()> {
-    let defaults = Defaults::global();
+    let defaults = Defaults::global()?;
 
     let default_env = match defaults.env.read() {
         Ok(env) => env,
@@ -297,14 +292,14 @@ fn setup_environment(ssh: &mut SSHSession, host: &Table, task: &Table) -> mlua::
         ssh.set_env(&key, &value);
     }
 
-    if !env_host.is_none() {
+    if env_host.is_some() {
         for pair in env_host.unwrap().pairs() {
             let (key, value): (String, String) = pair?;
             ssh.set_env(&key, &value);
         }
     }
 
-    if !env_task.is_none() {
+    if env_task.is_some() {
         for pair in env_task.unwrap().pairs() {
             let (key, value): (String, String) = pair?;
             ssh.set_env(&key, &value);
@@ -368,7 +363,7 @@ fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
     let host_display = host_display(&host);
     let task_display = task_display(&task);
 
-    let defaults = Defaults::global();
+    let defaults = Defaults::global()?;
 
     let (user, ssh_auth_method) = get_auth_config(&host, &task)?;
     let elevation = get_elevation_config(&host, &task)?;
@@ -378,9 +373,7 @@ fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
         Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
-    let port = host
-        .get::<Integer>("port")
-        .unwrap_or(default_port.clone() as i64) as u16;
+    let port = host.get::<Integer>("port").unwrap_or(*default_port as i64) as u16;
 
     let mut ssh = setup_ssh_session(&host)?;
     ssh.elevation = elevation;
@@ -403,9 +396,9 @@ fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
 
     let ignore_exit_code = task
         .get::<bool>("ignore_exit_code")
-        .unwrap_or(default_ignore_exit_code.clone());
+        .unwrap_or(*default_ignore_exit_code);
 
-    if results.get::<Integer>("exit_code").unwrap() != 0 && !ignore_exit_code {
+    if results.get::<Integer>("exit_code")? != 0 && !ignore_exit_code {
         return Err(RuntimeError("Failed to run task.".to_string()));
     }
 
@@ -630,11 +623,11 @@ fn komando_parallel_tasks(lua: &Lua, (host, tasks): (Value, Value)) -> mlua::Res
             let task = task.clone().into_lua(&lua).unwrap();
             let result = komando(&lua, (host, task)).unwrap();
 
-            return (
+            (
                 *i,
                 lua.from_value::<KomandoResult>(Value::Table(result))
                     .unwrap(),
-            );
+            )
         })
         .collect::<HashMap<u32, KomandoResult>>();
 
@@ -665,11 +658,11 @@ fn komando_parallel_hosts(lua: &Lua, (hosts, task): (Value, Value)) -> mlua::Res
             let task = task.clone().into_lua(&lua).unwrap();
             let result = komando(&lua, (host, task)).unwrap();
 
-            return (
+            (
                 *i,
                 lua.from_value::<KomandoResult>(Value::Table(result))
                     .unwrap(),
-            );
+            )
         })
         .collect::<HashMap<u32, KomandoResult>>();
 
@@ -683,7 +676,7 @@ fn komando_parallel_hosts(lua: &Lua, (hosts, task): (Value, Value)) -> mlua::Res
     Ok(results_table)
 }
 
-pub fn run_main_file(lua: &Lua, main_file: &String) -> anyhow::Result<()> {
+pub fn run_main_file(lua: &Lua, main_file: &String) -> Result<()> {
     let script = match fs::read_to_string(main_file) {
         Ok(script) => script,
         Err(e) => {
@@ -731,7 +724,7 @@ pub fn repl(lua: &Lua) {
                     incomplete_input: true,
                     ..
                 }) => {
-                    line.push_str("\n");
+                    line.push('\n');
                     prompt = ">> ";
                 }
                 Err(e) => {
@@ -772,65 +765,66 @@ mod tests {
     }
 
     #[test]
-    fn test_setup_komandan_table() {
-        let lua = create_lua().unwrap();
+    fn test_setup_komandan_table() -> Result<()> {
+        let lua = create_lua()?;
 
         // Assert that the komandan table is set up correctly
-        let komandan_table = lua.globals().get::<Table>("komandan").unwrap();
-        assert!(komandan_table.contains_key("defaults").unwrap());
-        assert!(komandan_table.contains_key("KomandanModule").unwrap());
-        assert!(komandan_table.contains_key("komando").unwrap());
-        assert!(komandan_table.contains_key("regex_is_match").unwrap());
-        assert!(komandan_table.contains_key("filter_hosts").unwrap());
-        assert!(komandan_table
-            .contains_key("parse_hosts_json_file")
-            .unwrap());
-        assert!(komandan_table.contains_key("parse_hosts_json_url").unwrap());
-        assert!(komandan_table.contains_key("dprint").unwrap());
+        let komandan_table = lua.globals().get::<Table>("komandan")?;
+        assert!(komandan_table.contains_key("defaults")?);
+        assert!(komandan_table.contains_key("KomandanModule")?);
+        assert!(komandan_table.contains_key("komando")?);
+        assert!(komandan_table.contains_key("regex_is_match")?);
+        assert!(komandan_table.contains_key("filter_hosts")?);
+        assert!(komandan_table.contains_key("parse_hosts_json_file")?);
+        assert!(komandan_table.contains_key("parse_hosts_json_url")?);
+        assert!(komandan_table.contains_key("dprint")?);
 
-        let modules_table = komandan_table.get::<Table>("modules").unwrap();
-        assert!(modules_table.contains_key("apt").unwrap());
-        assert!(modules_table.contains_key("cmd").unwrap());
-        assert!(modules_table.contains_key("lineinfile").unwrap());
-        assert!(modules_table.contains_key("script").unwrap());
-        assert!(modules_table.contains_key("systemd_service").unwrap());
-        assert!(modules_table.contains_key("template").unwrap());
-        assert!(modules_table.contains_key("upload").unwrap());
-        assert!(modules_table.contains_key("download").unwrap());
+        let modules_table = komandan_table.get::<Table>("modules")?;
+        assert!(modules_table.contains_key("apt")?);
+        assert!(modules_table.contains_key("cmd")?);
+        assert!(modules_table.contains_key("lineinfile")?);
+        assert!(modules_table.contains_key("script")?);
+        assert!(modules_table.contains_key("systemd_service")?);
+        assert!(modules_table.contains_key("template")?);
+        assert!(modules_table.contains_key("upload")?);
+        assert!(modules_table.contains_key("download")?);
+
+        Ok(())
     }
 
     #[test]
-    fn test_run_main_file() {
-        let lua = create_lua().unwrap();
+    fn test_run_main_file() -> Result<()> {
+        let lua = create_lua()?;
 
         // Test with a valid Lua file
         let main_file = "examples/hosts.lua".to_string();
         let result = run_main_file(&lua, &main_file);
         assert!(result.is_ok());
+
+        Ok(())
     }
 
     #[test]
-    fn test_get_auth_config() {
-        let lua = create_lua().unwrap();
-        let host = lua.create_table().unwrap();
+    fn test_get_auth_config() -> Result<()> {
+        let lua = create_lua()?;
+        let host = lua.create_table()?;
 
         // Test with user in host
-        host.set("address", "localhost").unwrap();
-        host.set("user", "testuser").unwrap();
-        host.set("private_key_file", "/path/to/key").unwrap();
+        host.set("address", "localhost")?;
+        host.set("user", "testuser")?;
+        host.set("private_key_file", "/path/to/key")?;
 
-        let module_params = lua.create_table().unwrap();
-        module_params.set("cmd", "echo test").unwrap();
+        let module_params = lua.create_table()?;
+        module_params.set("cmd", "echo test")?;
         let module = lua
             .load(chunk! {
                 return komandan.modules.cmd($module_params)
             })
-            .eval::<Table>()
-            .unwrap();
-        let task = lua.create_table().unwrap();
-        task.set(1, module).unwrap();
+            .eval::<Table>()?;
+        let task = lua.create_table()?;
+        task.set(1, module)?;
 
-        let (user, auth) = get_auth_config(&host, &task).unwrap();
+        let (user, auth) = get_auth_config(&host, &task)?;
         assert_eq!(user, "testuser");
         match auth {
             SSHAuthMethod::PublicKey {
@@ -844,28 +838,30 @@ mod tests {
         }
 
         // Test with password auth
-        host.set("private_key_file", Value::Nil).unwrap();
-        host.set("password", "testpass").unwrap();
-        let (_, auth) = get_auth_config(&host, &task).unwrap();
+        host.set("private_key_file", Value::Nil)?;
+        host.set("password", "testpass")?;
+        let (_, auth) = get_auth_config(&host, &task)?;
         match auth {
             SSHAuthMethod::Password(pass) => assert_eq!(pass, "testpass"),
             _ => panic!("Expected Password authentication"),
         }
 
         // Test with no authentication method
-        host.set("password", Value::Nil).unwrap();
+        host.set("password", Value::Nil)?;
         let result = get_auth_config(&host, &task);
         assert!(result.is_err());
+
+        Ok(())
     }
 
     #[test]
-    fn test_get_elevation_config() {
-        let lua = create_lua().unwrap();
-        let host = lua.create_table().unwrap();
-        let task = lua.create_table().unwrap();
+    fn test_get_elevation_config() -> Result<()> {
+        let lua = create_lua()?;
+        let host = lua.create_table()?;
+        let task = lua.create_table()?;
 
         // Test with no elevation
-        let elevation = get_elevation_config(&host, &task).unwrap();
+        let elevation = get_elevation_config(&host, &task)?;
         assert!(matches!(
             elevation,
             Elevation {
@@ -875,8 +871,8 @@ mod tests {
         ));
 
         // Test with elevation from task
-        task.set("elevate", true).unwrap();
-        let elevation = get_elevation_config(&host, &task).unwrap();
+        task.set("elevate", true)?;
+        let elevation = get_elevation_config(&host, &task)?;
         assert!(matches!(
             elevation,
             Elevation {
@@ -886,8 +882,8 @@ mod tests {
         ));
 
         // Test with custom elevation method
-        task.set("elevation_method", "su").unwrap();
-        let elevation = get_elevation_config(&host, &task).unwrap();
+        task.set("elevation_method", "su")?;
+        let elevation = get_elevation_config(&host, &task)?;
         assert!(matches!(
             elevation,
             Elevation {
@@ -897,65 +893,69 @@ mod tests {
         ));
 
         // Test invalid elevation method
-        task.set("elevation_method", "invalid").unwrap();
+        task.set("elevation_method", "invalid")?;
         assert!(get_elevation_config(&host, &task).is_err());
+
+        Ok(())
     }
 
     #[test]
-    fn test_setup_ssh_session() {
-        let lua = create_lua().unwrap();
-        let host = lua.create_table().unwrap();
-        host.set("address", "localhost").unwrap();
+    fn test_setup_ssh_session() -> Result<()> {
+        let lua = create_lua()?;
+        let host = lua.create_table()?;
+        host.set("address", "localhost")?;
 
         // Test with default settings
-        let ssh = setup_ssh_session(&host).unwrap();
+        let ssh = setup_ssh_session(&host)?;
         assert!(ssh.known_hosts_file.is_some());
 
         // Test with host key check disabled
-        host.set("host_key_check", false).unwrap();
-        let ssh = setup_ssh_session(&host).unwrap();
+        host.set("host_key_check", false)?;
+        let ssh = setup_ssh_session(&host)?;
         assert!(ssh.known_hosts_file.is_none());
 
         // Test with custom known_hosts file
-        host.set("known_hosts_file", "/path/to/known_hosts")
-            .unwrap();
-        host.set("host_key_check", true).unwrap();
-        let ssh = setup_ssh_session(&host).unwrap();
+        host.set("known_hosts_file", "/path/to/known_hosts")?;
+        host.set("host_key_check", true)?;
+        let ssh = setup_ssh_session(&host)?;
         assert_eq!(ssh.known_hosts_file.unwrap(), "/path/to/known_hosts");
 
         // Test with known_hosts from defaults
-        host.set("known_hosts_file", Value::Nil).unwrap();
+        host.set("known_hosts_file", Value::Nil)?;
         lua.load(chunk! {
             komandan.defaults:set_known_hosts_file("/default/known_hosts")
         })
-        .exec()
-        .unwrap();
-        let ssh = setup_ssh_session(&host).unwrap();
+        .exec()?;
+        let ssh = setup_ssh_session(&host)?;
         assert_eq!(ssh.known_hosts_file.unwrap(), "/default/known_hosts");
+
+        Ok(())
     }
 
     #[test]
-    fn test_setup_environment() {
-        let lua = create_lua().unwrap();
-        let mut ssh = SSHSession::new().unwrap();
-        let defaults = lua.create_table().unwrap();
-        let host = lua.create_table().unwrap();
-        let task = lua.create_table().unwrap();
+    fn test_setup_environment() -> Result<()> {
+        let lua = create_lua()?;
+        let mut ssh = SSHSession::new()?;
+        let defaults = lua.create_table()?;
+        let host = lua.create_table()?;
+        let task = lua.create_table()?;
 
         // Test with environment variables at all levels
-        let env_defaults = lua.create_table().unwrap();
-        env_defaults.set("DEFAULT_VAR", "default_value").unwrap();
-        defaults.set("env", env_defaults).unwrap();
+        let env_defaults = lua.create_table()?;
+        env_defaults.set("DEFAULT_VAR", "default_value")?;
+        defaults.set("env", env_defaults)?;
 
-        let env_host = lua.create_table().unwrap();
-        env_host.set("HOST_VAR", "host_value").unwrap();
-        env_host.set("DEFAULT_VAR", "overridden_value").unwrap(); // Override default
-        host.set("env", env_host).unwrap();
+        let env_host = lua.create_table()?;
+        env_host.set("HOST_VAR", "host_value")?;
+        env_host.set("DEFAULT_VAR", "overridden_value")?; // Override default
+        host.set("env", env_host)?;
 
-        let env_task = lua.create_table().unwrap();
-        env_task.set("TASK_VAR", "task_value").unwrap();
-        task.set("env", env_task).unwrap();
+        let env_task = lua.create_table()?;
+        env_task.set("TASK_VAR", "task_value")?;
+        task.set("env", env_task)?;
 
-        setup_environment(&mut ssh, &host, &task).unwrap();
+        setup_environment(&mut ssh, &host, &task)?;
+
+        Ok(())
     }
 }

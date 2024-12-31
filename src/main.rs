@@ -1,10 +1,11 @@
 mod args;
 
+use anyhow::Result;
 use args::Args;
 use clap::Parser;
 use komandan::{create_lua, print_version, repl, run_main_file};
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     let args = Args::parse();
 
     if args.version {

@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 
-use anyhow::Result;
+use anyhow::{Error, Result};
 use mlua::UserData;
 use ssh2::{CheckResult, KnownHostFileKind, Session, Sftp};
 
@@ -73,42 +73,39 @@ impl SSHSession {
         self.session.set_tcp_stream(tcp);
         self.session.handshake()?;
 
-        match &self.known_hosts_file {
-            Some(file) => {
-                let host_key = self.session.host_key().unwrap();
-                let mut known_hosts = self.session.known_hosts()?;
-                match known_hosts.read_file(Path::new(file.as_str()), KnownHostFileKind::OpenSSH) {
-                    Ok(_) => {}
-                    Err(_) => {
-                        return Err(anyhow::Error::msg(
-                            format!("SSH host key verification failed. Please add the host key to the known_hosts file: {}", file),
-                        ));
-                    }
-                };
+        if let Some(file) = &self.known_hosts_file {
+            let host_key = self.session.host_key().unwrap();
+            let mut known_hosts = self.session.known_hosts()?;
+            match known_hosts.read_file(Path::new(file.as_str()), KnownHostFileKind::OpenSSH) {
+                Ok(_) => {}
+                Err(_) => {
+                    return Err(Error::msg(
+                        format!("SSH host key verification failed. Please add the host key to the known_hosts file: {}", file)
+                    ));
+                }
+            };
 
-                let known_hosts_check_result = known_hosts.check(&address, &host_key.0);
-                match known_hosts_check_result {
-                    CheckResult::Match => {}
-                    _ => {
-                        return Err(anyhow::Error::msg(
-                            format!("SSH host key verification failed ({:?}). Please check the known_hosts file: {}", known_hosts_check_result, file),
-                        ));
-                    }
-                };
-            }
-            None => {}
+            let known_hosts_check_result = known_hosts.check(address, host_key.0);
+            match known_hosts_check_result {
+                CheckResult::Match => {}
+                _ => {
+                    return Err(Error::msg(
+                        format!("SSH host key verification failed ({:?}). Please check the known_hosts file: {}", known_hosts_check_result, file)
+                    ));
+                }
+            };
         }
 
         match auth_method {
             SSHAuthMethod::Password(password) => {
-                self.session.userauth_password(&username, &password)?;
+                self.session.userauth_password(username, &password)?;
             }
             SSHAuthMethod::PublicKey {
                 private_key,
                 passphrase,
             } => {
                 self.session.userauth_pubkey_file(
-                    &username,
+                    username,
                     None,
                     Path::new(&private_key),
                     passphrase.as_deref(),
@@ -117,7 +114,7 @@ impl SSHSession {
         }
 
         if !self.session.authenticated() {
-            return Err(anyhow::Error::msg("SSH authentication failed."));
+            return Err(Error::msg("SSH authentication failed."));
         }
 
         Ok(())
@@ -240,7 +237,7 @@ impl SSHSession {
         let mut remote_file =
             self.session
                 .scp_send(Path::new(remote_path), 0o644, content_length, None)?;
-        remote_file.write(content)?;
+        remote_file.write_all(content)?;
         remote_file.send_eof()?;
         remote_file.wait_eof()?;
         remote_file.close()?;
@@ -260,7 +257,7 @@ fn upload_file(sftp: &mut Sftp, local_path: &Path, remote_path: &Path) -> io::Re
 }
 
 fn upload_directory(sftp: &mut Sftp, local_path: &Path, remote_path: &Path) -> io::Result<()> {
-    if !sftp.stat(remote_path).is_ok() {
+    if sftp.stat(remote_path).is_err() {
         sftp.mkdir(remote_path, 0o755)?;
     }
 

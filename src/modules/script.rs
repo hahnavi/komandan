@@ -8,7 +8,7 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
         .take(10)
         .collect();
 
-    let base_module = super::base_module(&lua);
+    let base_module = super::base_module(lua)?;
     let module = lua
         .load(chunk! {
             if params.script == nil and params.from_file == nil then

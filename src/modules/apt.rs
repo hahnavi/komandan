@@ -1,7 +1,7 @@
 use mlua::{chunk, ExternalResult, Lua, Table};
 
 pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
-    let base_module = super::base_module(&lua);
+    let base_module = super::base_module(lua)?;
     let module = lua
         .load(chunk! {
             if params.update_cache == nil then
