@@ -8,12 +8,12 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 params.update_cache = false
             end
 
-            if params.action == nil then
-                params.action = "install"
-            end
-
             if (params.action == "install" or params.action == "remove" or params.action == "purge") and params.package == nil then
                 error("package is required")
+            end
+
+            if params.package ~= nil and params.action == nil then
+                params.action = "install"
             end
 
             if params.install_recommends == nil then
@@ -120,6 +120,7 @@ mod tests {
     fn test_apt_package_required() {
         let lua = create_lua().unwrap();
         let params = lua.create_table().unwrap();
+        params.set("action", "install").unwrap();
         let result = apt(&lua, params);
         assert!(result.is_err());
         assert!(result

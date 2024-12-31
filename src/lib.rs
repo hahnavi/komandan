@@ -3,6 +3,7 @@ mod defaults;
 mod komando;
 mod models;
 mod modules;
+mod report;
 mod ssh;
 mod util;
 mod validator;
@@ -14,6 +15,7 @@ use defaults::Defaults;
 use komando::{komando, komando_parallel_hosts, komando_parallel_tasks};
 use mlua::{chunk, Lua, MultiValue};
 use modules::{base_module, collect_core_modules};
+use report::generate_report;
 use rustyline::DefaultEditor;
 use std::{env, fs, path::Path};
 use util::{dprint, filter_hosts, parse_hosts_json_file, parse_hosts_json_url, regex_is_match};
@@ -105,6 +107,8 @@ pub fn run_main_file(lua: &Lua, main_file: &String) -> Result<()> {
     };
 
     lua.load(&script).set_name(main_file).exec()?;
+
+    generate_report();
 
     Ok(())
 }

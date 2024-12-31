@@ -10,6 +10,7 @@ use crate::args::Args;
 use crate::create_lua;
 use crate::defaults::Defaults;
 use crate::models::{Host, KomandoResult, Task};
+use crate::report::{insert_record, TaskStatus};
 use crate::ssh::{Elevation, ElevationMethod, SSHAuthMethod, SSHSession};
 use crate::util::{host_display, task_display};
 use crate::validator::{validate_host, validate_task};
@@ -46,7 +47,7 @@ pub fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
 
     setup_environment(&mut ssh, &host, &task)?;
 
-    let results = execute_task(lua, &module, ssh, &task_display, &host_display)?;
+    let result = execute_task(lua, &module, ssh, &task_display, &host_display)?;
 
     let default_ignore_exit_code = match defaults.ignore_exit_code.read() {
         Ok(ignore_exit_code) => ignore_exit_code,
@@ -57,11 +58,24 @@ pub fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
         .get::<bool>("ignore_exit_code")
         .unwrap_or(*default_ignore_exit_code);
 
-    if results.get::<Integer>("exit_code")? != 0 && !ignore_exit_code {
+    let exit_code = result.get::<Integer>("exit_code")?;
+
+    if exit_code != 0 && !ignore_exit_code {
         return Err(RuntimeError("Failed to run task.".to_string()));
     }
 
-    Ok(results)
+    let task_status = if exit_code != 0 {
+        TaskStatus::Failed
+    } else {
+        match result.get::<bool>("changed")? {
+            true => TaskStatus::Changed,
+            false => TaskStatus::OK,
+        }
+    };
+
+    insert_record(task_display, host_display, task_status);
+
+    Ok(result)
 }
 
 pub fn komando_parallel_tasks(lua: &Lua, (host, tasks): (Value, Value)) -> mlua::Result<Table> {
