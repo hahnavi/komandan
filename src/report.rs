@@ -3,6 +3,10 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
+use clap::Parser;
+
+use crate::args::Args;
+
 static REPORT: OnceLock<Mutex<Vec<ReportRecord>>> = OnceLock::new();
 
 fn get_report() -> &'static Mutex<Vec<ReportRecord>> {
@@ -25,6 +29,9 @@ pub fn generate_report() {
     let col1_width = width - col2_width - 2;
     println!();
     println!("{:=^width$}", " Komando Report ");
+    if Args::parse().dry_run {
+        println!("{:-^width$}", " Dry-run mode: no changes were made ");
+    }
     println!("{:<col1_width$}{:>col2_width$}", "Task on Host", "Status");
     println!("{:-<width$}", "");
     let mut counters = HashMap::new();

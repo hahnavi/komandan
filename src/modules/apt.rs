@@ -8,6 +8,18 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 params.update_cache = false
             end
 
+            local valid_actions = {
+                install = true,
+                remove = true,
+                purge = true,
+                upgrade = true,
+                autoremove = true
+            }
+
+            if params.action ~= nil and not valid_actions[params.action] then
+                error("Invalid action: " .. params.action .. ". Valid actions are: install, remove, purge, upgrade, autoremove.")
+            end
+
             if (params.action == "install" or params.action == "remove" or params.action == "purge") and params.package == nil then
                 error("package is required")
             end
@@ -25,9 +37,26 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 params.install_opts = params.install_opts .. " --no-install-recommends"
             end
 
+            local function sanitize(input)
+                if type(input) ~= "string" then
+                    return nil -- Ensure input is a string
+                end
+                return input:gsub("[^%w%-_]", "")
+            end
+
+            params.package = sanitize(params.package)
+            params.install_opts = sanitize(params.install_opts)
+
             local module = $base_module:new({ name = "apt" })
 
             module.params = $params
+
+            module.update_cache = function(self)
+                local update_result = self.ssh:cmd("apt update")
+                if update_result.exit_code == 0 and not update_result.stdout:match("Get:") then
+                    self.ssh:set_changed(false)
+                end
+            end
 
             module.is_installed = function(self)
                 if self.params.package == nil then
@@ -43,6 +72,10 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
             end
 
             module.dry_run = function(self)
+                if self.params.update_cache then
+                    self:update_cache()
+                end
+
                 local installed = self:is_installed()
 
                 if self.params.action == "install" then
@@ -69,10 +102,10 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.run = function(self)
                 if self.params.update_cache then
-                    self.ssh:cmd("apt update")
+                    self:update_cache()
                 end
 
-                if self.params.package == nill then
+                if self.params.package == nil then
                     return
                 end
 
