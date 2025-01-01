@@ -8,6 +8,10 @@ pub fn collect_core_modules(lua: &mlua::Lua) -> mlua::Result<Table> {
     modules.set("cmd", lua.create_function(cmd::cmd)?)?;
     modules.set("download", lua.create_function(download::download)?)?;
     modules.set("lineinfile", lua.create_function(lineinfile::lineinfile)?)?;
+    modules.set(
+        "postgresql_user",
+        lua.create_function(postgresql_user::postgresql_user)?,
+    )?;
     modules.set("script", lua.create_function(script::script)?)?;
     modules.set(
         "systemd_service",
