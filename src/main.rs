@@ -1,10 +1,11 @@
 mod args;
 
+use anyhow::Result;
 use args::Args;
 use clap::Parser;
 use komandan::{create_lua, print_version, repl, run_main_file};
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     let args = Args::parse();
 
     if args.version {
@@ -16,6 +17,10 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(chunk) = args.chunk.clone() {
         lua.load(&chunk).eval::<()>()?;
+    }
+
+    if args.dry_run {
+        println!("[[[ Running in dry-run mode ]]]");
     }
 
     if let Some(main_file) = &args.main_file {

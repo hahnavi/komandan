@@ -6,8 +6,8 @@ use std::{
     path::Path,
 };
 
-use anyhow::Result;
-use mlua::UserData;
+use anyhow::{Error, Result};
+use mlua::{Error::RuntimeError, UserData, Value};
 use ssh2::{CheckResult, KnownHostFileKind, Session, Sftp};
 
 #[derive(Debug, PartialEq)]
@@ -41,6 +41,7 @@ pub struct SSHSession {
     stdout: Option<String>,
     stderr: Option<String>,
     exit_code: Option<i32>,
+    changed: Option<bool>,
 }
 
 impl SSHSession {
@@ -56,6 +57,7 @@ impl SSHSession {
             stdout: Some(String::new()),
             stderr: Some(String::new()),
             exit_code: Some(0),
+            changed: Some(true),
         })
     }
 
@@ -71,42 +73,39 @@ impl SSHSession {
         self.session.set_tcp_stream(tcp);
         self.session.handshake()?;
 
-        match &self.known_hosts_file {
-            Some(file) => {
-                let host_key = self.session.host_key().unwrap();
-                let mut known_hosts = self.session.known_hosts()?;
-                match known_hosts.read_file(Path::new(file.as_str()), KnownHostFileKind::OpenSSH) {
-                    Ok(_) => {}
-                    Err(_) => {
-                        return Err(anyhow::Error::msg(
-                            format!("SSH host key verification failed. Please add the host key to the known_hosts file: {}", file),
-                        ));
-                    }
-                };
+        if let Some(file) = &self.known_hosts_file {
+            let host_key = self.session.host_key().unwrap();
+            let mut known_hosts = self.session.known_hosts()?;
+            match known_hosts.read_file(Path::new(file.as_str()), KnownHostFileKind::OpenSSH) {
+                Ok(_) => {}
+                Err(_) => {
+                    return Err(Error::msg(
+                        format!("SSH host key verification failed. Please add the host key to the known_hosts file: {}", file)
+                    ));
+                }
+            };
 
-                let known_hosts_check_result = known_hosts.check(&address, &host_key.0);
-                match known_hosts_check_result {
-                    CheckResult::Match => {}
-                    _ => {
-                        return Err(anyhow::Error::msg(
-                            format!("SSH host key verification failed ({:?}). Please check the known_hosts file: {}", known_hosts_check_result, file),
-                        ));
-                    }
-                };
-            }
-            None => {}
+            let known_hosts_check_result = known_hosts.check(address, host_key.0);
+            match known_hosts_check_result {
+                CheckResult::Match => {}
+                _ => {
+                    return Err(Error::msg(
+                        format!("SSH host key verification failed ({:?}). Please check the known_hosts file: {}", known_hosts_check_result, file)
+                    ));
+                }
+            };
         }
 
         match auth_method {
             SSHAuthMethod::Password(password) => {
-                self.session.userauth_password(&username, &password)?;
+                self.session.userauth_password(username, &password)?;
             }
             SSHAuthMethod::PublicKey {
                 private_key,
                 passphrase,
             } => {
                 self.session.userauth_pubkey_file(
-                    &username,
+                    username,
                     None,
                     Path::new(&private_key),
                     passphrase.as_deref(),
@@ -115,7 +114,7 @@ impl SSHSession {
         }
 
         if !self.session.authenticated() {
-            return Err(anyhow::Error::msg("SSH authentication failed."));
+            return Err(Error::msg("SSH authentication failed."));
         }
 
         Ok(())
@@ -153,6 +152,20 @@ impl SSHSession {
         Ok((stdout, stderr, exit_code))
     }
 
+    pub fn cmdq(&mut self, command: &str) -> Result<(String, String, i32)> {
+        let mut channel = self.execute_command(command)?;
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+
+        channel.read_to_string(&mut stdout)?;
+        channel.stderr().read_to_string(&mut stderr)?;
+        stdout = stdout.trim_end_matches('\n').to_string();
+        channel.wait_close()?;
+        let exit_code = channel.exit_status()?;
+
+        Ok((stdout, stderr, exit_code))
+    }
+
     pub fn prepare_command(&mut self, command: &str) -> Result<String> {
         let command = match self.elevation.method {
             ElevationMethod::Su => match &self.elevation.as_user {
@@ -160,8 +173,8 @@ impl SSHSession {
                 None => format!("su -c '{}'", command),
             },
             ElevationMethod::Sudo => match &self.elevation.as_user {
-                Some(user) => format!("sudo -u {} {}", user, command),
-                None => format!("sudo {}", command),
+                Some(user) => format!("sudo -E -u {} {}", user, command),
+                None => format!("sudo -E {}", command),
             },
             _ => command.to_string(),
         };
@@ -224,7 +237,7 @@ impl SSHSession {
         let mut remote_file =
             self.session
                 .scp_send(Path::new(remote_path), 0o644, content_length, None)?;
-        remote_file.write(content)?;
+        remote_file.write_all(content)?;
         remote_file.send_eof()?;
         remote_file.wait_eof()?;
         remote_file.close()?;
@@ -244,7 +257,7 @@ fn upload_file(sftp: &mut Sftp, local_path: &Path, remote_path: &Path) -> io::Re
 }
 
 fn upload_directory(sftp: &mut Sftp, local_path: &Path, remote_path: &Path) -> io::Result<()> {
-    if !sftp.stat(remote_path).is_ok() {
+    if sftp.stat(remote_path).is_err() {
         sftp.mkdir(remote_path, 0o755)?;
     }
 
@@ -312,6 +325,57 @@ impl UserData for SSHSession {
             Ok(table)
         });
 
+        methods.add_method_mut("cmdq", |lua, this, command: String| {
+            let command = this.prepare_command(command.as_str())?;
+            let cmd_result = this.cmdq(&command);
+            let (stdout, stderr, exit_code) = cmd_result?;
+
+            let table = lua.create_table()?;
+            table.set("stdout", stdout)?;
+            table.set("stderr", stderr)?;
+            table.set("exit_code", exit_code)?;
+
+            Ok(table)
+        });
+
+        methods.add_method_mut("requires", |_, this, commands: Value| {
+            if !commands.is_table() && !commands.is_string() {
+                return Err(RuntimeError(
+                    "'requires' must be called with a string or table".to_string(),
+                ))
+            }
+
+            let commands = if commands.is_string() {
+                commands.to_string()?
+            } else {
+                let commands_table = commands.as_table().unwrap();
+                let mut strings = String::new();
+                for i in 1..= commands_table.len()? {
+                    let s = commands_table.get::<String>(i)?;
+                    strings.push_str(&s);
+                    if i < commands_table.len()? {
+                        strings.push(' ');
+                    }
+                }
+                strings
+            };
+
+            let command = this.prepare_command(format!("cmds=\"{}\"; unavailable=\"\"; for cmd in $(echo \"$cmds\"); do command -v \"$cmd\" >/dev/null 2>&1 || unavailable=\"$unavailable, $cmd\"; done; [ -z \"$unavailable\" ] || {{ echo \"${{unavailable#, }}\"; false; }}", commands).as_str())?;
+            let cmd_result = this.cmdq(&command);
+            let (stdout, _, exit_code) = cmd_result?;
+
+            if exit_code != 0 {
+                return Err(RuntimeError(
+                    format!(
+                        "required commands not found on the remote host: {}",
+                    stdout
+                    ),
+                ))
+            }
+
+            Ok(())
+        });
+
         methods.add_method_mut(
             "write_remote_file",
             |_, this, (remote_path, content): (String, String)| {
@@ -357,11 +421,17 @@ impl UserData for SSHSession {
             Ok(())
         });
 
-        methods.add_method("get_session_results", |lua, this, ()| {
+        methods.add_method_mut("set_changed", |_, this, changed: bool| {
+            this.changed = Some(changed);
+            Ok(())
+        });
+
+        methods.add_method("get_session_result", |lua, this, ()| {
             let table = lua.create_table()?;
             table.set("stdout", this.stdout.as_ref().unwrap().clone())?;
             table.set("stderr", this.stderr.as_ref().unwrap().clone())?;
             table.set("exit_code", this.exit_code.unwrap())?;
+            table.set("changed", this.changed.unwrap())?;
             Ok(table)
         });
     }
@@ -399,13 +469,13 @@ mod tests {
         session.elevation.method = ElevationMethod::Sudo;
         session.elevation.as_user = None;
         let cmd = session.prepare_command("ls -la").unwrap();
-        assert_eq!(cmd, "sudo ls -la");
+        assert_eq!(cmd, "sudo -E ls -la");
 
         // Test with sudo elevation and user
         session.elevation.method = ElevationMethod::Sudo;
         session.elevation.as_user = Some("admin".to_string());
         let cmd = session.prepare_command("ls -la").unwrap();
-        assert_eq!(cmd, "sudo -u admin ls -la");
+        assert_eq!(cmd, "sudo -E -u admin ls -la");
 
         // Test with su elevation
         session.elevation.method = ElevationMethod::Su;

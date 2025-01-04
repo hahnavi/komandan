@@ -8,7 +8,7 @@ pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
         .take(10)
         .collect();
 
-    let base_module = super::base_module(&lua);
+    let base_module = super::base_module(lua)?;
     let module = lua
         .load(chunk! {
             if params.path == nil then
@@ -41,9 +41,9 @@ pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
             module.random_file_name = $random_file_name
             module.lineinfile_script = $LINEINFILE_SCRIPT
 
-            module.run = function(self)
+            module.run_lineinfile_script = function(self)
                 local tmpdir = self.ssh:get_tmpdir()
-                self.remote_script = tmpdir .. "/." .. self.random_file_name 
+                self.remote_script = tmpdir .. "/." .. self.random_file_name
                 self.ssh:write_remote_file(self.remote_script, self.lineinfile_script)
                 self.ssh:chmod(self.remote_script, "+x")
 
@@ -64,7 +64,26 @@ pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
                     cmd = cmd .. " --insert_before \"" .. self.params.insert_before .. "\""
                 end
 
-                self.ssh:cmd(cmd)
+                if self.params.dry_run then
+                    cmd = cmd .. " --dry-run"
+                end
+
+                return self.ssh:cmd(cmd)
+            end
+
+            module.dry_run = function(self)
+                self.params.dry_run = true
+                local result = self:run_lineinfile_script()
+                if result.stdout == "OK" then
+                    self.ssh:set_changed(false)
+                end
+            end
+
+            module.run = function(self)
+                local result = self:run_lineinfile_script()
+                if result.stdout == "OK" then
+                    self.ssh:set_changed(false)
+                end
             end
 
             module.cleanup = function(self)
@@ -86,6 +105,7 @@ const LINEINFILE_SCRIPT: &str = r#"#!/bin/sh
 STATE="present"
 CREATE="false"
 BACKUP="false"
+DRYRUN="false"
 
 # Parse command-line arguments
 while [ $# -gt 0 ]; do
@@ -122,6 +142,10 @@ while [ $# -gt 0 ]; do
       BACKUP="$2"
       shift 2
       ;;
+    --dry-run)
+      DRYRUN="true"
+      shift 1
+      ;;
     *)
       echo "Unknown option: $1"
       exit 1
@@ -138,8 +162,12 @@ fi
 # Create the file if it doesn't exist and --create is true
 if [ ! -f "$FILE_PATH" ]; then
   if [ "$CREATE" = "true" ]; then
-    touch "$FILE_PATH"
-    echo "File created: $FILE_PATH"
+    if [ "$DRYRUN" = "true" ]; then
+      echo "[DRY-RUN] File would be created: $FILE_PATH"
+    else
+      touch "$FILE_PATH"
+      echo "Changed"
+    fi
   else
     echo "Error: File '$FILE_PATH' does not exist and '--create' is set to false"
     exit 1
@@ -149,8 +177,12 @@ fi
 # Create a backup if requested
 if [ "$BACKUP" = "true" ]; then
   BACKUP_FILE="$FILE_PATH.$(date +%Y%m%d%H%M%S).bak"
-  cp "$FILE_PATH" "$BACKUP_FILE"
-  echo "Backup created: $BACKUP_FILE"
+  if [ "$DRYRUN" = "true" ]; then
+    echo "[DRY-RUN] Backup would be created: $BACKUP_FILE"
+  else
+    cp "$FILE_PATH" "$BACKUP_FILE"
+    echo "Changed"
+  fi
 fi
 
 # Handle the 'present' state
@@ -162,64 +194,60 @@ if [ "$STATE" = "present" ]; then
 
   # Check if the line already exists
   if grep -Fxq "$LINE" "$FILE_PATH"; then
-    echo "Line already exists, no changes made."
+    echo "OK" # Unchanged
     exit 0
   fi
 
   # Handle pattern replacement
   if [ -n "$REGEXP" ]; then
     if grep -q "$REGEXP" "$FILE_PATH"; then
-      sed -i.bak "/$REGEXP/c\$LINE" "$FILE_PATH"
-      echo "Line replaced matching pattern: $REGEXP"
+      if [ "$DRYRUN" = "true" ]; then
+        echo "[DRY-RUN] Line matching '$REGEXP' would be replaced with: $LINE"
+      else
+        sed -i "/$REGEXP/c\\$LINE" "$FILE_PATH"
+        echo "Changed"
+      fi
       exit 0
     fi
   fi
 
   # Handle line insertion
   if [ -n "$INSERTAFTER" ]; then
-    if [ "$INSERTAFTER" = "EOF" ]; then
-      echo "$LINE" >> "$FILE_PATH"
-      echo "Line appended to the end of the file."
+    if [ "$DRYRUN" = "true" ]; then
+      echo "[DRY-RUN] Line '$LINE' would be inserted after pattern: $INSERTAFTER"
     else
-      sed -i.bak "/$INSERTAFTER/a\$LINE" "$FILE_PATH"
-      echo "Line inserted after pattern: $INSERTAFTER"
+      if [ "$INSERTAFTER" = "EOF" ]; then
+        echo "$LINE" >> "$FILE_PATH"
+        echo "Changed"
+      else
+        sed -i "/$INSERTAFTER/a\\$LINE" "$FILE_PATH"
+        echo "Changed"
+      fi
     fi
   elif [ -n "$INSERTBEFORE" ]; then
-    if [ "$INSERTBEFORE" = "BOF" ]; then
-      sed -i.bak "1i\$LINE" "$FILE_PATH"
-      echo "Line inserted at the beginning of the file."
+    if [ "$DRYRUN" = "true" ]; then
+      echo "[DRY-RUN] Line '$LINE' would be inserted before pattern: $INSERTBEFORE"
     else
-      sed -i.bak "/$INSERTBEFORE/i\$LINE" "$FILE_PATH"
-      echo "Line inserted before pattern: $INSERTBEFORE"
+      if [ "$INSERTBEFORE" = "BOF" ]; then
+        sed -i "1i\\$LINE" "$FILE_PATH"
+        echo "Changed"
+      else
+        sed -i "/$INSERTBEFORE/i\\$LINE" "$FILE_PATH"
+        echo "Changed"
+      fi
     fi
   else
-    echo "$LINE" >> "$FILE_PATH"
-    echo "Line appended to the file."
+    if [ "$DRYRUN" = "true" ]; then
+      echo "[DRY-RUN] Line '$LINE' would be appended to the file."
+    else
+      echo "$LINE" >> "$FILE_PATH"
+      echo "Changed"
+    fi
   fi
   exit 0
 fi
 
-# Handle the 'absent' state
-if [ "$STATE" = "absent" ]; then
-  if [ -z "$REGEXP" ] && [ -z "$LINE" ]; then
-    echo "Error: '--pattern' or '--line' is required for 'absent' state"
-    exit 1
-  fi
-
-  # Remove lines matching the exact line
-  if [ -n "$LINE" ]; then
-    sed -i.bak "/^$(echo "$LINE" | sed 's/[^^]/[&]/g; s/\^/\\^/g')$/d" "$FILE_PATH"
-    echo "Removed line: $LINE"
-  fi
-
-  # Remove lines matching the regex
-  if [ -n "$REGEXP" ]; then
-    sed -i.bak "/$REGEXP/d" "$FILE_PATH"
-    echo "Removed lines matching pattern: $REGEXP"
-  fi
-  exit 0
-fi
-
+# Handle 'absent' state if implemented in the future
 # If no valid state is provided
 echo "Error: Invalid state '$STATE'. Use 'present' or 'absent'."
 exit 1

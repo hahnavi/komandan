@@ -33,8 +33,11 @@ local tasks_postgresql_install = {
     },
     {
         name = "Add PostgreSQL repository",
+        env = {
+            YES = "yes",
+        },
         komandan.modules.cmd({
-            cmd = "YES=yes /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh",
+            cmd = "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh",
         }),
     },
     {
@@ -102,8 +105,10 @@ end
 local tasks_setup_primary = {
     {
         name = "Create replication user",
-        komandan.modules.cmd({
-            cmd = "psql -c \"DO \\$\\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = '" .. os.getenv("REPLICATOR_USER") .. "') THEN CREATE USER " .. os.getenv("REPLICATOR_USER") .. " WITH REPLICATION ENCRYPTED PASSWORD '" .. os.getenv("REPLICATOR_PASSWORD") .. "'; END IF; END \\$\\$;\"",
+        komandan.modules.postgresql_user({
+            name = os.getenv("REPLICATOR_USER"),
+            password = os.getenv("REPLICATOR_PASSWORD"),
+            role_attr_flags = "REPLICATION",
         }),
         as_user = "postgres",
     },

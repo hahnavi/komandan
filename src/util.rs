@@ -116,10 +116,10 @@ pub fn parse_hosts_json_file(lua: &Lua, path: Value) -> mlua::Result<Table> {
         Ok(_) => match parse_hosts_json(lua, content) {
             Ok(h) => h,
             Err(_) => {
-                return Err(RuntimeError(String::from(format!(
+                return Err(RuntimeError(format!(
                     "Failed to parse JSON file from '{}'",
                     path
-                ))));
+                )));
             }
         },
         Err(_) => return Err(RuntimeError(String::from("Failed to read JSON file"))),
@@ -158,20 +158,14 @@ pub fn parse_hosts_json_url(lua: &Lua, url: Value) -> mlua::Result<Table> {
             String::from_utf8_lossy(&response.body).to_string()
         }
         Err(e) => {
-            return Err(RuntimeError(String::from(format!(
-                "Failed to fetch URL: {:?}",
-                e
-            ))));
+            return Err(RuntimeError(format!("Failed to fetch URL: {:?}", e)));
         }
     };
 
     let hosts = match parse_hosts_json(lua, content) {
         Ok(h) => h,
         Err(_) => {
-            return Err(RuntimeError(String::from(format!(
-                "Failed to parse JSON from '{}'",
-                url
-            ))));
+            return Err(RuntimeError(format!("Failed to parse JSON from '{}'", url)));
         }
     };
 
@@ -209,12 +203,9 @@ fn parse_hosts_json(lua: &Lua, content: String) -> mlua::Result<Table> {
 
     for pair in lua_table.pairs() {
         let (_, value): (Value, Value) = pair?;
-        match validate_host(&lua, value) {
-            Ok(host) => {
-                hosts.set(hosts.len()? + 1, host)?;
-            }
-            Err(_) => {}
-        };
+        if let Ok(host) = validate_host(lua, value) {
+            hosts.set(hosts.len()? + 1, host)?;
+        }
     }
 
     Ok(hosts)
@@ -236,7 +227,7 @@ pub fn host_display(host: &Table) -> String {
 
     match host.get::<String>("name") {
         Ok(name) => format!("{} ({})", name, address),
-        Err(_) => format!("{}", address),
+        Err(_) => address,
     }
 }
 
@@ -264,6 +255,7 @@ mod tests {
         let args = Args {
             main_file: None,
             chunk: None,
+            dry_run: false,
             interactive: false,
             verbose: true,
             version: false,
@@ -281,6 +273,7 @@ mod tests {
         let args = Args {
             main_file: None,
             chunk: None,
+            dry_run: false,
             interactive: false,
             verbose: false,
             version: false,

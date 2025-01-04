@@ -1,7 +1,7 @@
 use mlua::{chunk, ExternalResult, Lua, Table};
 
 pub fn systemd_service(lua: &Lua, params: Table) -> mlua::Result<Table> {
-    let base_module = super::base_module(&lua);
+    let base_module = super::base_module(lua)?;
     let module = lua
         .load(chunk! {
             if params.name == nil then

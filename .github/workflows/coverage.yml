@@ -16,12 +16,14 @@ jobs:
         env:
           USER_TEST: usertest
         run: |
-          apt update && apt install -y openssh-server
+          apt update && apt install -y openssh-server sudo
           service ssh start
           mkdir ${HOME}/.ssh
           ssh-keyscan -H localhost | tee -a ${HOME}/.ssh/known_hosts
           ssh-keygen -t ed25519 -N "" -f ${HOME}/.ssh/id_ed25519
           useradd -m -d /home/${USER_TEST} -N ${USER_TEST}
+          usermod -a -G sudo ${USER_TEST}
+          echo '%sudo ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/sudo-nopasswd
           su ${USER_TEST} -c 'mkdir /home/${USER_TEST}/.ssh'
           cat ${HOME}/.ssh/id_ed25519.pub | su ${USER_TEST} -c 'tee -a /home/${USER_TEST}/.ssh/authorized_keys'
           chmod 700 /home/${USER_TEST}/.ssh

@@ -2,15 +2,15 @@ use mlua::{chunk, Error::RuntimeError, ExternalResult, Integer, Lua, Table, Valu
 
 pub fn validate_host(lua: &Lua, host: Value) -> mlua::Result<Table> {
     if !host.is_table() {
-        return Err(RuntimeError(format!("Host is not a table.")));
+        return Err(RuntimeError("Host is not a table.".to_string()));
     }
 
     let address = host.as_table().unwrap().get::<Value>("address")?;
     if address.is_nil() {
-        return Err(RuntimeError(format!("Host address is empty.")));
+        return Err(RuntimeError("Host address is empty.".to_string()));
     }
     if !address.is_string() {
-        return Err(RuntimeError(format!("Host address is invalid.")));
+        return Err(RuntimeError("Host address is invalid.".to_string()));
     }
 
     let port = host.as_table().unwrap().get::<Value>("port")?;
@@ -245,7 +245,7 @@ mod tests {
 
         let result =
             super::validate_module(&lua, mlua::Value::String(lua.create_string("ls").unwrap()));
-        eprint!("result: {:#?}\n", result.clone().err());
+        eprintln!("result: {:#?}", result.clone().err());
         assert!(result.is_ok());
     }
 

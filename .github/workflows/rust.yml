@@ -39,6 +39,8 @@ jobs:
           ssh-keyscan -H localhost | tee -a ${HOME}/.ssh/known_hosts
           ssh-keygen -t ed25519 -N "" -f ${HOME}/.ssh/id_ed25519
           sudo useradd -m -d /home/${USER_TEST} -N ${USER_TEST}
+          sudo usermod -a -G sudo ${USER_TEST}
+          echo '%sudo ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/sudo-nopasswd
           sudo -u ${USER_TEST} mkdir /home/${USER_TEST}/.ssh
           cat ${HOME}/.ssh/id_ed25519.pub | sudo -u ${USER_TEST} tee -a /home/${USER_TEST}/.ssh/authorized_keys
           sudo chmod 700 /home/${USER_TEST}/.ssh

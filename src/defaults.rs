@@ -1,10 +1,11 @@
+use anyhow::{Error, Result};
 use mlua::UserData;
 use std::{
     collections::HashMap,
     sync::{Arc, OnceLock, RwLock},
 };
 
-static GLOBAL_STATE: OnceLock<Defaults> = OnceLock::new();
+static GLOBAL_DEFAULTS: OnceLock<Defaults> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct Defaults {
@@ -23,16 +24,16 @@ pub struct Defaults {
 }
 
 impl Defaults {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self> {
         let env = Arc::new(RwLock::new(HashMap::new()));
         match env.write() {
             Ok(mut env) => {
                 env.insert("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string());
             }
-            Err(_) => {}
+            Err(_) => return Err(Error::msg("Failed to acquire write lock".to_string())),
         }
 
-        Self {
+        Ok(Self {
             port: Arc::new(RwLock::new(22)),
             user: Arc::new(RwLock::new(None)),
             private_key_file: Arc::new(RwLock::new(None)),
@@ -44,15 +45,17 @@ impl Defaults {
             as_user: Arc::new(RwLock::new(None)),
             known_hosts_file: Arc::new(RwLock::new(format!(
                 "{}/.ssh/known_hosts",
-                std::env::var("HOME").unwrap()
+                std::env::var("HOME").unwrap_or("~".to_string())
             ))),
             host_key_check: Arc::new(RwLock::new(true)),
             env,
-        }
+        })
     }
 
-    pub fn global() -> Self {
-        GLOBAL_STATE.get_or_init(|| Defaults::new()).clone()
+    pub fn global() -> Result<Self> {
+        Ok(GLOBAL_DEFAULTS
+            .get_or_init(|| Defaults::new().unwrap())
+            .clone())
     }
 }
 
@@ -61,11 +64,9 @@ impl UserData for Defaults {
         methods.add_method("get_port", |_, this, ()| -> mlua::Result<u16> {
             match this.port.read() {
                 Ok(port) => Ok(*port),
-                Err(_) => {
-                    return Err(mlua::Error::RuntimeError(
-                        "Failed to acquire read lock".to_string(),
-                    ))
-                }
+                Err(_) => Err(mlua::Error::RuntimeError(
+                    "Failed to acquire read lock".to_string(),
+                )),
             }
         });
 
@@ -75,22 +76,18 @@ impl UserData for Defaults {
                     *port = new_port;
                     Ok(())
                 }
-                Err(_) => {
-                    return Err(mlua::Error::RuntimeError(
-                        "Failed to acquire write lock".to_string(),
-                    ))
-                }
+                Err(_) => Err(mlua::Error::RuntimeError(
+                    "Failed to acquire write lock".to_string(),
+                )),
             }
         });
 
         methods.add_method("get_user", |_, this, ()| -> mlua::Result<Option<String>> {
             match this.user.read() {
                 Ok(user) => Ok(user.clone()),
-                Err(_) => {
-                    return Err(mlua::Error::RuntimeError(
-                        "Failed to acquire read lock".to_string(),
-                    ))
-                }
+                Err(_) => Err(mlua::Error::RuntimeError(
+                    "Failed to acquire read lock".to_string(),
+                )),
             }
         });
 
@@ -102,11 +99,9 @@ impl UserData for Defaults {
                         *user = new_user;
                         Ok(())
                     }
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire write lock".to_string(),
+                    )),
                 }
             },
         );
@@ -116,11 +111,9 @@ impl UserData for Defaults {
             |_, this, ()| -> mlua::Result<Option<String>> {
                 match this.private_key_file.read() {
                     Ok(private_key_file) => Ok(private_key_file.clone()),
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire read lock".to_string(),
+                    )),
                 }
             },
         );
@@ -133,11 +126,9 @@ impl UserData for Defaults {
                         *private_key_file = new_private_key_file;
                         Ok(())
                     }
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire write lock".to_string(),
+                    )),
                 }
             },
         );
@@ -147,11 +138,9 @@ impl UserData for Defaults {
             |_, this, ()| -> mlua::Result<Option<String>> {
                 match this.private_key_pass.read() {
                     Ok(private_key_pass) => Ok(private_key_pass.clone()),
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire read lock".to_string(),
+                    )),
                 }
             },
         );
@@ -164,11 +153,9 @@ impl UserData for Defaults {
                         *private_key_pass = new_private_key_pass;
                         Ok(())
                     }
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire write lock".to_string(),
+                    )),
                 }
             },
         );
@@ -178,11 +165,9 @@ impl UserData for Defaults {
             |_, this, ()| -> mlua::Result<Option<String>> {
                 match this.password.read() {
                     Ok(password) => Ok(password.clone()),
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire read lock".to_string(),
+                    )),
                 }
             },
         );
@@ -195,11 +180,9 @@ impl UserData for Defaults {
                         *password = new_password;
                         Ok(())
                     }
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire write lock".to_string(),
+                    )),
                 }
             },
         );
@@ -209,11 +192,9 @@ impl UserData for Defaults {
             |_, this, ()| -> mlua::Result<bool> {
                 match this.ignore_exit_code.read() {
                     Ok(ignore_exit_code) => Ok(*ignore_exit_code),
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire read lock".to_string(),
+                    )),
                 }
             },
         );
@@ -226,11 +207,9 @@ impl UserData for Defaults {
                         *ignore_exit_code = new_ignore_exit_code;
                         Ok(())
                     }
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire write lock".to_string(),
+                    )),
                 }
             },
         );
@@ -238,11 +217,9 @@ impl UserData for Defaults {
         methods.add_method("get_elevate", |_, this, ()| -> mlua::Result<bool> {
             match this.elevate.read() {
                 Ok(elevate) => Ok(*elevate),
-                Err(_) => {
-                    return Err(mlua::Error::RuntimeError(
-                        "Failed to acquire read lock".to_string(),
-                    ))
-                }
+                Err(_) => Err(mlua::Error::RuntimeError(
+                    "Failed to acquire read lock".to_string(),
+                )),
             }
         });
 
@@ -254,11 +231,9 @@ impl UserData for Defaults {
                         *elevate = new_elevate;
                         Ok(())
                     }
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire write lock".to_string(),
+                    )),
                 }
             },
         );
@@ -268,11 +243,9 @@ impl UserData for Defaults {
             |_, this, ()| -> mlua::Result<String> {
                 match this.elevation_method.read() {
                     Ok(elevation_method) => Ok(elevation_method.clone()),
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire read lock".to_string(),
+                    )),
                 }
             },
         );
@@ -285,11 +258,9 @@ impl UserData for Defaults {
                         *elevation_method = new_elevation_method;
                         Ok(())
                     }
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire write lock".to_string(),
+                    )),
                 }
             },
         );
@@ -299,11 +270,9 @@ impl UserData for Defaults {
             |_, this, ()| -> mlua::Result<Option<String>> {
                 match this.as_user.read() {
                     Ok(as_user) => Ok(as_user.clone()),
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire read lock".to_string(),
+                    )),
                 }
             },
         );
@@ -316,11 +285,9 @@ impl UserData for Defaults {
                         *as_user = new_as_user;
                         Ok(())
                     }
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire write lock".to_string(),
+                    )),
                 }
             },
         );
@@ -330,11 +297,9 @@ impl UserData for Defaults {
             |_, this, ()| -> mlua::Result<String> {
                 match this.known_hosts_file.read() {
                     Ok(known_hosts_file) => Ok(known_hosts_file.clone()),
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire read lock".to_string(),
+                    )),
                 }
             },
         );
@@ -347,11 +312,9 @@ impl UserData for Defaults {
                         *known_hosts_file = new_known_hosts_file;
                         Ok(())
                     }
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire write lock".to_string(),
+                    )),
                 }
             },
         );
@@ -359,11 +322,9 @@ impl UserData for Defaults {
         methods.add_method("get_host_key_check", |_, this, ()| -> mlua::Result<bool> {
             match this.host_key_check.read() {
                 Ok(host_key_check) => Ok(*host_key_check),
-                Err(_) => {
-                    return Err(mlua::Error::RuntimeError(
-                        "Failed to acquire read lock".to_string(),
-                    ))
-                }
+                Err(_) => Err(mlua::Error::RuntimeError(
+                    "Failed to acquire read lock".to_string(),
+                )),
             }
         });
 
@@ -375,11 +336,9 @@ impl UserData for Defaults {
                         *host_key_check = new_host_key_check;
                         Ok(())
                     }
-                    Err(_) => {
-                        return Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    }
+                    Err(_) => Err(mlua::Error::RuntimeError(
+                        "Failed to acquire write lock".to_string(),
+                    )),
                 }
             },
         );
@@ -433,8 +392,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_defaults_new() {
-        let defaults = Defaults::new();
+    fn test_defaults_new() -> Result<()> {
+        let defaults = Defaults::new()?;
 
         // Test default values
         assert_eq!(*defaults.port.read().unwrap(), 22);
@@ -442,11 +401,11 @@ mod tests {
         assert_eq!(*defaults.private_key_file.read().unwrap(), None);
         assert_eq!(*defaults.private_key_pass.read().unwrap(), None);
         assert_eq!(*defaults.password.read().unwrap(), None);
-        assert_eq!(*defaults.ignore_exit_code.read().unwrap(), false);
-        assert_eq!(*defaults.elevate.read().unwrap(), false);
+        assert!(!(*defaults.ignore_exit_code.read().unwrap()));
+        assert!(!(*defaults.elevate.read().unwrap()));
         assert_eq!(*defaults.elevation_method.read().unwrap(), "sudo");
         assert_eq!(*defaults.as_user.read().unwrap(), None);
-        assert_eq!(*defaults.host_key_check.read().unwrap(), true);
+        assert!(*defaults.host_key_check.read().unwrap());
 
         // Test default environment variables
         let env = defaults.env.read().unwrap();
@@ -454,24 +413,28 @@ mod tests {
             env.get("DEBIAN_FRONTEND"),
             Some(&"noninteractive".to_string())
         );
+
+        Ok(())
     }
 
     #[test]
-    fn test_global_singleton() {
-        let defaults1 = Defaults::global();
-        let defaults2 = Defaults::global();
+    fn test_global_singleton() -> Result<()> {
+        let defaults1 = Defaults::global()?;
+        let defaults2 = Defaults::global()?;
 
         // Modify a value using the first instance
         *defaults1.port.write().unwrap() = 2222;
 
         // Check if the change is reflected in the second instance
         assert_eq!(*defaults2.port.read().unwrap(), 2222);
+
+        Ok(())
     }
 
     #[test]
-    fn test_lua_interface() -> mlua::Result<()> {
+    fn test_lua_interface() -> Result<()> {
         let lua = mlua::Lua::new();
-        let defaults = Defaults::new();
+        let defaults = Defaults::new()?;
 
         // Register the defaults instance with Lua
         lua.globals().set("defaults", defaults.clone())?;

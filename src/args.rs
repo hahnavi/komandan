@@ -12,6 +12,10 @@ pub struct Args {
     #[arg(short = 'e')]
     pub chunk: Option<String>,
 
+    /// Dry run mode
+    #[arg(short, long)]
+    pub dry_run: bool,
+
     /// Enter interactive mode after executing 'script'.
     #[arg(short, long)]
     pub interactive: bool,
