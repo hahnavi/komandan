@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{Error, Result};
-use mlua::UserData;
+use mlua::{Error::RuntimeError, UserData, Value};
 use ssh2::{CheckResult, KnownHostFileKind, Session, Sftp};
 
 #[derive(Debug, PartialEq)]
@@ -336,6 +336,44 @@ impl UserData for SSHSession {
             table.set("exit_code", exit_code)?;
 
             Ok(table)
+        });
+
+        methods.add_method_mut("requires", |_, this, commands: Value| {
+            if !commands.is_table() && !commands.is_string() {
+                return Err(RuntimeError(
+                    "'requires' must be called with a string or table".to_string(),
+                ))
+            }
+
+            let commands = if commands.is_string() {
+                commands.to_string()?
+            } else {
+                let commands_table = commands.as_table().unwrap();
+                let mut strings = String::new();
+                for i in 1..= commands_table.len()? {
+                    let s = commands_table.get::<String>(i)?;
+                    strings.push_str(&s);
+                    if i < commands_table.len()? {
+                        strings.push(' ');
+                    }
+                }
+                strings
+            };
+
+            let command = this.prepare_command(format!("cmds=\"{}\"; unavailable=\"\"; for cmd in $(echo \"$cmds\"); do command -v \"$cmd\" >/dev/null 2>&1 || unavailable=\"$unavailable, $cmd\"; done; [ -z \"$unavailable\" ] || {{ echo \"${{unavailable#, }}\"; false; }}", commands).as_str())?;
+            let cmd_result = this.cmdq(&command);
+            let (stdout, _, exit_code) = cmd_result?;
+
+            if exit_code != 0 {
+                return Err(RuntimeError(
+                    format!(
+                        "required commands not found on the remote host: {}",
+                    stdout
+                    ),
+                ))
+            }
+
+            Ok(())
         });
 
         methods.add_method_mut(

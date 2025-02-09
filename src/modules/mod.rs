@@ -4,6 +4,7 @@ mod cmd;
 mod core;
 mod download;
 mod lineinfile;
+mod postgresql_user;
 mod script;
 mod systemd_service;
 mod template;

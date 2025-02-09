@@ -3,6 +3,7 @@
 <img alt="Komandan Logo" height="230" src="assets/komandan.png" />
 
 # Komandan
+
 #### Your army commander
 
 [![Build Status]][github-actions] [![License:MIT]][license] [![Coverage]][codecov.io]
@@ -21,6 +22,7 @@ Komandan is a server automation tool that simplifies remote server management by
 > **Notice:** Komandan is in early development and currently supports Linux only. Updates will come as development progresses. Feedback is welcome—thank you for your support!
 
 ## Table of Contents
+
 - [Installation](#installation)
 - [Getting Started](#getting-started)
 - [Usage](#usage)
@@ -99,39 +101,39 @@ This script will connect to `webserver1` as `user1` using the specified SSH key 
 
 The `komando` function is the core of Komandan. It executes tasks on remote hosts via SSH. It takes two arguments:
 
--   `host`: A table containing the connection details for the target server:
-    -   `address`: The IP address or hostname.
-    -   `port`: The SSH port (default: 22).
-    -   `user`: The username for authentication.
-    -   `private_key_file`: The path to the SSH private key file.
-    -   `private_key_pass`: The passphrase for the private key (if encrypted).
-    -   `password`: The password for authentication (if not using key-based auth).
--   `task`: A table defining the task to be executed:
-    -   `name`: A descriptive name for the task (optional, used for logging).
-    -   `module`: A table specifying the module to use and its arguments.
-    -   `ignore_exit_code`: Whether to ignore non-zero exit codes (default: `false`).
-    -   `elevate`: Whether to run the task with elevated privileges (default: `false`).
-    -   `as_user`: The user to run the task as when elevated (optional).
-    -   `env`: A table of environment variables to set for the task (optional).
+- `host`: A table containing the connection details for the target server:
+  - `address`: The IP address or hostname.
+  - `port`: The SSH port (default: 22).
+  - `user`: The username for authentication.
+  - `private_key_file`: The path to the SSH private key file.
+  - `private_key_pass`: The passphrase for the private key (if encrypted).
+  - `password`: The password for authentication (if not using key-based auth).
+- `task`: A table defining the task to be executed:
+  - `name`: A descriptive name for the task (optional, used for logging).
+  - `module`: A table specifying the module to use and its arguments.
+  - `ignore_exit_code`: Whether to ignore non-zero exit codes (default: `false`).
+  - `elevate`: Whether to run the task with elevated privileges (default: `false`).
+  - `as_user`: The user to run the task as when elevated (optional).
+  - `env`: A table of environment variables to set for the task (optional).
 
 The `komando` function returns a table with the following fields:
 
--   `stdout`: The standard output of the executed command or script.
--   `stderr`: The standard error output.
--   `exit_code`: The exit code of the command or script.
+- `stdout`: The standard output of the executed command or script.
+- `stderr`: The standard error output.
+- `exit_code`: The exit code of the command or script.
 
 ## Modules
 
 Komandan provides built-in modules for common tasks, accessible through the `komandan.modules` table. Here's a quick overview of the available modules:
 
--   **`cmd`**: Execute shell commands on the remote host.
--   **`script`**: Run scripts on the remote host, either from a local file or provided directly.
--   **`upload`**: Upload files to the remote host.
--   **`download`**: Download files from the remote host.
--   **`apt`**: Manage packages on Debian/Ubuntu systems using `apt`.
--   **`lineinfile`**: Insert or replace lines in a file.
--   **`template`**: Render a jinja template file on the remote host.
--   **`systemd_service`**: Manage systemd services on the remote host.
+- **`cmd`**: Execute shell commands on the remote host.
+- **`script`**: Run scripts on the remote host, either from a local file or provided directly.
+- **`upload`**: Upload files to the remote host.
+- **`download`**: Download files from the remote host.
+- **`apt`**: Manage packages on Debian/Ubuntu systems using `apt`.
+- **`lineinfile`**: Insert or replace lines in a file.
+- **`template`**: Render a jinja template file on the remote host.
+- **`systemd_service`**: Manage systemd services on the remote host.
 
 For detailed explanations, arguments, and examples of each module, please refer to the [Modules section of the Komandan Documentation Site](https://komandan.vercel.app/docs/modules).
 
@@ -139,9 +141,9 @@ For detailed explanations, arguments, and examples of each module, please refer 
 
 Komandan offers built-in functions to enhance scripting capabilities:
 
--   **`komandan.filter_hosts`**: Filters a list of hosts based on a pattern.
--   **`komandan.parse_hosts_json_file`**: Parses a JSON file containing hosts information.
--   **`komandan.parse_hosts_json_url`**: Parses a JSON file from a URL containing hosts information.
+- **`komandan.filter_hosts`**: Filters a list of hosts based on a pattern.
+- **`komandan.parse_hosts_json_file`**: Parses a JSON file containing hosts information.
+- **`komandan.parse_hosts_json_url`**: Parses a JSON file from a URL containing hosts information.
 
 For detailed descriptions and usage examples of these functions, please visit the [Built-in Functions section of the Komandan Documentation Site](https://komandan.vercel.app/docs/functions/).
 
