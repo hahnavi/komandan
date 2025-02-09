@@ -16,6 +16,10 @@ pub struct Args {
     #[arg(short, long)]
     pub dry_run: bool,
 
+    /// Don't print report
+    #[arg(short, long)]
+    pub no_report: bool,
+
     /// Enter interactive mode after executing 'script'.
     #[arg(short, long)]
     pub interactive: bool,

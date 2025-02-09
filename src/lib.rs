@@ -108,7 +108,9 @@ pub fn run_main_file(lua: &Lua, main_file: &String) -> Result<()> {
 
     lua.load(&script).set_name(main_file).exec()?;
 
-    generate_report();
+    if !Args::parse().no_report {
+        generate_report();
+    }
 
     Ok(())
 }
@@ -178,6 +180,7 @@ mod tests {
             Args {
                 chunk: None,
                 dry_run: false,
+                no_report: false,
                 interactive: false,
                 verbose: true,
                 version: false,
