@@ -92,7 +92,7 @@ local tasks_postgresql_install = {
 		name = "Restart PostgreSQL",
 		komandan.modules.systemd_service({
 			name = "postgresql",
-			state = "restarted",
+			action = "restart",
 		}),
 	},
 }
@@ -126,7 +126,7 @@ local tasks_setup_replica = {
 		name = "Stop PostgreSQL",
 		komandan.modules.systemd_service({
 			name = "postgresql",
-			state = "stopped",
+			action = "stop",
 		}),
 	},
 	{
@@ -169,7 +169,7 @@ local tasks_setup_replica = {
 		name = "Start PostgreSQL",
 		komandan.modules.systemd_service({
 			name = "postgresql",
-			state = "started",
+			action = "start",
 		}),
 	},
 }
