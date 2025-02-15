@@ -73,7 +73,9 @@ pub fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
         }
     };
 
-    insert_record(task_display, host_display, task_status);
+    if !Args::parse().no_report {
+        insert_record(task_display, host_display, task_status);
+    }
 
     Ok(result)
 }
