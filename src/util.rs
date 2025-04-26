@@ -261,7 +261,7 @@ mod tests {
             verbose: true,
             version: false,
         };
-        env::set_var("MOCK_ARGS", format!("{:?}", args));
+        unsafe { env::set_var("MOCK_ARGS", format!("{:?}", args)) };
 
         let lua = create_lua().unwrap();
         let value = Value::String(lua.create_string("Test verbose print").unwrap());
@@ -280,7 +280,7 @@ mod tests {
             verbose: false,
             version: false,
         };
-        env::set_var("MOCK_ARGS", format!("{:?}", args));
+        unsafe { env::set_var("MOCK_ARGS", format!("{:?}", args)) };
 
         let lua = create_lua().unwrap();
         let value = Value::String(lua.create_string("Test non-verbose print").unwrap());

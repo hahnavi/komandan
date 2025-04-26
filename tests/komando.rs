@@ -108,7 +108,7 @@ fn test_komando_use_default_user() {
 #[test]
 fn test_komando_use_default_user_from_env() {
     let lua = create_lua().unwrap();
-    env::set_var("USER", "usertest");
+    unsafe { env::set_var("USER", "usertest") };
 
     let result = lua
         .load(chunk! {
@@ -133,7 +133,7 @@ fn test_komando_use_default_user_from_env() {
 #[test]
 fn test_komando_no_user_specified() {
     let lua = create_lua().unwrap();
-    env::remove_var("USER");
+    unsafe { env::remove_var("USER") };
 
     let result = lua
         .load(chunk! {

@@ -1,8 +1,8 @@
 use mlua::{chunk, Lua, Table};
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, Rng};
 
 pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
-    let random_file_name: String = rand::thread_rng()
+    let random_file_name: String = rand::rng()
         .sample_iter(&Alphanumeric)
         .map(char::from)
         .take(10)

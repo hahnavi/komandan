@@ -161,7 +161,7 @@ pub fn repl(lua: &Lua) {
 pub fn print_version() {
     let version = env!("CARGO_PKG_VERSION");
     let authors = env!("CARGO_PKG_AUTHORS");
-    println!("Komandan {} -- Copyright (C) 2024 {}", version, authors);
+    println!("Komandan {} -- Copyright (C) 2025 {}", version, authors);
 }
 
 // Tests
