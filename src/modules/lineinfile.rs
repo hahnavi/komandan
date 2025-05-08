@@ -1,8 +1,8 @@
-use mlua::{chunk, ExternalResult, Lua, Table};
-use rand::{distributions::Alphanumeric, Rng};
+use mlua::{ExternalResult, Lua, Table, chunk};
+use rand::{Rng, distr::Alphanumeric};
 
 pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
-    let random_file_name: String = rand::thread_rng()
+    let random_file_name: String = rand::rng()
         .sample_iter(&Alphanumeric)
         .map(char::from)
         .take(10)
@@ -266,10 +266,12 @@ mod tests {
         let params = lua.create_table().unwrap();
         let result = lineinfile(&lua, params);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("'path' parameter is required"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("'path' parameter is required")
+        );
     }
 
     #[test]
@@ -281,10 +283,12 @@ mod tests {
         params.set("state", "--invalid-state--").unwrap();
         let result = lineinfile(&lua, params);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("'state' parameter must be 'present' or 'absent'"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("'state' parameter must be 'present' or 'absent'")
+        );
     }
 
     #[test]
@@ -294,10 +298,12 @@ mod tests {
         params.set("path", "/tmp/test.txt").unwrap();
         let result = lineinfile(&lua, params);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("'line' or 'pattern' parameter is required"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("'line' or 'pattern' parameter is required")
+        );
     }
 
     #[test]

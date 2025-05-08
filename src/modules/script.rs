@@ -1,8 +1,8 @@
-use mlua::{chunk, Lua, Table};
-use rand::{distributions::Alphanumeric, Rng};
+use mlua::{Lua, Table, chunk};
+use rand::{Rng, distr::Alphanumeric};
 
 pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
-    let random_file_name: String = rand::thread_rng()
+    let random_file_name: String = rand::rng()
         .sample_iter(&Alphanumeric)
         .map(char::from)
         .take(10)
@@ -67,10 +67,12 @@ mod tests {
         let params = lua.create_table().unwrap();
         let result = script(&lua, params);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("script or from_file parameter is required"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("script or from_file parameter is required")
+        );
     }
 
     #[test]
@@ -81,10 +83,12 @@ mod tests {
         params.set("from_file", "examples/run_script.lua").unwrap();
         let result = script(&lua, params);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("script and from_file parameters cannot be used together"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("script and from_file parameters cannot be used together")
+        );
     }
 
     #[test]

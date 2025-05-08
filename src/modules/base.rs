@@ -1,4 +1,4 @@
-use mlua::{chunk, Table};
+use mlua::{Table, chunk};
 
 pub fn base_module(lua: &mlua::Lua) -> mlua::Result<Table> {
     lua.load(chunk! {

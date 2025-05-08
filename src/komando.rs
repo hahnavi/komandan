@@ -2,15 +2,15 @@ use std::collections::HashMap;
 use std::env;
 
 use clap::Parser;
-use mlua::{chunk, IntoLua, LuaSerdeExt};
 use mlua::{Error::RuntimeError, FromLua, Integer, Lua, Table, Value};
+use mlua::{IntoLua, LuaSerdeExt, chunk};
 use rayon::prelude::*;
 
 use crate::args::Args;
 use crate::create_lua;
 use crate::defaults::Defaults;
 use crate::models::{Host, KomandoResult, Task};
-use crate::report::{insert_record, TaskStatus};
+use crate::report::{TaskStatus, insert_record};
 use crate::ssh::{Elevation, ElevationMethod, SSHAuthMethod, SSHSession};
 use crate::util::{host_display, task_display};
 use crate::validator::{validate_host, validate_task};
@@ -166,7 +166,7 @@ fn get_user(host: &Table, task: &Table) -> mlua::Result<String> {
                     return Err(RuntimeError(format!(
                         "No user specified for task '{}'.",
                         task_display(task)
-                    )))
+                    )));
                 }
             },
         },
@@ -222,7 +222,7 @@ fn get_auth_config(host: &Table, task: &Table) -> mlua::Result<(String, SSHAuthM
                         return Err(RuntimeError(format!(
                             "No authentication method specified for task '{}' on host '{}'.",
                             task_display, host_display
-                        )))
+                        )));
                     }
                 },
             },

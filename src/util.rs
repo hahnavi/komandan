@@ -2,7 +2,7 @@ use crate::args::Args;
 use crate::validator::validate_host;
 use clap::Parser;
 use http_klien::create_client_from_url;
-use mlua::{chunk, Error::RuntimeError, Lua, LuaSerdeExt, Table, Value};
+use mlua::{Error::RuntimeError, Lua, LuaSerdeExt, Table, Value, chunk};
 use std::{fs::File, io::Read};
 
 pub fn dprint(lua: &Lua, value: Value) -> mlua::Result<()> {
@@ -261,7 +261,7 @@ mod tests {
             verbose: true,
             version: false,
         };
-        env::set_var("MOCK_ARGS", format!("{:?}", args));
+        unsafe { env::set_var("MOCK_ARGS", format!("{:?}", args)) };
 
         let lua = create_lua().unwrap();
         let value = Value::String(lua.create_string("Test verbose print").unwrap());
@@ -280,7 +280,7 @@ mod tests {
             verbose: false,
             version: false,
         };
-        env::set_var("MOCK_ARGS", format!("{:?}", args));
+        unsafe { env::set_var("MOCK_ARGS", format!("{:?}", args)) };
 
         let lua = create_lua().unwrap();
         let value = Value::String(lua.create_string("Test non-verbose print").unwrap());
@@ -294,19 +294,23 @@ mod tests {
         let pattern = Value::String(lua.create_string("host1").unwrap());
         let result = filter_hosts(&lua, (hosts, pattern));
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("hosts table must not be nil"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("hosts table must not be nil")
+        );
 
         let hosts = lua.create_string("not_a_table").unwrap();
         let pattern = Value::String(lua.create_string("host1").unwrap());
         let result = filter_hosts(&lua, (Value::String(hosts), pattern));
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("hosts must be a table"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("hosts must be a table")
+        );
     }
 
     #[test]
@@ -317,20 +321,24 @@ mod tests {
         let pattern = Value::Nil;
         let result = filter_hosts(&lua, (Value::Table(hosts), pattern));
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("pattern must not be nil"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("pattern must not be nil")
+        );
 
         let hosts = lua.create_table().unwrap();
         hosts.set("host2", lua.create_table().unwrap()).unwrap();
         let pattern = Value::Integer(123);
         let result = filter_hosts(&lua, (Value::Table(hosts), pattern));
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("pattern must be a string or table"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("pattern must be a string or table")
+        );
     }
 
     #[test]
@@ -466,10 +474,12 @@ mod tests {
         let lua_string = Value::String(lua.create_string("/nonexistent/path").unwrap());
         let result = parse_hosts_json_file(&lua, lua_string);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to open JSON file"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Failed to open JSON file")
+        );
     }
 
     #[test]
@@ -486,10 +496,12 @@ mod tests {
             .unwrap();
         let result = parse_hosts_json_file(&lua, Value::String(lua_string));
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to read JSON file"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Failed to read JSON file")
+        );
     }
 
     #[test]
@@ -516,10 +528,12 @@ mod tests {
             .unwrap();
         let result = parse_hosts_json_file(&lua, Value::String(lua_string));
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to parse JSON file from"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Failed to parse JSON file from")
+        );
     }
 
     #[test]
@@ -527,10 +541,12 @@ mod tests {
         let lua = create_lua().unwrap();
         let result = parse_hosts_json_url(&lua, Value::Nil);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("URL must be a string"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("URL must be a string")
+        );
     }
 
     #[test]
@@ -544,10 +560,12 @@ mod tests {
             ),
         );
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("HTTP request failed with status"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("HTTP request failed with status")
+        );
     }
 
     #[test]

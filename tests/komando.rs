@@ -1,5 +1,5 @@
 use komandan::create_lua;
-use mlua::{chunk, Integer, Table};
+use mlua::{Integer, Table, chunk};
 use std::{env, io::Write};
 use tempfile::NamedTempFile;
 
@@ -108,7 +108,7 @@ fn test_komando_use_default_user() {
 #[test]
 fn test_komando_use_default_user_from_env() {
     let lua = create_lua().unwrap();
-    env::set_var("USER", "usertest");
+    unsafe { env::set_var("USER", "usertest") };
 
     let result = lua
         .load(chunk! {
@@ -133,7 +133,7 @@ fn test_komando_use_default_user_from_env() {
 #[test]
 fn test_komando_no_user_specified() {
     let lua = create_lua().unwrap();
-    env::remove_var("USER");
+    unsafe { env::remove_var("USER") };
 
     let result = lua
         .load(chunk! {
@@ -153,10 +153,12 @@ fn test_komando_no_user_specified() {
         .eval::<Table>();
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("No user specified for task"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("No user specified for task")
+    );
 }
 
 #[test]

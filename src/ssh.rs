@@ -79,9 +79,10 @@ impl SSHSession {
             match known_hosts.read_file(Path::new(file.as_str()), KnownHostFileKind::OpenSSH) {
                 Ok(_) => {}
                 Err(_) => {
-                    return Err(Error::msg(
-                        format!("SSH host key verification failed. Please add the host key to the known_hosts file: {}", file)
-                    ));
+                    return Err(Error::msg(format!(
+                        "SSH host key verification failed. Please add the host key to the known_hosts file: {}",
+                        file
+                    )));
                 }
             };
 
@@ -89,9 +90,10 @@ impl SSHSession {
             match known_hosts_check_result {
                 CheckResult::Match => {}
                 _ => {
-                    return Err(Error::msg(
-                        format!("SSH host key verification failed ({:?}). Please check the known_hosts file: {}", known_hosts_check_result, file)
-                    ));
+                    return Err(Error::msg(format!(
+                        "SSH host key verification failed ({:?}). Please check the known_hosts file: {}",
+                        known_hosts_check_result, file
+                    )));
                 }
             };
         }

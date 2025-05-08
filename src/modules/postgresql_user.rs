@@ -1,4 +1,4 @@
-use mlua::{chunk, ExternalResult, Lua, Table};
+use mlua::{ExternalResult, Lua, Table, chunk};
 
 pub fn postgresql_user(lua: &Lua, params: Table) -> mlua::Result<Table> {
     let base_module = super::base_module(lua)?;
@@ -106,10 +106,12 @@ mod tests {
 
         let result = postgresql_user(&lua, params);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("'name' parameter is required"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("'name' parameter is required")
+        );
     }
 
     #[test]

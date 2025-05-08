@@ -1,4 +1,4 @@
-use mlua::{chunk, Error::RuntimeError, ExternalResult, Integer, Lua, Table, Value};
+use mlua::{Error::RuntimeError, ExternalResult, Integer, Lua, Table, Value, chunk};
 
 pub fn validate_host(lua: &Lua, host: Value) -> mlua::Result<Table> {
     if !host.is_table() {
@@ -142,11 +142,13 @@ mod tests {
 
         let result = super::validate_host(&lua, mlua::Value::Table(host));
         assert!(result.is_err());
-        assert!(result
-            .err()
-            .unwrap()
-            .to_string()
-            .starts_with("runtime error: Port is not an integer."),);
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .starts_with("runtime error: Port is not an integer."),
+        );
     }
 
     #[test]
@@ -158,11 +160,13 @@ mod tests {
 
         let result = super::validate_host(&lua, mlua::Value::Table(host));
         assert!(result.is_err());
-        assert!(result
-            .err()
-            .unwrap()
-            .to_string()
-            .starts_with("runtime error: Port is out of range."),);
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .starts_with("runtime error: Port is out of range."),
+        );
     }
 
     #[test]

@@ -13,7 +13,7 @@ use args::Args;
 use clap::Parser;
 use defaults::Defaults;
 use komando::{komando, komando_parallel_hosts, komando_parallel_tasks};
-use mlua::{chunk, Lua, MultiValue};
+use mlua::{Lua, MultiValue, chunk};
 use modules::{base_module, collect_core_modules};
 use report::generate_report;
 use rustyline::DefaultEditor;
@@ -161,7 +161,7 @@ pub fn repl(lua: &Lua) {
 pub fn print_version() {
     let version = env!("CARGO_PKG_VERSION");
     let authors = env!("CARGO_PKG_AUTHORS");
-    println!("Komandan {} -- Copyright (C) 2024 {}", version, authors);
+    println!("Komandan {} -- Copyright (C) 2025 {}", version, authors);
 }
 
 // Tests
