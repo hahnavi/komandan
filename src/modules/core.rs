@@ -7,6 +7,7 @@ pub fn collect_core_modules(lua: &mlua::Lua) -> mlua::Result<Table> {
     modules.set("apt", lua.create_function(apt::apt)?)?;
     modules.set("cmd", lua.create_function(cmd::cmd)?)?;
     modules.set("download", lua.create_function(download::download)?)?;
+    modules.set("file", lua.create_function(file::file)?)?;
     modules.set("lineinfile", lua.create_function(lineinfile::lineinfile)?)?;
     modules.set(
         "postgresql_user",

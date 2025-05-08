@@ -3,6 +3,7 @@ mod base;
 mod cmd;
 mod core;
 mod download;
+mod file;
 mod lineinfile;
 mod postgresql_user;
 mod script;
