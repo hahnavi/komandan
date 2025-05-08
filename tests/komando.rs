@@ -1,5 +1,5 @@
 use komandan::create_lua;
-use mlua::{chunk, Integer, Table};
+use mlua::{Integer, Table, chunk};
 use std::{env, io::Write};
 use tempfile::NamedTempFile;
 
@@ -153,10 +153,12 @@ fn test_komando_no_user_specified() {
         .eval::<Table>();
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("No user specified for task"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("No user specified for task")
+    );
 }
 
 #[test]

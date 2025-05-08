@@ -13,7 +13,7 @@ use args::Args;
 use clap::Parser;
 use defaults::Defaults;
 use komando::{komando, komando_parallel_hosts, komando_parallel_tasks};
-use mlua::{chunk, Lua, MultiValue};
+use mlua::{Lua, MultiValue, chunk};
 use modules::{base_module, collect_core_modules};
 use report::generate_report;
 use rustyline::DefaultEditor;

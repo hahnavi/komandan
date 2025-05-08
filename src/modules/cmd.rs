@@ -1,4 +1,4 @@
-use mlua::{chunk, ExternalResult, Lua, Table};
+use mlua::{ExternalResult, Lua, Table, chunk};
 
 pub fn cmd(lua: &Lua, params: Table) -> mlua::Result<Table> {
     let base_module = super::base_module(lua)?;

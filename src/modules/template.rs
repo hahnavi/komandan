@@ -1,6 +1,6 @@
 use minijinja::Environment;
-use mlua::{chunk, Error::RuntimeError, ExternalResult, Lua, Table, Value};
-use rand::{distr::Alphanumeric, Rng};
+use mlua::{Error::RuntimeError, ExternalResult, Lua, Table, Value, chunk};
+use rand::{Rng, distr::Alphanumeric};
 
 pub fn template(lua: &Lua, params: Table) -> mlua::Result<Table> {
     let src = match params.get::<String>("src") {

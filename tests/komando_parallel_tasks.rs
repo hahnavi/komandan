@@ -1,5 +1,5 @@
 use komandan::create_lua;
-use mlua::{chunk, Integer, Table, Value};
+use mlua::{Integer, Table, Value, chunk};
 
 #[test]
 fn test_komando_parallel_tasks() {
