@@ -67,23 +67,25 @@ pub fn filter_hosts(lua: &Lua, (hosts, pattern): (Value, Value)) -> mlua::Result
                     ::continue::
                 end
 
-                for _, tag in ipairs(host_data.tags) do
-                    for _, p in ipairs(pattern) do
-                        if type(p) ~= "string" then
-                            goto continue
-                        end
-                        if p:sub(1, 1) ~= "~" then
-                            if tag == p then
-                                matched_hosts[host_key] = host_data
-                                break
+                if host_data.tags ~= nil then
+                    for _, tag in ipairs(host_data.tags) do
+                        for _, p in ipairs(pattern) do
+                            if type(p) ~= "string" then
+                                goto continue
                             end
-                        else
-                            if $regex_is_match(tag, p:sub(2)) then
-                                matched_hosts[host_key] = host_data
-                                break
+                            if p:sub(1, 1) ~= "~" then
+                                if tag == p then
+                                    matched_hosts[host_key] = host_data
+                                    break
+                                end
+                            else
+                                if $regex_is_match(tag, p:sub(2)) then
+                                    matched_hosts[host_key] = host_data
+                                    break
+                                end
                             end
+                            ::continue::
                         end
-                        ::continue::
                     end
                 end
             end
