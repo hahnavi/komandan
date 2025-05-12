@@ -34,7 +34,7 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             params.install_opts = ""
             if not params.install_recommends then
-                params.install_opts = params.install_opts .. " --no-install-recommends"
+                params.install_opts = params.install_opts .. "--no-install-recommends"
             end
 
             local function sanitize(input)
@@ -79,7 +79,7 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 local installed = self:is_installed()
 
                 if self.params.action == "install" then
-                    self.ssh:cmd("apt -s install " .. self.params.package .. self.params.install_opts)
+                    self.ssh:cmd("apt -s install " .. self.params.package .. " " .. self.params.install_opts)
                     if installed then
                         self.ssh:set_changed(false)
                     end
@@ -112,7 +112,7 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 local installed = self:is_installed()
 
                 if self.params.action == "install" then
-                    self.ssh:cmd("apt install -y " .. self.params.package .. self.params.install_opts)
+                    self.ssh:cmd("apt install -y " .. self.params.package .. " " .. self.params.install_opts)
                     if installed then
                         self.ssh:set_changed(false)
                     end
