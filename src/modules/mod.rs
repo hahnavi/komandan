@@ -10,6 +10,7 @@ mod script;
 mod systemd_service;
 mod template;
 mod upload;
+mod user;
 
 pub use base::*;
 pub use core::*;

@@ -20,5 +20,6 @@ pub fn collect_core_modules(lua: &mlua::Lua) -> mlua::Result<Table> {
     )?;
     modules.set("template", lua.create_function(template::template)?)?;
     modules.set("upload", lua.create_function(upload::upload)?)?;
+    modules.set("user", lua.create_function(user::user)?)?;
     Ok(modules)
 }
