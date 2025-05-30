@@ -8,6 +8,7 @@ pub fn collect_core_modules(lua: &mlua::Lua) -> mlua::Result<Table> {
     modules.set("cmd", lua.create_function(cmd::cmd)?)?;
     modules.set("download", lua.create_function(download::download)?)?;
     modules.set("file", lua.create_function(file::file)?)?;
+    modules.set("get_url", lua.create_function(get_url::get_url)?)?;
     modules.set("lineinfile", lua.create_function(lineinfile::lineinfile)?)?;
     modules.set(
         "postgresql_user",
@@ -20,5 +21,6 @@ pub fn collect_core_modules(lua: &mlua::Lua) -> mlua::Result<Table> {
     )?;
     modules.set("template", lua.create_function(template::template)?)?;
     modules.set("upload", lua.create_function(upload::upload)?)?;
+    modules.set("user", lua.create_function(user::user)?)?;
     Ok(modules)
 }
