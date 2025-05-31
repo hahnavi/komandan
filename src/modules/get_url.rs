@@ -8,8 +8,8 @@ pub fn get_url(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 error("'url' parameter is required")
             end
 
-            if params.dest == nil then
-                error("'dest' parameter is required")
+            if params.dst == nil then
+                error("'dst' parameter is required")
             end
 
             params.force = params.force or false
@@ -19,7 +19,7 @@ pub fn get_url(lua: &Lua, params: Table) -> mlua::Result<Table> {
             module.params = $params
 
             module.is_exists = function(self)
-                local result = self.ssh:cmdq("test -f " .. self.params.dest)
+                local result = self.ssh:cmdq("test -f " .. self.params.dst)
                 return result.exit_code == 0
             end
 
@@ -35,7 +35,7 @@ pub fn get_url(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 if is_exists and not self.params.force then
                     self.ssh:set_changed(false)
                 else
-                    self.ssh:cmdq("wget -O " .. self.params.dest .. " " .. self.params.url)
+                    self.ssh:cmdq("wget -O " .. self.params.dst .. " " .. self.params.url)
                 end
             end
 
