@@ -2,6 +2,7 @@ mod apt;
 mod base;
 mod cmd;
 mod core;
+mod dnf;
 mod download;
 mod file;
 mod get_url;
