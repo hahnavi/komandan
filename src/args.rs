@@ -28,6 +28,10 @@ pub struct Args {
     #[arg(short, long)]
     pub verbose: bool,
 
+    /// The created Lua state will not have safety guarantees and will allow to load C modules
+    #[arg(short, long)]
+    pub unsafe_lua: bool,
+
     /// Print version information
     #[arg(short = 'V', long)]
     pub version: bool,

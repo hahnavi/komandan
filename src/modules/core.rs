@@ -6,6 +6,7 @@ pub fn collect_core_modules(lua: &mlua::Lua) -> mlua::Result<Table> {
     let modules = lua.create_table()?;
     modules.set("apt", lua.create_function(apt::apt)?)?;
     modules.set("cmd", lua.create_function(cmd::cmd)?)?;
+    modules.set("dnf", lua.create_function(dnf::dnf)?)?;
     modules.set("download", lua.create_function(download::download)?)?;
     modules.set("file", lua.create_function(file::file)?)?;
     modules.set("get_url", lua.create_function(get_url::get_url)?)?;

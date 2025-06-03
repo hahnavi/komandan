@@ -261,6 +261,7 @@ mod tests {
             no_report: false,
             interactive: false,
             verbose: true,
+            unsafe_lua: false,
             version: false,
         };
         unsafe { env::set_var("MOCK_ARGS", format!("{:?}", args)) };
@@ -280,6 +281,7 @@ mod tests {
             no_report: false,
             interactive: false,
             verbose: false,
+            unsafe_lua: false,
             version: false,
         };
         unsafe { env::set_var("MOCK_ARGS", format!("{:?}", args)) };

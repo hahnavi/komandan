@@ -41,7 +41,7 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 if type(input) ~= "string" then
                     return nil -- Ensure input is a string
                 end
-                return input:gsub("[^%w%-_]", "")
+                return input:gsub("[^%w%-_=]", "")
             end
 
             local function sanitize_package_param(param)
@@ -115,19 +115,22 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 local packages_str = self.package_list_to_string(self.params.package)
 
                 if self.params.action == "install" then
-                    self.ssh:cmd("apt -s install " .. packages_str .. " " .. self.params.install_opts)
                     if installed then
                         self.ssh:set_changed(false)
+                    else
+                        self.ssh:cmd("apt -s install " .. packages_str .. " " .. self.params.install_opts)
                     end
                 elseif self.params.action == "remove" then
-                    self.ssh:cmd("apt -s remove " .. packages_str)
                     if not installed then
                         self.ssh:set_changed(false)
+                    else
+                        self.ssh:cmd("apt -s remove " .. packages_str)
                     end
                 elseif self.params.action == "purge" then
-                    self.ssh:cmd("apt -s purge " .. packages_str)
                     if not installed then
                         self.ssh:set_changed(false)
+                    else
+                        self.ssh:cmd("apt -s purge " .. packages_str)
                     end
                 elseif self.params.action == "upgrade" then
                     self.ssh:cmd("apt -s upgrade")
@@ -149,19 +152,22 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 local packages_str = self.package_list_to_string(self.params.package)
 
                 if self.params.action == "install" then
-                    self.ssh:cmd("apt install -y " .. packages_str .. " " .. self.params.install_opts)
                     if installed then
                         self.ssh:set_changed(false)
+                    else
+                        self.ssh:cmd("apt install -y " .. packages_str .. " " .. self.params.install_opts)
                     end
                 elseif self.params.action == "remove" then
-                    self.ssh:cmd("apt remove -y " .. packages_str)
                     if not installed then
                         self.ssh:set_changed(false)
+                    else
+                        self.ssh:cmd("apt remove -y " .. packages_str)
                     end
                 elseif self.params.action == "purge" then
-                    self.ssh:cmd("apt purge -y " .. packages_str)
                     if not installed then
                         self.ssh:set_changed(false)
+                    else
+                        self.ssh:cmd("apt purge -y " .. packages_str)
                     end
                 elseif self.params.action == "upgrade" then
                     self.ssh:cmd("apt upgrade -y")

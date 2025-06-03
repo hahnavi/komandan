@@ -21,22 +21,27 @@ use std::{env, fs, path::Path};
 use util::{dprint, filter_hosts, parse_hosts_json_file, parse_hosts_json_url, regex_is_match};
 
 pub fn create_lua() -> mlua::Result<Lua> {
-    let lua = Lua::new();
     let args = Args::parse();
+    let lua = if args.unsafe_lua {
+        unsafe { Lua::unsafe_new() }
+    } else {
+        Lua::new()
+    };
 
     let project_dir = match args.main_file.clone() {
         Some(main_file) => {
             let main_file_path = Path::new(&main_file);
             let project_dir = match main_file_path.parent() {
-                Some(parent) => Some(
-                    parent
-                        .canonicalize()
-                        .unwrap_or_else(|_| parent.to_path_buf()),
-                ),
-                _none => None,
-            }
-            .unwrap();
-            project_dir.display().to_string()
+                Some(parent) => {
+                    if parent.display().to_string() == "" {
+                        env::current_dir()?.display().to_string()
+                    } else {
+                        parent.display().to_string()
+                    }
+                },
+                _none => env::current_dir()?.display().to_string(),
+            };
+            project_dir
         }
         None => env::current_dir()?.display().to_string(),
     };
@@ -183,6 +188,7 @@ mod tests {
                 no_report: false,
                 interactive: false,
                 verbose: true,
+                unsafe_lua: false,
                 version: false,
                 main_file: Some("/tmp/test/main.lua".to_string()),
             }

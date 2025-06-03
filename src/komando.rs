@@ -80,16 +80,29 @@ pub fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
     Ok(result)
 }
 
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+enum ParallelHashMapKey {
+    Number(u32),
+    Text(String),
+}
+
 pub fn komando_parallel_tasks(lua: &Lua, (host, tasks): (Value, Value)) -> mlua::Result<Table> {
     let host = Host::from_lua(host, lua)?;
-    let mut tasks_hm = HashMap::<u32, Task>::new();
-    for pair in tasks.as_table().unwrap().pairs::<u32, Value>() {
-        let (key, value): (u32, Value) = pair?;
+    let mut tasks_hm = HashMap::<ParallelHashMapKey, Task>::new();
+    for pair in tasks.as_table().unwrap().pairs::<Value, Value>() {
+        let (key, value): (Value, Value) = pair?;
         let task = Task::from_lua(value, lua)?;
-        tasks_hm.insert(key, task);
+        if key.is_number() {
+            tasks_hm.insert(
+                ParallelHashMapKey::Number(key.as_integer().unwrap() as u32),
+                task,
+            );
+        } else {
+            tasks_hm.insert(ParallelHashMapKey::Text(key.to_string()?), task);
+        }
     }
 
-    let results: HashMap<u32, KomandoResult> = tasks_hm
+    let results: HashMap<ParallelHashMapKey, KomandoResult> = tasks_hm
         .par_iter()
         .map(|(i, task)| {
             let lua = create_lua().unwrap();
@@ -98,17 +111,21 @@ pub fn komando_parallel_tasks(lua: &Lua, (host, tasks): (Value, Value)) -> mlua:
             let result = komando(&lua, (host, task)).unwrap();
 
             (
-                *i,
+                i.clone(),
                 lua.from_value::<KomandoResult>(Value::Table(result))
                     .unwrap(),
             )
         })
-        .collect::<HashMap<u32, KomandoResult>>();
+        .collect::<HashMap<ParallelHashMapKey, KomandoResult>>();
 
     let results_table = lua.create_table()?;
     results.iter().for_each(|(i, result)| {
+        let key: Value = match i {
+            ParallelHashMapKey::Number(i) => Value::Number(*i as f64),
+            ParallelHashMapKey::Text(i) => Value::String(lua.create_string(i).unwrap()),
+        };
         results_table
-            .set(*i, lua.to_value(result).unwrap())
+            .set(key, lua.to_value(result).unwrap())
             .unwrap();
     });
 
@@ -117,14 +134,21 @@ pub fn komando_parallel_tasks(lua: &Lua, (host, tasks): (Value, Value)) -> mlua:
 
 pub fn komando_parallel_hosts(lua: &Lua, (hosts, task): (Value, Value)) -> mlua::Result<Table> {
     let task = Task::from_lua(task, lua)?;
-    let mut hosts_hm = HashMap::<u32, Host>::new();
-    for pair in hosts.as_table().unwrap().pairs::<u32, Value>() {
-        let (key, value): (u32, Value) = pair?;
+    let mut hosts_hm = HashMap::<ParallelHashMapKey, Host>::new();
+    for pair in hosts.as_table().unwrap().pairs::<Value, Value>() {
+        let (key, value): (Value, Value) = pair?;
         let host = Host::from_lua(value, lua)?;
-        hosts_hm.insert(key, host);
+        if key.is_number() {
+            hosts_hm.insert(
+                ParallelHashMapKey::Number(key.as_integer().unwrap() as u32),
+                host,
+            );
+        } else {
+            hosts_hm.insert(ParallelHashMapKey::Text(key.to_string()?), host);
+        }
     }
 
-    let results: HashMap<u32, KomandoResult> = hosts_hm
+    let results: HashMap<ParallelHashMapKey, KomandoResult> = hosts_hm
         .par_iter()
         .map(|(i, host)| {
             let lua = create_lua().unwrap();
@@ -133,17 +157,21 @@ pub fn komando_parallel_hosts(lua: &Lua, (hosts, task): (Value, Value)) -> mlua:
             let result = komando(&lua, (host, task)).unwrap();
 
             (
-                *i,
+                i.clone(),
                 lua.from_value::<KomandoResult>(Value::Table(result))
                     .unwrap(),
             )
         })
-        .collect::<HashMap<u32, KomandoResult>>();
+        .collect::<HashMap<ParallelHashMapKey, KomandoResult>>();
 
     let results_table = lua.create_table()?;
     results.iter().for_each(|(i, result)| {
+        let key: Value = match i {
+            ParallelHashMapKey::Number(i) => Value::Number(*i as f64),
+            ParallelHashMapKey::Text(i) => Value::String(lua.create_string(i).unwrap()),
+        };
         results_table
-            .set(*i, lua.to_value(result).unwrap())
+            .set(key, lua.to_value(result).unwrap())
             .unwrap();
     });
 
