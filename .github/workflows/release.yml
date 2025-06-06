@@ -14,9 +14,6 @@ jobs:
       - name: Build
         run: cargo build --release --target x86_64-unknown-linux-gnu
 
-      - name: Strip binary
-        run: strip target/x86_64-unknown-linux-gnu/release/komandan
-
       - name: Zip artifact
         run: zip -j komandan_${{ github.ref_name }}-linux-x86_64.zip target/x86_64-unknown-linux-gnu/release/komandan
 
@@ -42,9 +39,6 @@ jobs:
 
       - name: Build
         run: cargo build --release --target aarch64-unknown-linux-gnu
-      
-      - name: Strip binary
-        run: aarch64-linux-gnu-strip target/aarch64-unknown-linux-gnu/release/komandan
 
       - name: Zip artifact
         run: zip -j komandan_${{ github.ref_name }}-linux-aarch64.zip target/aarch64-unknown-linux-gnu/release/komandan
