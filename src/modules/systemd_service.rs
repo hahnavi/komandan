@@ -30,23 +30,23 @@ pub fn systemd_service(lua: &Lua, params: Table) -> mlua::Result<Table> {
             module.dry_run = function(self)
                 if self.params.action == "start" then
                     local state = self.ssh:cmdq("systemctl is-active " .. self.params.name).stdout
-                    if state == "active" then
-                        self.ssh:set_changed(false)
+                    if state ~= "active" then
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "stop" then
                     local state = self.ssh:cmdq("systemctl is-active " .. self.params.name).stdout
-                    if state ~= "active" then
-                        self.ssh:set_changed(false)
+                    if state == "active" then
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "enable" then
                     local enabled = self.ssh:cmdq("systemctl is-enabled " .. self.params.name).stdout
-                    if enabled == "enabled" then
-                        self.ssh:set_changed(false)
+                    if enabled ~= "enabled" then
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "disable" then
                     local enabled = self.ssh:cmdq("systemctl is-enabled " .. self.params.name).stdout
-                    if enabled ~= "enabled" then
-                        self.ssh:set_changed(false)
+                    if enabled == "enabled" then
+                        self.ssh:set_changed(true)
                     end
                 end
             end
@@ -63,17 +63,15 @@ pub fn systemd_service(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
                 if self.params.action == "start" then
                     local state = self.ssh:cmdq("systemctl is-active " .. self.params.name).stdout
-                    if state == "active" then
-                        self.ssh:set_changed(false)
-                    else
+                    if state ~= "active" then
                         self.ssh:cmd("systemctl start " .. self.params.name)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "stop" then
                     local state = self.ssh:cmdq("systemctl is-active " .. self.params.name).stdout
-                    if state == "inactive" then
-                        self.ssh:set_changed(false)
-                    else
+                    if state == "active" then
                         self.ssh:cmd("systemctl stop " .. self.params.name)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "reload" then
                     self.ssh:cmd("systemctl reload " .. self.params.name)
@@ -81,17 +79,15 @@ pub fn systemd_service(lua: &Lua, params: Table) -> mlua::Result<Table> {
                     self.ssh:cmd("systemctl restart " .. self.params.name)
                 elseif self.params.action == "enable" then
                     local enabled = self.ssh:cmdq("systemctl is-enabled " .. self.params.name).stdout
-                    if enabled == "enabled" then
-                        self.ssh:set_changed(false)
-                    else
+                    if enabled ~= "enabled" then
                         self.ssh:cmd("systemctl enable " .. self.params.name .. " " .. opts)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "disable" then
                     local enabled = self.ssh:cmdq("systemctl is-enabled " .. self.params.name).stdout
-                    if enabled == "disabled" then
-                        self.ssh:set_changed(false)
-                    else
+                    if enabled == "enabled" then
                         self.ssh:cmd("systemctl disable " .. self.params.name .. " " .. opts)
+                        self.ssh:set_changed(true)
                     end
                 end
             end

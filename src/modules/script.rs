@@ -40,6 +40,8 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
                     self.ssh:chmod(self.remote_path, "+x")
                     self.ssh:cmd(self.remote_path)
                 end
+
+                self.ssh:set_changed(true)
             end
 
             module.cleanup = function(self)

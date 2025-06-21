@@ -37,12 +37,12 @@ pub fn postgresql_user(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.dry_run = function(self)
                 if self.params.action == "create" then
-                    if self:is_exists() then
-                        self.ssh:set_changed(false)
+                    if not self:is_exists() then
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "drop" then
-                    if not self:is_exists() then
-                        self.ssh:set_changed(false)
+                    if self:is_exists() then
+                        self.ssh:set_changed(true)
                     end
                 end
             end
@@ -68,14 +68,12 @@ pub fn postgresql_user(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 if self.params.action == "create" then
                     if not self:is_exists() then
                         self.ssh:cmdq("psql -c \"" .. query .. "\"")
-                    else
-                        self.ssh:set_changed(false)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "drop" then
                     if self:is_exists() then
                         self.ssh:cmdq("psql -c \"" .. query .. "\"")
-                    else
-                        self.ssh:set_changed(false)
+                        self.ssh:set_changed(true)
                     end
                 end
             end

@@ -38,7 +38,7 @@ pub fn create_lua() -> mlua::Result<Lua> {
                     } else {
                         parent.display().to_string()
                     }
-                },
+                }
                 _none => env::current_dir()?.display().to_string(),
             };
             project_dir

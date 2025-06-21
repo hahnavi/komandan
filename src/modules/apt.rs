@@ -70,8 +70,8 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.update_cache = function(self)
                 local update_result = self.ssh:cmd("apt update")
-                if update_result.exit_code == 0 and not update_result.stdout:match("Get:") then
-                    self.ssh:set_changed(false)
+                if update_result.exit_code == 0 and update_result.stdout:match("Get:") then
+                    self.ssh:set_changed(true)
                 end
             end
 
@@ -115,27 +115,26 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 local packages_str = self.package_list_to_string(self.params.package)
 
                 if self.params.action == "install" then
-                    if installed then
-                        self.ssh:set_changed(false)
-                    else
+                    if not installed then
                         self.ssh:cmd("apt -s install " .. packages_str .. " " .. self.params.install_opts)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "remove" then
-                    if not installed then
-                        self.ssh:set_changed(false)
-                    else
+                    if installed then
                         self.ssh:cmd("apt -s remove " .. packages_str)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "purge" then
-                    if not installed then
-                        self.ssh:set_changed(false)
-                    else
+                    if installed then
                         self.ssh:cmd("apt -s purge " .. packages_str)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "upgrade" then
                     self.ssh:cmd("apt -s upgrade")
+                    self.ssh:set_changed(true)
                 elseif self.params.action == "autoremove" then
                     self.ssh:cmd("apt -s autoremove")
+                    self.ssh:set_changed(true)
                 end
             end
 
@@ -152,27 +151,26 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 local packages_str = self.package_list_to_string(self.params.package)
 
                 if self.params.action == "install" then
-                    if installed then
-                        self.ssh:set_changed(false)
-                    else
+                    if not installed then
                         self.ssh:cmd("apt install -y " .. packages_str .. " " .. self.params.install_opts)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "remove" then
-                    if not installed then
-                        self.ssh:set_changed(false)
-                    else
+                    if installed then
                         self.ssh:cmd("apt remove -y " .. packages_str)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "purge" then
-                    if not installed then
-                        self.ssh:set_changed(false)
-                    else
+                    if installed then
                         self.ssh:cmd("apt purge -y " .. packages_str)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "upgrade" then
                     self.ssh:cmd("apt upgrade -y")
+                    self.ssh:set_changed(true)
                 elseif self.params.action == "autoremove" then
                     self.ssh:cmd("apt autoremove -y")
+                    self.ssh:set_changed(true)
                 end
             end
 

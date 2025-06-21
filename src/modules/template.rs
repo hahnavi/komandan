@@ -54,6 +54,7 @@ pub fn template(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 local tmpfile = tmpdir .. "/." .. self.random_file_name
                 self.ssh:write_remote_file(tmpfile, self.rendered)
                 self.ssh:cmd("mv " .. tmpfile .. " " .. self.params.dst)
+                self.ssh:set_changed(true)
             end
 
             return module

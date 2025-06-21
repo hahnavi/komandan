@@ -25,17 +25,16 @@ pub fn get_url(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.dry_run = function(self)
                 local is_exists = self:is_exists()
-                if is_exists and not self.params.force then
-                    self.ssh:set_changed(false)
+                if not is_exists or self.params.force then
+                    self.ssh:set_changed(true)
                 end
             end
 
             module.run = function(self)
                 local is_exists = self:is_exists()
-                if is_exists and not self.params.force then
-                    self.ssh:set_changed(false)
-                else
+                if not is_exists or self.params.force then
                     self.ssh:cmdq("wget -O " .. self.params.dst .. " " .. self.params.url)
+                    self.ssh:set_changed(true)
                 end
             end
 

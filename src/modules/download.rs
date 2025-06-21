@@ -10,6 +10,7 @@ pub fn download(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.run = function(self)
                 self.ssh:download(self.params.src, self.params.dst)
+                self.ssh:set_changed(true)
             end
 
             return module

@@ -74,15 +74,15 @@ pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
             module.dry_run = function(self)
                 self.params.dry_run = true
                 local result = self:run_lineinfile_script()
-                if result.stdout == "OK" then
-                    self.ssh:set_changed(false)
+                if result.stdout ~= "OK" then
+                    self.ssh:set_changed(true)
                 end
             end
 
             module.run = function(self)
                 local result = self:run_lineinfile_script()
-                if result.stdout == "OK" then
-                    self.ssh:set_changed(false)
+                if result.stdout ~= "OK" then
+                    self.ssh:set_changed(true)
                 end
             end
 

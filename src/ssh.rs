@@ -57,7 +57,7 @@ impl SSHSession {
             stdout: Some(String::new()),
             stderr: Some(String::new()),
             exit_code: Some(0),
-            changed: Some(true),
+            changed: Some(false),
         })
     }
 
@@ -427,6 +427,8 @@ impl UserData for SSHSession {
             this.changed = Some(changed);
             Ok(())
         });
+
+        methods.add_method_mut("get_changed", |_, this, ()| Ok(this.changed.unwrap()));
 
         methods.add_method("get_session_result", |lua, this, ()| {
             let table = lua.create_table()?;

@@ -10,6 +10,7 @@ pub fn upload(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.run = function(self)
                 self.ssh:upload(self.params.src, self.params.dst)
+                self.ssh:set_changed(true)
             end
 
             return module
