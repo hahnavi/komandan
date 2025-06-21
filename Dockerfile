@@ -10,8 +10,6 @@ COPY . .
 
 RUN cargo build --features vendored-openssl --release
 
-RUN strip target/release/komandan
-
 FROM alpine:3.21
 
 WORKDIR /app

@@ -34,9 +34,6 @@ jobs:
       - name: Build
         run: cargo build --release --target x86_64-unknown-linux-gnu
 
-      - name: Strip binary
-        run: strip target/x86_64-unknown-linux-gnu/release/komandan
-
       - name: Create Release Tag
         run: |
           TAG="v${{ github.event.inputs.version }}-build${{ needs.get_build_number.outputs.build_number }}"
@@ -73,9 +70,6 @@ jobs:
 
       - name: Build
         run: cargo build --features vendored-openssl --release --target aarch64-unknown-linux-gnu
-      
-      - name: Strip binary
-        run: aarch64-linux-gnu-strip target/aarch64-unknown-linux-gnu/release/komandan
 
       - name: Create Release Tag
         run: |
