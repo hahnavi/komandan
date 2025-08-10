@@ -15,10 +15,18 @@
 
   # Sets environment variables in the workspace
   env = {};
+  services = {
+    docker = {
+      enable = true;
+    };
+  };
   idx = {
     # Search for the extensions you want on https://open-vsx.org/ and use "publisher.id"
     extensions = [
-      # "vscodevim.vim"
+      "fill-labs.dependi"
+      "kilocode.kilo-code"
+      "rust-lang.rust-analyzer"
+      "tamasfe.even-better-toml"
     ];
 
     # Workspace lifecycle hooks
