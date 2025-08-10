@@ -104,7 +104,7 @@ pub fn filter_hosts(lua: &Lua, (hosts, pattern): (Value, Value)) -> mlua::Result
 }
 
 pub fn parse_hosts_json_file(lua: &Lua, path: Value) -> mlua::Result<Table> {
-    let path = match path.as_str() {
+    let path = match path.as_string().and_then(|s| s.to_str().ok()) {
         Some(path) => path.to_owned(),
         None => return Err(RuntimeError(String::from("Path must be a string"))),
     };
@@ -143,7 +143,7 @@ pub fn parse_hosts_json_file(lua: &Lua, path: Value) -> mlua::Result<Table> {
 }
 
 pub fn parse_hosts_json_url(lua: &Lua, url: Value) -> mlua::Result<Table> {
-    let url = match url.as_str() {
+    let url = match url.as_string().and_then(|s| s.to_str().ok()) {
         Some(url) => url,
         None => return Err(RuntimeError(String::from("URL must be a string"))),
     };
