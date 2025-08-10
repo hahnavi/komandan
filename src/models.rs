@@ -11,6 +11,7 @@ pub struct Host {
     address: String,
     port: Option<u16>,
     user: Option<String>,
+    host_key_check: Option<bool>,
     private_key_file: Option<String>,
     private_key_pass: Option<String>,
     password: Option<String>,
@@ -28,6 +29,7 @@ impl FromLua for Host {
             address: table.get("address")?,
             port: table.get("port")?,
             user: table.get("user")?,
+            host_key_check: table.get("host_key_check")?,
             private_key_file: table.get("private_key_file")?,
             private_key_pass: table.get("private_key_pass")?,
             password: table.get("password")?,
@@ -59,6 +61,9 @@ impl IntoLua for Host {
         }
         if self.user.is_some() {
             table.set("user", self.user.unwrap())?;
+        }
+        if self.host_key_check.is_some() {
+            table.set("host_key_check", self.host_key_check.unwrap())?;
         }
         if self.private_key_file.is_some() {
             table.set("private_key_file", self.private_key_file.unwrap())?;
@@ -259,6 +264,7 @@ mod tests {
             address: "127.0.0.1".to_string(),
             port: Some(22),
             user: Some("user".to_string()),
+            host_key_check: None,
             private_key_file: Some("/path/to/key".to_string()),
             private_key_pass: Some("pass".to_string()),
             password: Some("password".to_string()),

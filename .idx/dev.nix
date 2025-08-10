@@ -8,6 +8,7 @@
   packages = [
     pkgs.gcc
     pkgs.gnumake
+    pkgs.openssh
     pkgs.openssl.dev
     pkgs.pkg-config
     pkgs.rustup

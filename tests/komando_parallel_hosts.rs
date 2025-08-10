@@ -11,19 +11,25 @@ fn test_komando_parallel_hosts() {
                 {
                     name = "server1",
                     address = "localhost",
+                    port = 2222,
                     user = "usertest",
+                    host_key_check = false,
                     private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
                 },
                 {
                     name = "server2",
                     address = "localhost",
+                    port = 2222,
                     user = "usertest",
+                    host_key_check = false,
                     private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
                 },
                 {
                     name = "server3",
                     address = "localhost",
+                    port = 2222,
                     user = "usertest",
+                    host_key_check = false,
                     private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
                 }
             }

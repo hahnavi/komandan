@@ -34,9 +34,10 @@ jobs:
         env:
           USER_TEST: usertest
         run: |
+          sudo sed -i 's/#Port 22/Port 2222/' /etc/ssh/sshd_config
           sudo service ssh start
           mkdir ${HOME}/.ssh
-          ssh-keyscan -H localhost | tee -a ${HOME}/.ssh/known_hosts
+          ssh-keyscan -p 2222 -H localhost | tee -a ${HOME}/.ssh/known_hosts
           ssh-keygen -t ed25519 -N "" -f ${HOME}/.ssh/id_ed25519
           sudo useradd -m -d /home/${USER_TEST} -N ${USER_TEST}
           sudo usermod -a -G sudo ${USER_TEST}

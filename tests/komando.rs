@@ -11,6 +11,7 @@ fn test_komando_invalid_known_hosts_path() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                port = 2222,
                 user = "usertest",
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
                 known_hosts_file = "/path/to/invalid/known_hosts"
@@ -37,6 +38,7 @@ fn test_komando_known_hosts_check_not_match() {
         .load(chunk! {
             local hosts = {
                 address = "localhost2",
+                port = 2222,
                 user = "usertest",
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
             }
@@ -62,6 +64,7 @@ fn test_komando_userauth_invalid_password() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                port = 2222,
                 user = "usertest",
                 password = "passw0rd"
             }
@@ -89,6 +92,8 @@ fn test_komando_use_default_user() {
 
             local hosts = {
                 address = "localhost",
+                port = 2222,
+                host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
             }
 
@@ -114,6 +119,8 @@ fn test_komando_use_default_user_from_env() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                port = 2222,
+                host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
             }
 
@@ -139,6 +146,7 @@ fn test_komando_no_user_specified() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                port = 2222,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
             }
 
@@ -169,7 +177,9 @@ fn test_komando_simple_cmd() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                port = 2222,
                 user = "usertest",
+                host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
             }
 
@@ -197,7 +207,9 @@ fn test_komando_simple_script() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                port = 2222,
                 user = "usertest",
+                host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
             }
 
@@ -231,7 +243,9 @@ fn test_komando_script_from_file() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                port = 2222,
                 user = "usertest",
+                host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
             }
 
@@ -260,7 +274,9 @@ fn test_komando_apt() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                port = 2222,
                 user = "usertest",
+                host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
             }
 
