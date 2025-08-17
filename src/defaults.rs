@@ -33,21 +33,41 @@ impl Defaults {
             Err(_) => return Err(Error::msg("Failed to acquire write lock".to_string())),
         }
 
+        let port = std::env::var("KOMANDAN_SSH_PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(22);
+
+        let user = std::env::var("KOMANDAN_SSH_USER").ok();
+
+        let private_key_file = std::env::var("KOMANDAN_SSH_PRIVATE_KEY_FILE").ok();
+
+        let private_key_pass = std::env::var("KOMANDAN_SSH_PRIVATE_KEY_PASS").ok();
+
+        let password = std::env::var("KOMANDAN_SSH_PASSWORD").ok();
+
+        let known_hosts_file = std::env::var("KOMANDAN_SSH_KNOWN_HOSTS_FILE").unwrap_or(format!(
+            "{}/.ssh/known_hosts",
+            std::env::var("HOME").unwrap_or("~".to_string())
+        ));
+
+        let host_key_check = std::env::var("KOMANDAN_SSH_HOST_KEY_CHECK")
+            .ok()
+            .and_then(|v| v.parse::<bool>().ok())
+            .unwrap_or(true);
+
         Ok(Self {
-            port: Arc::new(RwLock::new(22)),
-            user: Arc::new(RwLock::new(None)),
-            private_key_file: Arc::new(RwLock::new(None)),
-            private_key_pass: Arc::new(RwLock::new(None)),
-            password: Arc::new(RwLock::new(None)),
+            port: Arc::new(RwLock::new(port)),
+            user: Arc::new(RwLock::new(user)),
+            private_key_file: Arc::new(RwLock::new(private_key_file)),
+            private_key_pass: Arc::new(RwLock::new(private_key_pass)),
+            password: Arc::new(RwLock::new(password)),
             ignore_exit_code: Arc::new(RwLock::new(false)),
             elevate: Arc::new(RwLock::new(false)),
             elevation_method: Arc::new(RwLock::new("sudo".to_string())),
             as_user: Arc::new(RwLock::new(None)),
-            known_hosts_file: Arc::new(RwLock::new(format!(
-                "{}/.ssh/known_hosts",
-                std::env::var("HOME").unwrap_or("~".to_string())
-            ))),
-            host_key_check: Arc::new(RwLock::new(true)),
+            known_hosts_file: Arc::new(RwLock::new(known_hosts_file)),
+            host_key_check: Arc::new(RwLock::new(host_key_check)),
             env,
         })
     }

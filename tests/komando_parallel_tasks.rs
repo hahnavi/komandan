@@ -10,7 +10,6 @@ fn test_komando_parallel_tasks() {
             local host = {
                 name = "My Server",
                 address = "localhost",
-                port = 2222,
                 user = "usertest",
                 host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",

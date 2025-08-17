@@ -26,6 +26,6 @@ if [ "$(docker ps -a -q -f name=$CONTAINER_NAME)" ]; then
 fi
 
 # Run the Docker container
-docker run -d --rm --name $CONTAINER_NAME -p 2222:22 $IMAGE_NAME
+docker run -d --rm --name $CONTAINER_NAME -p 22:22 $IMAGE_NAME
 
-echo "SSH server is running on port 2222"
+echo "SSH server is running on port 22"
