@@ -9,11 +9,11 @@ edition = "2024"
 vendored-openssl = ["http-klien/vendored-openssl", "ssh2/vendored-openssl"]
 
 [dependencies]
-anyhow = "1.0.98"
-clap = { version = "4.5.43", features = ["derive"] }
+anyhow = "1.0.99"
+clap = { version = "4.5.46", features = ["derive"] }
 http-klien = { git = "https://github.com/hahnavi/http-klien-rs", branch = "main" }
-minijinja = "2.11.0"
-mlua = { version = "0.11.2", features = [
+minijinja = "2.12.0"
+mlua = { version = "0.11.3", features = [
     "anyhow",
     "luajit",
     "macros",
@@ -21,15 +21,15 @@ mlua = { version = "0.11.2", features = [
     "vendored",
 ] }
 rand = "0.9.2"
-rayon = "1.10.0"
-regex = "1.11.1"
-rustyline = "17.0.0"
+rayon = "1.11.0"
+regex = "1.11.2"
+rustyline = "17.0.1"
 serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.142"
+serde_json = "1.0.143"
 ssh2 = "0.9.5"
 
 [dev-dependencies]
-tempfile = "3.20.0"
+tempfile = "3.21.0"
 
 [profile.release]
 lto = "fat"
