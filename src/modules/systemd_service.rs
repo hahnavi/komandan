@@ -109,21 +109,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_systemd_service_name_required() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
+    fn test_systemd_service_name_required() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
 
         let result = systemd_service(&lua, params);
         assert!(result.is_err());
+        Ok(())
     }
 
     #[test]
-    fn test_systemd_service_name_provided() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
-        params.set("name", "test_service").unwrap();
+    fn test_systemd_service_name_provided() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("name", "test_service")?;
 
         let result = systemd_service(&lua, params);
         assert!(result.is_ok());
+        Ok(())
     }
 }

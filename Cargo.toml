@@ -34,3 +34,13 @@ tempfile = "3.23.0"
 [profile.release]
 lto = "fat"
 strip = "symbols"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+enum_glob_use = "deny"
+pedantic = "deny"
+nursery = "deny"
+unwrap_used = "deny"
+expect_used = "deny"

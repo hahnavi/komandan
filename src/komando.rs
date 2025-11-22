@@ -23,17 +23,20 @@ pub fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
     let host_display = host_display(&host);
     let task_display = task_display(&task);
 
-    let defaults = Defaults::global()?;
+    let defaults = Defaults::global();
 
     let (user, ssh_auth_method) = get_auth_config(&host, &task)?;
     let elevation = get_elevation_config(&host, &task)?;
 
     let default_port = match defaults.port.read() {
-        Ok(port) => port,
+        Ok(port) => *port,
         Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
-    let port = host.get::<Integer>("port").unwrap_or(*default_port as i64) as u16;
+    let port = host
+        .get::<Integer>("port")
+        .unwrap_or_else(|_| i64::from(default_port));
+    let port = u16::try_from(port).unwrap_or(default_port);
 
     let mut ssh = create_ssh_session(&host)?;
     ssh.elevation = elevation;
@@ -50,13 +53,13 @@ pub fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
     let result = execute_task(lua, &module, ssh, &task_display, &host_display)?;
 
     let default_ignore_exit_code = match defaults.ignore_exit_code.read() {
-        Ok(ignore_exit_code) => ignore_exit_code,
+        Ok(ignore_exit_code) => *ignore_exit_code,
         Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
     let ignore_exit_code = task
         .get::<bool>("ignore_exit_code")
-        .unwrap_or(*default_ignore_exit_code);
+        .unwrap_or(default_ignore_exit_code);
 
     let exit_code = result.get::<Integer>("exit_code")?;
 
@@ -66,14 +69,13 @@ pub fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
 
     let task_status = if exit_code != 0 {
         TaskStatus::Failed
+    } else if result.get::<bool>("changed")? {
+        TaskStatus::Changed
     } else {
-        match result.get::<bool>("changed")? {
-            true => TaskStatus::Changed,
-            false => TaskStatus::OK,
-        }
+        TaskStatus::OK
     };
 
-    if !Args::parse().no_report {
+    if !Args::parse().flags.no_report {
         insert_record(task_display, host_display, task_status);
     }
 
@@ -89,14 +91,20 @@ enum ParallelHashMapKey {
 pub fn komando_parallel_tasks(lua: &Lua, (host, tasks): (Value, Value)) -> mlua::Result<Table> {
     let host = Host::from_lua(host, lua)?;
     let mut tasks_hm = HashMap::<ParallelHashMapKey, Task>::new();
-    for pair in tasks.as_table().unwrap().pairs::<Value, Value>() {
+    let tasks_table = tasks
+        .as_table()
+        .ok_or_else(|| RuntimeError("Tasks must be a table".to_string()))?;
+
+    for pair in tasks_table.pairs::<Value, Value>() {
         let (key, value): (Value, Value) = pair?;
         let task = Task::from_lua(value, lua)?;
         if key.is_number() {
-            tasks_hm.insert(
-                ParallelHashMapKey::Number(key.as_integer().unwrap() as u32),
-                task,
-            );
+            let key_int = key
+                .as_integer()
+                .ok_or_else(|| RuntimeError("Key must be an integer".to_string()))?;
+            let key_u32 = u32::try_from(key_int)
+                .map_err(|_| RuntimeError("Key out of range for u32".to_string()))?;
+            tasks_hm.insert(ParallelHashMapKey::Number(key_u32), task);
         } else {
             tasks_hm.insert(ParallelHashMapKey::Text(key.to_string()?), task);
         }
@@ -105,29 +113,27 @@ pub fn komando_parallel_tasks(lua: &Lua, (host, tasks): (Value, Value)) -> mlua:
     let results: HashMap<ParallelHashMapKey, KomandoResult> = tasks_hm
         .par_iter()
         .map(|(i, task)| {
-            let lua = create_lua().unwrap();
-            let host = host.clone().into_lua(&lua).unwrap();
-            let task = task.clone().into_lua(&lua).unwrap();
-            let result = komando(&lua, (host, task)).unwrap();
+            let lua = create_lua().ok()?;
+            let host = host.clone().into_lua(&lua).ok()?;
+            let task = task.clone().into_lua(&lua).ok()?;
+            let result = komando(&lua, (host, task)).ok()?;
 
-            (
+            Some((
                 i.clone(),
-                lua.from_value::<KomandoResult>(Value::Table(result))
-                    .unwrap(),
-            )
+                lua.from_value::<KomandoResult>(Value::Table(result)).ok()?,
+            ))
         })
-        .collect::<HashMap<ParallelHashMapKey, KomandoResult>>();
+        .collect::<Option<HashMap<ParallelHashMapKey, KomandoResult>>>()
+        .ok_or_else(|| RuntimeError("Failed to execute parallel tasks".to_string()))?;
 
     let results_table = lua.create_table()?;
-    results.iter().for_each(|(i, result)| {
+    for (i, result) in &results {
         let key: Value = match i {
-            ParallelHashMapKey::Number(i) => Value::Number(*i as f64),
-            ParallelHashMapKey::Text(i) => Value::String(lua.create_string(i).unwrap()),
+            ParallelHashMapKey::Number(i) => Value::Number(f64::from(*i)),
+            ParallelHashMapKey::Text(i) => Value::String(lua.create_string(i)?),
         };
-        results_table
-            .set(key, lua.to_value(result).unwrap())
-            .unwrap();
-    });
+        results_table.set(key, lua.to_value(result)?)?;
+    }
 
     Ok(results_table)
 }
@@ -135,14 +141,20 @@ pub fn komando_parallel_tasks(lua: &Lua, (host, tasks): (Value, Value)) -> mlua:
 pub fn komando_parallel_hosts(lua: &Lua, (hosts, task): (Value, Value)) -> mlua::Result<Table> {
     let task = Task::from_lua(task, lua)?;
     let mut hosts_hm = HashMap::<ParallelHashMapKey, Host>::new();
-    for pair in hosts.as_table().unwrap().pairs::<Value, Value>() {
+    let hosts_table = hosts
+        .as_table()
+        .ok_or_else(|| RuntimeError("Hosts must be a table".to_string()))?;
+
+    for pair in hosts_table.pairs::<Value, Value>() {
         let (key, value): (Value, Value) = pair?;
         let host = Host::from_lua(value, lua)?;
         if key.is_number() {
-            hosts_hm.insert(
-                ParallelHashMapKey::Number(key.as_integer().unwrap() as u32),
-                host,
-            );
+            let key_int = key
+                .as_integer()
+                .ok_or_else(|| RuntimeError("Key must be an integer".to_string()))?;
+            let key_u32 = u32::try_from(key_int)
+                .map_err(|_| RuntimeError("Key out of range for u32".to_string()))?;
+            hosts_hm.insert(ParallelHashMapKey::Number(key_u32), host);
         } else {
             hosts_hm.insert(ParallelHashMapKey::Text(key.to_string()?), host);
         }
@@ -151,42 +163,40 @@ pub fn komando_parallel_hosts(lua: &Lua, (hosts, task): (Value, Value)) -> mlua:
     let results: HashMap<ParallelHashMapKey, KomandoResult> = hosts_hm
         .par_iter()
         .map(|(i, host)| {
-            let lua = create_lua().unwrap();
-            let host = host.clone().into_lua(&lua).unwrap();
-            let task = task.clone().into_lua(&lua).unwrap();
-            let result = komando(&lua, (host, task)).unwrap();
+            let lua = create_lua().ok()?;
+            let host = host.clone().into_lua(&lua).ok()?;
+            let task = task.clone().into_lua(&lua).ok()?;
+            let result = komando(&lua, (host, task)).ok()?;
 
-            (
+            Some((
                 i.clone(),
-                lua.from_value::<KomandoResult>(Value::Table(result))
-                    .unwrap(),
-            )
+                lua.from_value::<KomandoResult>(Value::Table(result)).ok()?,
+            ))
         })
-        .collect::<HashMap<ParallelHashMapKey, KomandoResult>>();
+        .collect::<Option<HashMap<ParallelHashMapKey, KomandoResult>>>()
+        .ok_or_else(|| RuntimeError("Failed to execute parallel hosts".to_string()))?;
 
     let results_table = lua.create_table()?;
-    results.iter().for_each(|(i, result)| {
-        let key: Value = match i {
-            ParallelHashMapKey::Number(i) => Value::Number(*i as f64),
-            ParallelHashMapKey::Text(i) => Value::String(lua.create_string(i).unwrap()),
+    for (i, result) in &results {
+        let key = match i {
+            ParallelHashMapKey::Number(i) => Value::Number(f64::from(*i)),
+            ParallelHashMapKey::Text(i) => Value::String(lua.create_string(i)?),
         };
-        results_table
-            .set(key, lua.to_value(result).unwrap())
-            .unwrap();
-    });
+        results_table.set(key, lua.to_value(result)?)?;
+    }
 
     Ok(results_table)
 }
 
 fn get_user(host: &Table, task: &Table) -> mlua::Result<String> {
-    let defaults = Defaults::global()?;
+    let defaults = Defaults::global();
     let default_user = match defaults.user.read() {
-        Ok(user) => user,
+        Ok(user) => user.clone(),
         Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
     let user = match host.get::<String>("user") {
         Ok(user) => user,
-        Err(_) => match *default_user {
+        Err(_) => match default_user {
             Some(ref user) => user.clone(),
             None => match env::var("USER") {
                 Ok(user) => user,
@@ -209,47 +219,49 @@ fn get_auth_config(host: &Table, task: &Table) -> mlua::Result<(String, SSHAuthM
 
     let user = get_user(host, task)?;
 
-    let defaults = Defaults::global()?;
+    let defaults = Defaults::global();
 
-    let default_private_key_file = match defaults.private_key_file.read() {
-        Ok(private_key_file) => private_key_file,
-        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
-    };
+    let default_private_key_file = defaults
+        .private_key_file
+        .read()
+        .map_err(|_| RuntimeError("Failed to acquire read lock".to_string()))?
+        .clone();
 
-    let default_private_key_pass = match defaults.private_key_pass.read() {
-        Ok(private_key_pass) => private_key_pass,
-        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
-    };
+    let default_private_key_pass = defaults
+        .private_key_pass
+        .read()
+        .map_err(|_| RuntimeError("Failed to acquire read lock".to_string()))?
+        .clone();
 
-    let default_password = match defaults.password.read() {
-        Ok(password) => password,
-        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
-    };
+    let default_password = defaults
+        .password
+        .read()
+        .map_err(|_| RuntimeError("Failed to acquire read lock".to_string()))?
+        .clone();
 
     let ssh_auth_method = match host.get::<String>("private_key_file") {
         Ok(private_key_file) => SSHAuthMethod::PublicKey {
             private_key: private_key_file,
-            passphrase: match host.get::<String>("private_key_pass") {
-                Ok(passphrase) => Some(passphrase),
-                Err(_) => (*default_private_key_pass).clone(),
-            },
+            passphrase: host
+                .get::<String>("private_key_pass")
+                .ok()
+                .or(default_private_key_pass),
         },
-        Err(_) => match *default_private_key_file {
+        Err(_) => match default_private_key_file {
             Some(ref private_key_file) => SSHAuthMethod::PublicKey {
                 private_key: private_key_file.clone(),
-                passphrase: match host.get::<String>("private_key_pass") {
-                    Ok(passphrase) => Some(passphrase),
-                    Err(_) => (*default_private_key_pass).clone(),
-                },
+                passphrase: host
+                    .get::<String>("private_key_pass")
+                    .ok()
+                    .or(default_private_key_pass),
             },
             None => match host.get::<String>("password") {
                 Ok(password) => SSHAuthMethod::Password(password),
-                Err(_) => match *default_password {
+                Err(_) => match default_password {
                     Some(ref password) => SSHAuthMethod::Password(password.clone()),
                     None => {
                         return Err(RuntimeError(format!(
-                            "No authentication method specified for task '{}' on host '{}'.",
-                            task_display, host_display
+                            "No authentication method specified for task '{task_display}' on host '{host_display}'."
                         )));
                     }
                 },
@@ -261,20 +273,19 @@ fn get_auth_config(host: &Table, task: &Table) -> mlua::Result<(String, SSHAuthM
 }
 
 fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevation> {
-    let defaults = Defaults::global()?;
+    let defaults = Defaults::global();
 
-    let default_elevate = match defaults.elevate.read() {
-        Ok(elevate) => elevate,
-        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
+    let Ok(default_elevate) = defaults.elevate.read() else {
+        return Err(RuntimeError("Failed to acquire read lock".to_string()));
     };
 
     let task_elevate = task.get::<Value>("elevate")?;
     let host_elevate = host.get::<Value>("elevate")?;
 
     let elevate = if !task_elevate.is_nil() {
-        task_elevate.as_boolean().unwrap()
+        task_elevate.as_boolean().unwrap_or(false)
     } else if !host_elevate.is_nil() {
-        host_elevate.as_boolean().unwrap()
+        host_elevate.as_boolean().unwrap_or(false)
     } else {
         *default_elevate
     };
@@ -286,35 +297,33 @@ fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevation> {
         });
     }
 
-    let default_elevation_method = match defaults.elevation_method.read() {
-        Ok(elevation_method) => elevation_method,
-        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
+    let Ok(default_elevation_method) = defaults.elevation_method.read() else {
+        return Err(RuntimeError("Failed to acquire read lock".to_string()));
     };
 
-    let elevation_method_str = task.get::<String>("elevation_method").unwrap_or(
+    let elevation_method_str = task.get::<String>("elevation_method").unwrap_or_else(|_| {
         host.get::<String>("elevation_method")
-            .unwrap_or(default_elevation_method.clone()),
-    );
+            .unwrap_or_else(|_| default_elevation_method.clone())
+    });
 
     let elevation_method = match elevation_method_str.as_str() {
         "none" => Ok(ElevationMethod::None),
         "sudo" => Ok(ElevationMethod::Sudo),
         "su" => Ok(ElevationMethod::Su),
         _ => Err(RuntimeError(format!(
-            "Unsupported elevation method: {}",
-            elevation_method_str
+            "Unsupported elevation method: {elevation_method_str}"
         ))),
     };
 
     let default_as_user = match defaults.as_user.read() {
-        Ok(as_user) => as_user,
+        Ok(as_user) => as_user.clone(),
         Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
     };
 
-    let as_user = task.get::<Option<String>>("as_user").unwrap_or(
+    let as_user = task.get::<Option<String>>("as_user").unwrap_or_else(|_| {
         host.get::<Option<String>>("as_user")
-            .unwrap_or(default_as_user.clone()),
-    );
+            .unwrap_or(default_as_user)
+    });
 
     Ok(Elevation {
         method: elevation_method?,
@@ -323,63 +332,58 @@ fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevation> {
 }
 
 fn create_ssh_session(host: &Table) -> mlua::Result<SSHSession> {
-    let defaults = Defaults::global()?;
+    let defaults = Defaults::global();
     let mut ssh = SSHSession::new()?;
 
-    let default_host_key_check = match defaults.host_key_check.read() {
-        Ok(host_key_check) => host_key_check,
-        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
+    let Ok(default_key_check) = defaults.key_check.read() else {
+        return Err(RuntimeError("Failed to acquire read lock".to_string()));
     };
 
-    let host_key_check = match host.get::<Value>("host_key_check") {
-        Ok(host_key_check) => match host_key_check {
-            Value::Nil => *default_host_key_check,
+    let host_key_check = host
+        .get::<Value>("host_key_check")
+        .map_or(true, |key_check| match key_check {
+            Value::Nil => *default_key_check,
             Value::Boolean(false) => false,
             _ => true,
-        },
-        Err(_) => true,
-    };
+        });
 
-    let default_known_hosts_file = match defaults.known_hosts_file.read() {
-        Ok(known_hosts_file) => known_hosts_file,
-        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
+    let Ok(default_known_hosts_file) = defaults.known_hosts_file.read() else {
+        return Err(RuntimeError("Failed to acquire read lock".to_string()));
     };
 
     if host_key_check {
-        ssh.known_hosts_file = match host.get::<String>("known_hosts_file") {
-            Ok(known_hosts_file) => Some(known_hosts_file),
-            Err(_) => Some(default_known_hosts_file.clone()),
-        };
+        ssh.known_hosts_file = host
+            .get::<String>("known_hosts_file")
+            .map_or_else(|_| Some(default_known_hosts_file.clone()), Some);
     }
 
     Ok(ssh)
 }
 
 fn setup_environment(ssh: &mut SSHSession, host: &Table, task: &Table) -> mlua::Result<()> {
-    let defaults = Defaults::global()?;
+    let defaults = Defaults::global();
 
-    let default_env = match defaults.env.read() {
-        Ok(env) => env,
-        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
+    let Ok(default_env) = defaults.env.read() else {
+        return Err(RuntimeError("Failed to acquire read lock".to_string()));
     };
 
     let env_host = host.get::<Option<Table>>("env")?;
     let env_task = task.get::<Option<Table>>("env")?;
 
-    for (key, value) in default_env.clone() {
-        ssh.set_env(&key, &value);
+    for (key, value) in default_env.iter() {
+        ssh.set_env(key, value);
     }
 
-    if env_host.is_some() {
-        for pair in env_host.unwrap().pairs() {
-            let (key, value): (String, String) = pair?;
+    if let Some(env_host) = env_host {
+        for pair in env_host.pairs::<String, String>() {
+            let (key, value) = pair?;
             ssh.set_env(&key, &value);
         }
     }
 
-    if env_task.is_some() {
-        for pair in env_task.unwrap().pairs() {
-            let (key, value): (String, String) = pair?;
+    if let Some(env_task) = env_task {
+        for pair in env_task.pairs::<String, String>() {
+            let (key, value) = pair?;
             ssh.set_env(&key, &value);
         }
     }
@@ -394,7 +398,7 @@ fn execute_task(
     task_display: &str,
     host_display: &str,
 ) -> mlua::Result<Table> {
-    let dry_run = Args::parse().dry_run;
+    let dry_run = Args::parse().flags.dry_run;
 
     lua.load(chunk! {
         print(">> Running task '" .. $task_display .. "' on host '" .. $host_display .."' ...")
@@ -470,7 +474,7 @@ mod tests {
                 assert_eq!(private_key, "/path/to/key");
                 assert!(passphrase.is_none());
             }
-            _ => panic!("Expected PublicKey authentication"),
+            SSHAuthMethod::Password(_) => panic!("Expected PublicKey authentication"),
         }
 
         // Test with password auth
@@ -479,7 +483,7 @@ mod tests {
         let (_, auth) = get_auth_config(&host, &task)?;
         match auth {
             SSHAuthMethod::Password(pass) => assert_eq!(pass, "testpass"),
-            _ => panic!("Expected Password authentication"),
+            SSHAuthMethod::PublicKey { .. } => panic!("Expected Password authentication"),
         }
 
         // Test with no authentication method
@@ -554,7 +558,10 @@ mod tests {
         host.set("known_hosts_file", "/path/to/known_hosts")?;
         host.set("host_key_check", true)?;
         let ssh = create_ssh_session(&host)?;
-        assert_eq!(ssh.known_hosts_file.unwrap(), "/path/to/known_hosts");
+        assert_eq!(
+            ssh.known_hosts_file,
+            Some("/path/to/known_hosts".to_string())
+        );
 
         // Test with known_hosts from defaults
         host.set("known_hosts_file", Value::Nil)?;
@@ -563,7 +570,10 @@ mod tests {
         })
         .exec()?;
         let ssh = create_ssh_session(&host)?;
-        assert_eq!(ssh.known_hosts_file.unwrap(), "/default/known_hosts");
+        assert_eq!(
+            ssh.known_hosts_file,
+            Some("/default/known_hosts".to_string())
+        );
 
         Ok(())
     }

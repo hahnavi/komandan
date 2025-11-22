@@ -16,11 +16,17 @@ fn get_report() -> &'static Mutex<Vec<ReportRecord>> {
 pub fn insert_record(task: String, host: String, status: TaskStatus) {
     let record = ReportRecord { task, host, status };
     let report = get_report();
-    report.lock().unwrap().push(record);
+    report
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(record);
 }
 
 pub fn generate_report() {
-    let report = get_report().lock().unwrap();
+    let report = get_report()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
     if report.is_empty() {
         return;
     }
@@ -29,7 +35,7 @@ pub fn generate_report() {
     let col1_width = width - col2_width - 2;
     println!();
     println!("{:=^width$}", " Komando Report ");
-    if Args::parse().dry_run {
+    if Args::parse().flags.dry_run {
         println!("{:-^width$}", " Dry-run mode: no changes were made ");
     }
     println!("{:<col1_width$}{:>col2_width$}", "Task on Host", "Status");
@@ -39,7 +45,7 @@ pub fn generate_report() {
     counters.insert(TaskStatus::Changed, 0);
     counters.insert(TaskStatus::Failed, 0);
     let mut last_task = String::new();
-    for record in report.iter() {
+    for record in &*report {
         if last_task != record.task {
             println!(
                 "{}",
@@ -51,8 +57,10 @@ pub fn generate_report() {
         }
         let col1_width = col1_width - 3;
         println!("  - {:<col1_width$} {}", record.host, record.status);
-        last_task = record.task.clone();
-        *counters.get_mut(&record.status).unwrap() += 1;
+        last_task.clone_from(&record.task);
+        if let Some(counter) = counters.get_mut(&record.status) {
+            *counter += 1;
+        }
     }
     println!("{:-<width$}", "");
     println!(
@@ -63,14 +71,14 @@ pub fn generate_report() {
     );
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ReportRecord {
     task: String,
     host: String,
     status: TaskStatus,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum TaskStatus {
     OK,
     Changed,
@@ -80,9 +88,9 @@ pub enum TaskStatus {
 impl std::fmt::Display for TaskStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TaskStatus::OK => write!(f, "OK"),
-            TaskStatus::Changed => write!(f, "Changed"),
-            TaskStatus::Failed => write!(f, "Failed"),
+            Self::OK => write!(f, "OK"),
+            Self::Changed => write!(f, "Changed"),
+            Self::Failed => write!(f, "Failed"),
         }
     }
 }
@@ -101,7 +109,12 @@ mod tests {
         );
         insert_record("task2".to_string(), "host1".to_string(), TaskStatus::Failed);
 
-        let report = get_report().lock().unwrap();
+        let report = {
+            let guard = get_report()
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            guard.clone()
+        };
         assert_eq!(report.len(), 3);
         assert_eq!(report[0].task, "task1");
         assert_eq!(report[0].host, "host1");

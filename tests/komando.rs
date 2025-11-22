@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, unsafe_code)]
+
 use komandan::create_lua;
 use mlua::{Integer, Table, chunk};
 use std::{env, io::Write};

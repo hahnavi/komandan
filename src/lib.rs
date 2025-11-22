@@ -20,18 +20,25 @@ use rustyline::DefaultEditor;
 use std::{env, fs, path::Path};
 use util::{dprint, filter_hosts, parse_hosts_json_file, parse_hosts_json_url, regex_is_match};
 
+/// Creates a new Lua instance with Komandan configuration.
+///
+/// # Errors
+///
+/// Returns an error if Lua initialization fails.
+#[allow(unsafe_code)]
 pub fn create_lua() -> mlua::Result<Lua> {
     let args = Args::parse();
-    let lua = if args.unsafe_lua {
+    let lua = if args.flags.unsafe_lua {
         unsafe { Lua::unsafe_new() }
     } else {
         Lua::new()
     };
 
-    let project_dir = match args.main_file.clone() {
+    let project_dir = match args.main_file {
         Some(main_file) => {
             let main_file_path = Path::new(&main_file);
-            let project_dir = match main_file_path.parent() {
+
+            match main_file_path.parent() {
                 Some(parent) => {
                     if parent.display().to_string() == "" {
                         env::current_dir()?.display().to_string()
@@ -40,13 +47,12 @@ pub fn create_lua() -> mlua::Result<Lua> {
                     }
                 }
                 _none => env::current_dir()?.display().to_string(),
-            };
-            project_dir
+            }
         }
         None => env::current_dir()?.display().to_string(),
     };
 
-    let project_dir_lua = project_dir.clone();
+    let project_dir_lua = project_dir;
     lua.load(
         chunk! {
             package.path = $project_dir_lua .. "/?.lua;" .. $project_dir_lua .. "/?;" .. $project_dir_lua .. "/lua_modules/share/lua/5.1/?.lua;" .. $project_dir_lua .. "/lua_modules/share/lua/5.1/?/init.lua;"  .. package.path
@@ -59,10 +65,15 @@ pub fn create_lua() -> mlua::Result<Lua> {
     Ok(lua)
 }
 
+/// Sets up the `komandan` global table in Lua.
+///
+/// # Errors
+///
+/// Returns an error if table creation or setting globals fails.
 pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     let komandan = lua.create_table()?;
 
-    let defaults = Defaults::global()?;
+    let defaults = Defaults::global();
     komandan.set("defaults", defaults)?;
 
     let base_module = base_module(lua)?;
@@ -99,30 +110,39 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     Ok(())
 }
 
+/// Runs the main Lua file.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be read or if Lua execution fails.
 pub fn run_main_file(lua: &Lua, main_file: &String) -> Result<()> {
     let script = match fs::read_to_string(main_file) {
         Ok(script) => script,
         Err(e) => {
             return Err(anyhow::anyhow!(
-                "Failed to read the main file ({}): {}",
-                main_file,
-                e
+                "Failed to read the main file ({main_file}): {e}"
             ));
         }
     };
 
     lua.load(&script).set_name(main_file).exec()?;
 
-    if !Args::parse().no_report {
+    if !Args::parse().flags.no_report {
         generate_report();
     }
 
     Ok(())
 }
 
-pub fn repl(lua: &Lua) {
+/// Starts the REPL (Read-Eval-Print Loop).
+///
+/// # Errors
+///
+/// Returns an error if the editor cannot be initialized.
+pub fn repl(lua: &Lua) -> Result<()> {
     print_version();
-    let mut editor = DefaultEditor::new().expect("Failed to create editor");
+    let mut editor =
+        DefaultEditor::new().map_err(|e| anyhow::anyhow!("Failed to create editor: {e}"))?;
 
     loop {
         let mut prompt = "> ";
@@ -131,17 +151,17 @@ pub fn repl(lua: &Lua) {
         loop {
             match editor.readline(prompt) {
                 Ok(input) => line.push_str(&input),
-                Err(_) => return,
+                Err(_) => return Ok(()),
             }
 
             match lua.load(&line).eval::<MultiValue>() {
                 Ok(values) => {
-                    editor.add_history_entry(line).unwrap();
+                    let _ = editor.add_history_entry(line);
                     println!(
                         "{}",
                         values
                             .iter()
-                            .map(|value| format!("{:#?}", value))
+                            .map(|value| format!("{value:#?}"))
                             .collect::<Vec<_>>()
                             .join("\t")
                     );
@@ -155,7 +175,7 @@ pub fn repl(lua: &Lua) {
                     prompt = ">> ";
                 }
                 Err(e) => {
-                    eprintln!("error: {}", e);
+                    eprintln!("error: {e}");
                     break;
                 }
             }
@@ -166,7 +186,7 @@ pub fn repl(lua: &Lua) {
 pub fn print_version() {
     let version = env!("CARGO_PKG_VERSION");
     let authors = env!("CARGO_PKG_AUTHORS");
-    println!("Komandan {} -- Copyright (C) 2025 {}", version, authors);
+    println!("Komandan {version} -- Copyright (C) 2025 {authors}");
 }
 
 // Tests
@@ -184,13 +204,15 @@ mod tests {
             args,
             Args {
                 chunk: None,
-                dry_run: false,
-                no_report: false,
-                interactive: false,
-                verbose: true,
-                unsafe_lua: false,
-                version: false,
                 main_file: Some("/tmp/test/main.lua".to_string()),
+                flags: crate::args::Flags {
+                    dry_run: false,
+                    no_report: false,
+                    interactive: false,
+                    verbose: true,
+                    unsafe_lua: false,
+                    version: false,
+                },
             }
         );
     }

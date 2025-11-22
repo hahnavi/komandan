@@ -191,26 +191,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_apt_package_required() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
-        params.set("action", "install").unwrap();
+    fn test_apt_package_required() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("action", "install")?;
         let result = apt(&lua, params);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("package is required")
-        );
+        if let Err(e) = result {
+            assert!(e.to_string().contains("package is required"));
+        }
+        Ok(())
     }
 
     #[test]
-    fn test_apt_valid_package() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
-        params.set("package", "vim").unwrap();
+    fn test_apt_valid_package() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("package", "vim")?;
         let result = apt(&lua, params);
         assert!(result.is_ok());
+        Ok(())
     }
 }
