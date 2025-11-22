@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use komandan::create_lua;
 use mlua::{Integer, Table, Value, chunk};
 
@@ -11,6 +13,7 @@ fn test_komando_parallel_tasks() {
                 name = "My Server",
                 address = "localhost",
                 user = "usertest",
+                host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
             }
 

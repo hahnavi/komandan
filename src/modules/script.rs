@@ -40,6 +40,8 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
                     self.ssh:chmod(self.remote_path, "+x")
                     self.ssh:cmd(self.remote_path)
                 end
+
+                self.ssh:set_changed(true)
             end
 
             module.cleanup = function(self)
@@ -62,51 +64,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_script_or_from_file_required() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
+    fn test_script_or_from_file_required() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
         let result = script(&lua, params);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("script or from_file parameter is required")
-        );
+        if let Err(e) = result {
+            assert!(
+                e.to_string()
+                    .contains("script or from_file parameter is required")
+            );
+        }
+        Ok(())
     }
 
     #[test]
-    fn test_script_and_from_file_exclusive() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
-        params.set("script", "echo hello").unwrap();
-        params.set("from_file", "examples/run_script.lua").unwrap();
+    fn test_script_and_from_file_exclusive() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("script", "echo hello")?;
+        params.set("from_file", "examples/run_script.lua")?;
         let result = script(&lua, params);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("script and from_file parameters cannot be used together")
-        );
+        if let Err(e) = result {
+            assert!(
+                e.to_string()
+                    .contains("script and from_file parameters cannot be used together")
+            );
+        }
+        Ok(())
     }
 
     #[test]
-    fn test_script() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
-        params.set("script", "echo hello").unwrap();
-        params.set("interpreter", "bash").unwrap();
+    fn test_script() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("script", "echo hello")?;
+        params.set("interpreter", "bash")?;
         let result = script(&lua, params);
         assert!(result.is_ok());
+        Ok(())
     }
 
     #[test]
-    fn test_from_file() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
-        params.set("from_file", "examples/run_script.lua").unwrap();
+    fn test_from_file() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("from_file", "examples/run_script.lua")?;
         let result = script(&lua, params);
         assert!(result.is_ok());
+        Ok(())
     }
 }

@@ -10,6 +10,7 @@ pub fn upload(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.run = function(self)
                 self.ssh:upload(self.params.src, self.params.dst)
+                self.ssh:set_changed(true)
             end
 
             return module
@@ -29,12 +30,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_upload_success() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
-        params.set("src", "examples/run_script.lua").unwrap();
-        params.set("dst", "/tmp/test_upload.lua").unwrap();
+    fn test_upload_success() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("src", "examples/run_script.lua")?;
+        params.set("dst", "/tmp/test_upload.lua")?;
         let result = upload(&lua, params);
         assert!(result.is_ok());
+        Ok(())
     }
 }

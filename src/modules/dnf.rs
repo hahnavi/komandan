@@ -98,19 +98,18 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 local packages_str = self.package_list_to_string(self.params.package)
 
                 if self.params.action == "install" then
-                    if installed then
-                        self.ssh:set_changed(false)
-                    else
+                    if not installed then
                         self.ssh:cmd("dnf --assumeno install " .. packages_str .. " " .. self.params.install_opts)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "remove" then
-                    if not installed then
-                        self.ssh:set_changed(false)
-                    else
+                    if installed then
                         self.ssh:cmd("dnf --assumeno remove " .. packages_str)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "update" then
                     self.ssh:cmd("dnf --assumeno update")
+                    self.ssh:set_changed(true)
                 end
             end
 
@@ -119,19 +118,18 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 local packages_str = self.package_list_to_string(self.params.package)
 
                 if self.params.action == "install" then
-                    if installed then
-                        self.ssh:set_changed(false)
-                    else
+                    if not installed then
                         self.ssh:cmd("dnf install -y " .. packages_str .. " " .. self.params.install_opts)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "remove" then
-                    if not installed then
-                        self.ssh:set_changed(false)
-                    else
+                    if installed then
                         self.ssh:cmd("dnf remove -y " .. packages_str)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "update" then
                     self.ssh:cmd("dnf update -y")
+                    self.ssh:set_changed(true)
                 end
             end
 
@@ -142,4 +140,35 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
         .into_lua_err()?;
 
     Ok(module)
+}
+
+// Tests
+#[cfg(test)]
+mod tests {
+    use crate::create_lua;
+
+    use super::*;
+
+    #[test]
+    fn test_dnf_package_required() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("action", "install")?;
+        let result = dnf(&lua, params);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("package is required"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_dnf_valid_package() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("package", "vim")?;
+        let result = dnf(&lua, params);
+        assert!(result.is_ok());
+        Ok(())
+    }
 }

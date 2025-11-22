@@ -10,6 +10,7 @@ pub fn download(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.run = function(self)
                 self.ssh:download(self.params.src, self.params.dst)
+                self.ssh:set_changed(true)
             end
 
             return module
@@ -29,12 +30,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_download_success() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
-        params.set("src", "/tmp/test_download.lua").unwrap();
-        params.set("dst", "examples/downloaded.lua").unwrap();
+    fn test_download_success() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("src", "/tmp/test_download.lua")?;
+        params.set("dst", "examples/downloaded.lua")?;
         let result = download(&lua, params);
         assert!(result.is_ok());
+        Ok(())
     }
 }

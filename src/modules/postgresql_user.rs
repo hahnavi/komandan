@@ -37,12 +37,12 @@ pub fn postgresql_user(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.dry_run = function(self)
                 if self.params.action == "create" then
-                    if self:is_exists() then
-                        self.ssh:set_changed(false)
+                    if not self:is_exists() then
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "drop" then
-                    if not self:is_exists() then
-                        self.ssh:set_changed(false)
+                    if self:is_exists() then
+                        self.ssh:set_changed(true)
                     end
                 end
             end
@@ -68,14 +68,12 @@ pub fn postgresql_user(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 if self.params.action == "create" then
                     if not self:is_exists() then
                         self.ssh:cmdq("psql -c \"" .. query .. "\"")
-                    else
-                        self.ssh:set_changed(false)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "drop" then
                     if self:is_exists() then
                         self.ssh:cmdq("psql -c \"" .. query .. "\"")
-                    else
-                        self.ssh:set_changed(false)
+                        self.ssh:set_changed(true)
                     end
                 end
             end
@@ -100,46 +98,45 @@ mod tests {
     }
 
     #[test]
-    fn test_postgresql_user_requires_name_parameter() {
+    fn test_postgresql_user_requires_name_parameter() -> mlua::Result<()> {
         let lua = setup_lua();
-        let params = lua.create_table().unwrap();
+        let params = lua.create_table()?;
 
         let result = postgresql_user(&lua, params);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("'name' parameter is required")
-        );
+        if let Err(e) = result {
+            assert!(e.to_string().contains("'name' parameter is required"));
+        }
+        Ok(())
     }
 
     #[test]
-    fn test_postgresql_user_validates_action_parameter() {
+    fn test_postgresql_user_validates_action_parameter() -> mlua::Result<()> {
         let lua = setup_lua();
-        let params = lua.create_table().unwrap();
-        params.set("name", "test_user").unwrap();
-        params.set("action", "invalid_action").unwrap();
+        let params = lua.create_table()?;
+        params.set("name", "test_user")?;
+        params.set("action", "invalid_action")?;
 
         let result = postgresql_user(&lua, params);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid action"));
+        if let Err(e) = result {
+            assert!(e.to_string().contains("Invalid action"));
+        }
+        Ok(())
     }
 
     #[test]
-    fn test_postgresql_user_defaults_to_create_action() {
+    fn test_postgresql_user_defaults_to_create_action() -> mlua::Result<()> {
         let lua = setup_lua();
-        let params = lua.create_table().unwrap();
-        params.set("name", "test_user").unwrap();
+        let params = lua.create_table()?;
+        params.set("name", "test_user")?;
 
         let result = postgresql_user(&lua, params);
         assert!(result.is_ok());
-        let module = result.unwrap();
-        let action: String = module
-            .get::<Table>("params")
-            .unwrap()
-            .get("action")
-            .unwrap();
-        assert_eq!(action, "create");
+        if let Ok(module) = result {
+            let action: String = module.get::<Table>("params")?.get("action")?;
+            assert_eq!(action, "create");
+        }
+        Ok(())
     }
 }

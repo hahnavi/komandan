@@ -10,6 +10,7 @@ pub fn cmd(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.run = function(self)
                 self.ssh:cmd(self.params.cmd)
+                self.ssh:set_changed(true)
             end
 
             return module

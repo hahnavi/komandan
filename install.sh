@@ -77,16 +77,35 @@ install_komandan() {
   echo "Komandan installed successfully to $install_dir"
 
   if ! echo "$PATH" | grep -q "$install_dir"; then
-    echo "Please add $install_dir to your PATH environment variable."
-    echo "You can do this by adding the following line to your shell's configuration file:"
-    echo ""
-    echo "  export PATH=\"$install_dir:\$PATH\""
-    echo ""
-    echo "For bash, add it to ~/.bashrc"
-    echo "For zsh, add it to ~/.zshrc"
-    echo "For fish, add it to ~/.config/fish/config.fish"
-    echo ""
-    echo "After updating the configuration file, run 'source' on it or restart your shell."
+    echo "Adding $install_dir to your PATH."
+    
+    SHELL_NAME=$(basename "$SHELL")
+    PROFILE_FILE=""
+
+    if [ "$SHELL_NAME" = "bash" ]; then
+      PROFILE_FILE="$HOME/.bashrc"
+    elif [ "$SHELL_NAME" = "zsh" ]; then
+      PROFILE_FILE="$HOME/.zshrc"
+    elif [ "$SHELL_NAME" = "fish" ]; then
+      PROFILE_FILE="$HOME/.config/fish/config.fish"
+    elif [ "$SHELL_NAME" = "sh" ] || [ "$SHELL_NAME" = "ash" ]; then
+      PROFILE_FILE="$HOME/.profile"
+    fi
+
+    if [ -n "$PROFILE_FILE" ]; then
+      echo "" >> "$PROFILE_FILE"
+      echo "# Add Komandan to PATH" >> "$PROFILE_FILE"
+      if [ "$SHELL_NAME" = "fish" ]; then
+        echo "fish_add_path \"$install_dir\"" >> "$PROFILE_FILE"
+      else
+        echo "export PATH=\"$install_dir:\$PATH\"" >> "$PROFILE_FILE"
+      fi
+      echo "Komandan installation path added to '$PROFILE_FILE'."
+      echo "Please run 'source $PROFILE_FILE' or restart your shell to apply the changes."
+    else
+      echo "Komandan has been installed to $install_dir"
+      echo "Please add this directory to your PATH."
+    fi
   fi
 }
 

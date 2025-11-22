@@ -1,6 +1,9 @@
 use mlua::Table;
 
-use super::*;
+use super::{
+    apt, cmd, dnf, download, file, get_url, lineinfile, postgresql_user, script, systemd_service,
+    template, upload, user,
+};
 
 pub fn collect_core_modules(lua: &mlua::Lua) -> mlua::Result<Table> {
     let modules = lua.create_table()?;

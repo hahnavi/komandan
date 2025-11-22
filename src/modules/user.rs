@@ -66,38 +66,47 @@ pub fn user(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.dry_run = function(self)
                 local is_exists = self:is_exists()
-                local changed = false
 
                 if self.params.state == "absent" then
                     if is_exists then
-                        changed = true
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.state == "present" then
                     if not is_exists then
-                        changed = true
+                        self.ssh:set_changed(true)
                     else
                         local current_info = self:get_user_info()
                         local current_groups = self:get_user_groups()
 
-                        if self.params.uid ~= nil and current_info.uid ~= tostring(self.params.uid) then changed = true end
+                        if self.params.uid ~= nil and current_info.uid ~= tostring(self.params.uid) then
+                            self.ssh:set_changed(true)
+                        end
                         if self.params.group ~= nil then
                             local current_gid_result = self.ssh:cmdq("id -g -n " .. self.params.name)
-                            if current_gid_result.exit_code == 0 and current_gid_result.stdout:gsub("%%s+", "") ~= self.params.group then changed = true end
+                            if current_gid_result.exit_code == 0 and current_gid_result.stdout:gsub("%%s+", "") ~= self.params.group then
+                                self.ssh:set_changed(true)
+                            end
                         end
-                        if self.params.home ~= nil and current_info.home ~= self.params.home then changed = true end
-                        if self.params.shell ~= nil and current_info.shell ~= self.params.shell then changed = true end
-                        if self.params.password ~= nil and current_info.password ~= self.params.password then changed = true end
+                        if self.params.home ~= nil and current_info.home ~= self.params.home then
+                            self.ssh:set_changed(true)
+                        end
+                        if self.params.shell ~= nil and current_info.shell ~= self.params.shell then
+                            self.ssh:set_changed(true)
+                        end
+                        if self.params.password ~= nil and current_info.password ~= self.params.password then
+                            self.ssh:set_changed(true)
+                        end
 
                         if self.params.groups ~= nil then
                             local desired_groups = {{}}
                             for _, g in ipairs(self.params.groups) do desired_groups[g] = true end
                             for _, g in ipairs(current_groups) do
                                 if not desired_groups[g] then
-                                    changed = true
+                                    self.ssh:set_changed(true)
                                     break
                                 end
                             end
-                            if not changed then
+                            if not self.ssh:get_changed() then
                                 for _, g in ipairs(self.params.groups) do
                                     local found = false
                                     for _, cg in ipairs(current_groups) do
@@ -107,7 +116,7 @@ pub fn user(lua: &Lua, params: Table) -> mlua::Result<Table> {
                                         end
                                     end
                                     if not found then
-                                        changed = true
+                                        self.ssh:set_changed(true)
                                         break
                                     end
                                 end
@@ -115,12 +124,10 @@ pub fn user(lua: &Lua, params: Table) -> mlua::Result<Table> {
                         end
                     end
                 end
-                self.ssh:set_changed(changed)
             end
 
             module.run = function(self)
                 local is_exists = self:is_exists()
-                local changed = false
 
                 if self.params.state == "absent" then
                     if is_exists then
@@ -129,9 +136,7 @@ pub fn user(lua: &Lua, params: Table) -> mlua::Result<Table> {
                         if self.params.force == true then cmd = cmd .. " -f" end
                         cmd = cmd .. " " .. self.params.name
                         self.ssh:cmdq(cmd)
-                        changed = true
-                    else
-                        self.ssh:set_changed(false)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.state == "present" then
                     if not is_exists then
@@ -146,7 +151,7 @@ pub fn user(lua: &Lua, params: Table) -> mlua::Result<Table> {
                         if self.params.create_home == true then cmd = cmd .. " --create-home" end
                         cmd = cmd .. " " .. self.params.name
                         self.ssh:cmdq(cmd)
-                        changed = true
+                        self.ssh:set_changed(true)
                     else
                         local current_info = self:get_user_info()
                         local current_groups = self:get_user_groups()
@@ -189,13 +194,10 @@ pub fn user(lua: &Lua, params: Table) -> mlua::Result<Table> {
                         if usermod_needed then
                             usermod_cmd = usermod_cmd .. " " .. self.params.name
                             self.ssh:cmdq(usermod_cmd)
-                            changed = true
-                        else
-                            self.ssh:set_changed(false)
+                            self.ssh:set_changed(true)
                         end
                     end
                 end
-                self.ssh:set_changed(changed)
             end
 
             return module
@@ -205,4 +207,34 @@ pub fn user(lua: &Lua, params: Table) -> mlua::Result<Table> {
         .into_lua_err()?;
 
     Ok(module)
+}
+
+// Tests
+#[cfg(test)]
+mod tests {
+    use crate::create_lua;
+
+    use super::*;
+
+    #[test]
+    fn test_user_name_required() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        let result = user(&lua, params);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("'name' parameter is required"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_user_valid_name() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("name", "testuser")?;
+        let result = user(&lua, params);
+        assert!(result.is_ok());
+        Ok(())
+    }
 }

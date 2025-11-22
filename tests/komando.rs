@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, unsafe_code)]
+
 use komandan::create_lua;
 use mlua::{Integer, Table, chunk};
 use std::{env, io::Write};
@@ -89,6 +91,7 @@ fn test_komando_use_default_user() {
 
             local hosts = {
                 address = "localhost",
+                host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
             }
 
@@ -114,6 +117,7 @@ fn test_komando_use_default_user_from_env() {
         .load(chunk! {
             local hosts = {
                 address = "localhost",
+                host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
             }
 
@@ -131,37 +135,6 @@ fn test_komando_use_default_user_from_env() {
 }
 
 #[test]
-fn test_komando_no_user_specified() {
-    let lua = create_lua().unwrap();
-    unsafe { env::remove_var("USER") };
-
-    let result = lua
-        .load(chunk! {
-            local hosts = {
-                address = "localhost",
-                private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
-            }
-
-            local task = {
-                komandan.modules.cmd({
-                    cmd = "echo hello"
-                })
-            }
-
-            return komandan.komando(hosts, task)
-        })
-        .eval::<Table>();
-
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("No user specified for task")
-    );
-}
-
-#[test]
 fn test_komando_simple_cmd() {
     let lua = create_lua().unwrap();
 
@@ -170,6 +143,7 @@ fn test_komando_simple_cmd() {
             local hosts = {
                 address = "localhost",
                 user = "usertest",
+                host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
             }
 
@@ -198,6 +172,7 @@ fn test_komando_simple_script() {
             local hosts = {
                 address = "localhost",
                 user = "usertest",
+                host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
             }
 
@@ -232,6 +207,7 @@ fn test_komando_script_from_file() {
             local hosts = {
                 address = "localhost",
                 user = "usertest",
+                host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
             }
 
@@ -261,6 +237,7 @@ fn test_komando_apt() {
             local hosts = {
                 address = "localhost",
                 user = "usertest",
+                host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
             }
 

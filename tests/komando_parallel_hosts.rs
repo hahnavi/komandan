@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use komandan::create_lua;
 use mlua::{Integer, Table, Value, chunk};
 
@@ -12,18 +14,21 @@ fn test_komando_parallel_hosts() {
                     name = "server1",
                     address = "localhost",
                     user = "usertest",
+                    host_key_check = false,
                     private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
                 },
                 {
                     name = "server2",
                     address = "localhost",
                     user = "usertest",
+                    host_key_check = false,
                     private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
                 },
                 {
                     name = "server3",
                     address = "localhost",
                     user = "usertest",
+                    host_key_check = false,
                     private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
                 }
             }

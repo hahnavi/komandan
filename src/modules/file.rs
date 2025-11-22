@@ -65,21 +65,21 @@ pub fn file(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 local is_exists = self:is_exists()
 
                 if self.params.state == "absent" then
-                    if not is_exists then
-                        self.ssh:set_changed(false)
+                    if is_exists then
+                        self.ssh:set_changed(true)
                     end
                     return
                 elseif self.params.state == "directory" then
-                    if is_exists then
-                        self.ssh:set_changed(false)
+                    if not is_exists then
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.state == "file" then
-                    if is_exists then
-                        self.ssh:set_changed(false)
+                    if not is_exists then
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.state == "link" then
-                    if is_exists then
-                        self.ssh:set_changed(false)
+                    if not is_exists then
+                        self.ssh:set_changed(true)
                     end
                 end
             end
@@ -90,27 +90,23 @@ pub fn file(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 if self.params.state == "absent" then
                     if is_exists then
                         self.ssh:cmdq("rm -rf " .. self.params.path)
-                    else
-                        self.ssh:set_changed(false)
+                        self.ssh:set_changed(true)
                     end
                     return
                 elseif self.params.state == "directory" then
-                    if is_exists then
-                        self.ssh:set_changed(false)
-                    else
+                    if not is_exists then
                         self.ssh:cmdq("mkdir -p " .. self.params.path)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.state == "file" then
-                    if is_exists then
-                        self.ssh:set_changed(false)
-                    else
+                    if not is_exists then
                         self.ssh:cmdq("touch " .. self.params.path)
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.state == "link" then
-                    if is_exists then
-                        self.ssh:set_changed(false)
-                    else
+                    if not is_exists then
                         self.ssh:cmdq("ln -s " .. self.params.src .. " " .. self.params.path)
+                        self.ssh:set_changed(true)
                     end
                 end
 
@@ -134,4 +130,34 @@ pub fn file(lua: &Lua, params: Table) -> mlua::Result<Table> {
         .into_lua_err()?;
 
     Ok(module)
+}
+
+// Tests
+#[cfg(test)]
+mod tests {
+    use crate::create_lua;
+
+    use super::*;
+
+    #[test]
+    fn test_file_path_required() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        let result = file(&lua, params);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("'path' parameter is required"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_file_valid_path() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("path", "/tmp/test")?;
+        let result = file(&lua, params);
+        assert!(result.is_ok());
+        Ok(())
+    }
 }

@@ -74,15 +74,15 @@ pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
             module.dry_run = function(self)
                 self.params.dry_run = true
                 local result = self:run_lineinfile_script()
-                if result.stdout == "OK" then
-                    self.ssh:set_changed(false)
+                if result.stdout ~= "OK" then
+                    self.ssh:set_changed(true)
                 end
             end
 
             module.run = function(self)
                 local result = self:run_lineinfile_script()
-                if result.stdout == "OK" then
-                    self.ssh:set_changed(false)
+                if result.stdout ~= "OK" then
+                    self.ssh:set_changed(true)
                 end
             end
 
@@ -261,70 +261,72 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_lineinfile_no_path() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
+    fn test_lineinfile_no_path() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
         let result = lineinfile(&lua, params);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("'path' parameter is required")
-        );
+        if let Err(e) = result {
+            assert!(e.to_string().contains("'path' parameter is required"));
+        }
+        Ok(())
     }
 
     #[test]
-    fn test_lineinfile_invalid_state() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
-        params.set("path", "/tmp/test.txt").unwrap();
-        params.set("line", "Hello, world!").unwrap();
-        params.set("state", "--invalid-state--").unwrap();
+    fn test_lineinfile_invalid_state() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("path", "/tmp/test.txt")?;
+        params.set("line", "Hello, world!")?;
+        params.set("state", "--invalid-state--")?;
         let result = lineinfile(&lua, params);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("'state' parameter must be 'present' or 'absent'")
-        );
+        if let Err(e) = result {
+            assert!(
+                e.to_string()
+                    .contains("'state' parameter must be 'present' or 'absent'")
+            );
+        }
+        Ok(())
     }
 
     #[test]
-    fn test_lineinfile_no_line_or_pattern() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
-        params.set("path", "/tmp/test.txt").unwrap();
+    fn test_lineinfile_no_line_or_pattern() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("path", "/tmp/test.txt")?;
         let result = lineinfile(&lua, params);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("'line' or 'pattern' parameter is required")
-        );
+        if let Err(e) = result {
+            assert!(
+                e.to_string()
+                    .contains("'line' or 'pattern' parameter is required")
+            );
+        }
+        Ok(())
     }
 
     #[test]
-    fn test_lineinfile_present() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
-        params.set("path", "/tmp/test.txt").unwrap();
-        params.set("state", "present").unwrap();
-        params.set("line", "Hello, world!").unwrap();
+    fn test_lineinfile_present() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("path", "/tmp/test.txt")?;
+        params.set("state", "present")?;
+        params.set("line", "Hello, world!")?;
         let result = lineinfile(&lua, params);
         assert!(result.is_ok());
+        Ok(())
     }
 
     #[test]
-    fn test_lineinfile_absent() {
-        let lua = create_lua().unwrap();
-        let params = lua.create_table().unwrap();
-        params.set("path", "/tmp/test.txt").unwrap();
-        params.set("state", "absent").unwrap();
-        params.set("line", "Hello, world!").unwrap();
+    fn test_lineinfile_absent() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("path", "/tmp/test.txt")?;
+        params.set("state", "absent")?;
+        params.set("line", "Hello, world!")?;
         let result = lineinfile(&lua, params);
         assert!(result.is_ok());
+        Ok(())
     }
 }

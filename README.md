@@ -17,7 +17,7 @@
 
 </div>
 
-Komandan is a server automation tool that simplifies remote server management by leveraging the power and flexibility of the Lua programming language. It connects to target servers via SSH, following Ansible's agentless approach for streamlined operation. Komandan is designed to be easy to learn and use, even for those new to server automation.
+Komandan is a server automation tool that simplifies remote server management by leveraging the power and flexibility of the Lua programming language. It connects to target servers via SSH, following an agentless approach for streamlined operation. Komandan is designed to be easy to learn and use, even for those new to server automation.
 
 > **Notice:** Komandan is in early development and currently supports Linux only. Updates will come as development progresses. Feedback is welcome—thank you for your support!
 
@@ -130,10 +130,15 @@ Komandan provides built-in modules for common tasks, accessible through the `kom
 - **`script`**: Run scripts on the remote host, either from a local file or provided directly.
 - **`upload`**: Upload files to the remote host.
 - **`download`**: Download files from the remote host.
+- **`get_url`**: Download files from URLs.
 - **`apt`**: Manage packages on Debian/Ubuntu systems using `apt`.
+- **`dnf`**: Manage packages on Fedora/RHEL systems.
 - **`lineinfile`**: Insert or replace lines in a file.
+- **`file`**: Manage files and file properties.
 - **`template`**: Render a jinja template file on the remote host.
 - **`systemd_service`**: Manage systemd services on the remote host.
+- **`user`**: Manage system users.
+- **`postgresql_user`**: Manage PostgreSQL users.
 
 For detailed explanations, arguments, and examples of each module, please refer to the [Modules section of the Komandan Documentation Site](https://komandan.vercel.app/docs/modules).
 
@@ -158,7 +163,14 @@ komandan.defaults:set_user("user1")
 komandan.defaults:set_private_key_file(os.getenv("HOME") .. "/.ssh/id_ed25519")
 komandan.defaults:set_private_key_pass("passphrase")
 komandan.defaults:set_host_key_check(false)
+komandan.defaults:set_password("password")
+komandan.defaults:set_ignore_exit_code(false)
+komandan.defaults:set_elevate(false)
+komandan.defaults:set_elevation_method("sudo")
+komandan.defaults:set_as_user("root")
+komandan.defaults:set_known_hosts_file(os.getenv("HOME") .. "/.ssh/known_hosts")
 komandan.defaults:set_env("ENV_VAR", "value")
+komandan.defaults:remove_env("ENV_VAR")
 
 -- get default values
 local port = komandan.defaults:get_port()
@@ -166,6 +178,12 @@ local user = komandan.defaults:get_user()
 local private_key_file = komandan.defaults:get_private_key_file()
 local private_key_pass = komandan.defaults:get_private_key_pass()
 local host_key_check = komandan.defaults:get_host_key_check()
+local password = komandan.defaults:get_password()
+local ignore_exit_code = komandan.defaults:get_ignore_exit_code()
+local elevate = komandan.defaults:get_elevate()
+local elevation_method = komandan.defaults:get_elevation_method()
+local as_user = komandan.defaults:get_as_user()
+local known_hosts_file = komandan.defaults:get_known_hosts_file()
 local env = komandan.defaults:get_env("ENV_VAR")
 local env_all = komandan.defaults:get_all_env()
 ```
