@@ -32,7 +32,12 @@ impl Defaults {
 
         let port = std::env::var("KOMANDAN_SSH_PORT")
             .ok()
-            .and_then(|p| p.parse::<u16>().ok())
+            .and_then(|p| {
+                p.parse::<u16>().ok().or_else(|| {
+                    eprintln!("Warning: Invalid KOMANDAN_SSH_PORT value, using default 22");
+                    None
+                })
+            })
             .unwrap_or(22);
 
         let user = std::env::var("KOMANDAN_SSH_USER").ok();
@@ -91,18 +96,19 @@ fn handle_lock_error<T>(lock_name: &str, is_write: bool) -> mlua::Result<T> {
 impl UserData for Defaults {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("get_port", |_, this, ()| -> mlua::Result<u16> {
-            this.port.read().map(|port| *port).map_err(|_| {
-                mlua::Error::RuntimeError("Failed to acquire read lock on port".to_string())
-            })
+            this.port
+                .read()
+                .map_or_else(|_| handle_lock_error("port", false), |port| Ok(*port))
         });
 
         methods.add_method_mut("set_port", |_, this, new_port: u16| -> mlua::Result<()> {
-            this.port
-                .write()
-                .map(|mut port| *port = new_port)
-                .map_err(|_| {
-                    mlua::Error::RuntimeError("Failed to acquire write lock on port".to_string())
-                })
+            this.port.write().map_or_else(
+                |_| handle_lock_error("port", true),
+                |mut port| {
+                    *port = new_port;
+                    Ok(())
+                },
+            )
         });
 
         methods.add_method("get_user", |_, this, ()| {
@@ -275,14 +281,14 @@ impl UserData for Defaults {
 
         methods.add_method("get_host_key_check", |_, this, ()| {
             this.key_check.read().map_or_else(
-                |_| handle_lock_error("key_check", false),
+                |_| handle_lock_error("host_key_check", false),
                 |key_check| Ok(*key_check),
             )
         });
 
         methods.add_method_mut("set_host_key_check", |_, this, new_key_check: bool| {
             this.key_check.write().map_or_else(
-                |_| handle_lock_error("key_check", true),
+                |_| handle_lock_error("host_key_check", true),
                 |mut key_check| {
                     *key_check = new_key_check;
                     Ok(())
