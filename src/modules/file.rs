@@ -131,3 +131,33 @@ pub fn file(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
     Ok(module)
 }
+
+// Tests
+#[cfg(test)]
+mod tests {
+    use crate::create_lua;
+
+    use super::*;
+
+    #[test]
+    fn test_file_path_required() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        let result = file(&lua, params);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("'path' parameter is required"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_file_valid_path() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("path", "/tmp/test")?;
+        let result = file(&lua, params);
+        assert!(result.is_ok());
+        Ok(())
+    }
+}

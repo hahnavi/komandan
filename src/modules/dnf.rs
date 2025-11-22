@@ -141,3 +141,34 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
     Ok(module)
 }
+
+// Tests
+#[cfg(test)]
+mod tests {
+    use crate::create_lua;
+
+    use super::*;
+
+    #[test]
+    fn test_dnf_package_required() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("action", "install")?;
+        let result = dnf(&lua, params);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("package is required"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_dnf_valid_package() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("package", "vim")?;
+        let result = dnf(&lua, params);
+        assert!(result.is_ok());
+        Ok(())
+    }
+}

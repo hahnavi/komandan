@@ -26,12 +26,9 @@ pub struct Defaults {
 impl Defaults {
     pub fn new() -> Result<Self> {
         let env = Arc::new(RwLock::new(HashMap::new()));
-        match env.write() {
-            Ok(mut env) => {
-                env.insert("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string());
-            }
-            Err(_) => return Err(Error::msg("Failed to acquire write lock".to_string())),
-        }
+        env.write()
+            .map_err(|_| Error::msg("Failed to acquire write lock"))?
+            .insert("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string());
 
         let port = std::env::var("KOMANDAN_SSH_PORT")
             .ok()
@@ -84,372 +81,223 @@ impl Defaults {
     }
 }
 
+fn handle_lock_error<T>(lock_name: &str, is_write: bool) -> mlua::Result<T> {
+    let action = if is_write { "write" } else { "read" };
+    Err(mlua::Error::RuntimeError(format!(
+        "Failed to acquire {} lock on {}",
+        action, lock_name
+    )))
+}
+
 impl UserData for Defaults {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("get_port", |_, this, ()| -> mlua::Result<u16> {
-            this.port.read().map_or_else(
-                |_| {
-                    Err(mlua::Error::RuntimeError(
-                        "Failed to acquire read lock".to_string(),
-                    ))
-                },
-                |port| Ok(*port),
-            )
+            this.port.read().map(|port| *port).map_err(|_| {
+                mlua::Error::RuntimeError("Failed to acquire read lock on port".to_string())
+            })
         });
 
         methods.add_method_mut("set_port", |_, this, new_port: u16| -> mlua::Result<()> {
-            this.port.write().map_or_else(
-                |_| {
-                    Err(mlua::Error::RuntimeError(
-                        "Failed to acquire write lock".to_string(),
-                    ))
-                },
-                |mut port| {
-                    *port = new_port;
-                    Ok(())
-                },
-            )
+            this.port
+                .write()
+                .map(|mut port| *port = new_port)
+                .map_err(|_| {
+                    mlua::Error::RuntimeError("Failed to acquire write lock on port".to_string())
+                })
         });
 
-        methods.add_method("get_user", |_, this, ()| -> mlua::Result<Option<String>> {
-            this.user.read().map_or_else(
-                |_| {
-                    Err(mlua::Error::RuntimeError(
-                        "Failed to acquire read lock".to_string(),
-                    ))
-                },
-                |user| Ok(user.clone()),
-            )
+        methods.add_method("get_user", |_, this, ()| {
+            this.user
+                .read()
+                .map(|user| user.clone())
+                .map_err(|_| handle_lock_error::<Option<String>>("user", false).unwrap_err())
         });
 
-        methods.add_method_mut(
-            "set_user",
-            |_, this, new_user: Option<String>| -> mlua::Result<()> {
-                this.user.write().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    },
-                    |mut user| {
-                        *user = new_user;
-                        Ok(())
-                    },
-                )
-            },
-        );
+        methods.add_method_mut("set_user", |_, this, new_user: Option<String>| {
+            this.user
+                .write()
+                .map(|mut user| *user = new_user)
+                .map_err(|_| handle_lock_error::<()>("user", true).unwrap_err())
+        });
 
-        methods.add_method(
-            "get_private_key_file",
-            |_, this, ()| -> mlua::Result<Option<String>> {
-                this.private_key_file.read().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    },
-                    |private_key_file| Ok(private_key_file.clone()),
-                )
-            },
-        );
+        methods.add_method("get_private_key_file", |_, this, ()| {
+            this.private_key_file
+                .read()
+                .map(|private_key_file| private_key_file.clone())
+                .map_err(|_| {
+                    handle_lock_error::<Option<String>>("private_key_file", false).unwrap_err()
+                })
+        });
 
         methods.add_method_mut(
             "set_private_key_file",
-            |_, this, new_private_key_file: Option<String>| -> mlua::Result<()> {
-                this.private_key_file.write().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    },
-                    |mut private_key_file| {
-                        *private_key_file = new_private_key_file;
-                        Ok(())
-                    },
-                )
+            |_, this, new_private_key_file: Option<String>| {
+                this.private_key_file
+                    .write()
+                    .map(|mut private_key_file| *private_key_file = new_private_key_file)
+                    .map_err(|_| handle_lock_error::<()>("private_key_file", true).unwrap_err())
             },
         );
 
-        methods.add_method(
-            "get_private_key_pass",
-            |_, this, ()| -> mlua::Result<Option<String>> {
-                this.private_key_pass.read().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    },
-                    |private_key_pass| Ok(private_key_pass.clone()),
-                )
-            },
-        );
+        methods.add_method("get_private_key_pass", |_, this, ()| {
+            this.private_key_pass
+                .read()
+                .map(|private_key_pass| private_key_pass.clone())
+                .map_err(|_| {
+                    handle_lock_error::<Option<String>>("private_key_pass", false).unwrap_err()
+                })
+        });
 
         methods.add_method_mut(
             "set_private_key_pass",
-            |_, this, new_private_key_pass: Option<String>| -> mlua::Result<()> {
-                this.private_key_pass.write().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    },
-                    |mut private_key_pass| {
-                        *private_key_pass = new_private_key_pass;
-                        Ok(())
-                    },
-                )
+            |_, this, new_private_key_pass: Option<String>| {
+                this.private_key_pass
+                    .write()
+                    .map(|mut private_key_pass| *private_key_pass = new_private_key_pass)
+                    .map_err(|_| handle_lock_error::<()>("private_key_pass", true).unwrap_err())
             },
         );
 
-        methods.add_method(
-            "get_password",
-            |_, this, ()| -> mlua::Result<Option<String>> {
-                this.password.read().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    },
-                    |password| Ok(password.clone()),
-                )
-            },
-        );
+        methods.add_method("get_password", |_, this, ()| {
+            this.password
+                .read()
+                .map(|password| password.clone())
+                .map_err(|_| handle_lock_error::<Option<String>>("password", false).unwrap_err())
+        });
 
-        methods.add_method_mut(
-            "set_password",
-            |_, this, new_password: Option<String>| -> mlua::Result<()> {
-                this.password.write().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    },
-                    |mut password| {
-                        *password = new_password;
-                        Ok(())
-                    },
-                )
-            },
-        );
+        methods.add_method_mut("set_password", |_, this, new_password: Option<String>| {
+            this.password
+                .write()
+                .map(|mut password| *password = new_password)
+                .map_err(|_| handle_lock_error::<()>("password", true).unwrap_err())
+        });
 
-        methods.add_method(
-            "get_ignore_exit_code",
-            |_, this, ()| -> mlua::Result<bool> {
-                this.ignore_exit_code.read().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    },
-                    |ignore_exit_code| Ok(*ignore_exit_code),
-                )
-            },
-        );
+        methods.add_method("get_ignore_exit_code", |_, this, ()| {
+            this.ignore_exit_code
+                .read()
+                .map(|ignore_exit_code| *ignore_exit_code)
+                .map_err(|_| handle_lock_error::<bool>("ignore_exit_code", false).unwrap_err())
+        });
 
         methods.add_method_mut(
             "set_ignore_exit_code",
-            |_, this, new_ignore_exit_code: bool| -> mlua::Result<()> {
-                this.ignore_exit_code.write().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    },
-                    |mut ignore_exit_code| {
-                        *ignore_exit_code = new_ignore_exit_code;
-                        Ok(())
-                    },
-                )
+            |_, this, new_ignore_exit_code: bool| {
+                this.ignore_exit_code
+                    .write()
+                    .map(|mut ignore_exit_code| *ignore_exit_code = new_ignore_exit_code)
+                    .map_err(|_| handle_lock_error::<()>("ignore_exit_code", true).unwrap_err())
             },
         );
 
-        methods.add_method("get_elevate", |_, this, ()| -> mlua::Result<bool> {
-            this.elevate.read().map_or_else(
-                |_| {
-                    Err(mlua::Error::RuntimeError(
-                        "Failed to acquire read lock".to_string(),
-                    ))
-                },
-                |elevate| Ok(*elevate),
-            )
+        methods.add_method("get_elevate", |_, this, ()| {
+            this.elevate
+                .read()
+                .map(|elevate| *elevate)
+                .map_err(|_| handle_lock_error::<bool>("elevate", false).unwrap_err())
         });
 
-        methods.add_method_mut(
-            "set_elevate",
-            |_, this, new_elevate: bool| -> mlua::Result<()> {
-                this.elevate.write().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    },
-                    |mut elevate| {
-                        *elevate = new_elevate;
-                        Ok(())
-                    },
-                )
-            },
-        );
+        methods.add_method_mut("set_elevate", |_, this, new_elevate: bool| {
+            this.elevate
+                .write()
+                .map(|mut elevate| *elevate = new_elevate)
+                .map_err(|_| handle_lock_error::<()>("elevate", true).unwrap_err())
+        });
 
-        methods.add_method(
-            "get_elevation_method",
-            |_, this, ()| -> mlua::Result<String> {
-                this.elevation_method.read().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    },
-                    |elevation_method| Ok(elevation_method.clone()),
-                )
-            },
-        );
+        methods.add_method("get_elevation_method", |_, this, ()| {
+            this.elevation_method
+                .read()
+                .map(|elevation_method| elevation_method.clone())
+                .map_err(|_| handle_lock_error::<String>("elevation_method", false).unwrap_err())
+        });
 
         methods.add_method_mut(
             "set_elevation_method",
-            |_, this, new_elevation_method: String| -> mlua::Result<()> {
-                this.elevation_method.write().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    },
-                    |mut elevation_method| {
-                        *elevation_method = new_elevation_method;
-                        Ok(())
-                    },
-                )
+            |_, this, new_elevation_method: String| {
+                this.elevation_method
+                    .write()
+                    .map(|mut elevation_method| *elevation_method = new_elevation_method)
+                    .map_err(|_| handle_lock_error::<()>("elevation_method", true).unwrap_err())
             },
         );
 
-        methods.add_method(
-            "get_as_user",
-            |_, this, ()| -> mlua::Result<Option<String>> {
-                this.as_user.read().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    },
-                    |as_user| Ok(as_user.clone()),
-                )
-            },
-        );
+        methods.add_method("get_as_user", |_, this, ()| {
+            this.as_user
+                .read()
+                .map(|as_user| as_user.clone())
+                .map_err(|_| handle_lock_error::<Option<String>>("as_user", false).unwrap_err())
+        });
 
-        methods.add_method_mut(
-            "set_as_user",
-            |_, this, new_as_user: Option<String>| -> mlua::Result<()> {
-                this.as_user.write().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    },
-                    |mut as_user| {
-                        *as_user = new_as_user;
-                        Ok(())
-                    },
-                )
-            },
-        );
+        methods.add_method_mut("set_as_user", |_, this, new_as_user: Option<String>| {
+            this.as_user
+                .write()
+                .map(|mut as_user| *as_user = new_as_user)
+                .map_err(|_| handle_lock_error::<()>("as_user", true).unwrap_err())
+        });
 
-        methods.add_method(
-            "get_known_hosts_file",
-            |_, this, ()| -> mlua::Result<String> {
-                this.known_hosts_file.read().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire read lock".to_string(),
-                        ))
-                    },
-                    |known_hosts_file| Ok(known_hosts_file.clone()),
-                )
-            },
-        );
+        methods.add_method("get_known_hosts_file", |_, this, ()| {
+            this.known_hosts_file
+                .read()
+                .map(|known_hosts_file| known_hosts_file.clone())
+                .map_err(|_| handle_lock_error::<String>("known_hosts_file", false).unwrap_err())
+        });
 
         methods.add_method_mut(
             "set_known_hosts_file",
-            |_, this, new_known_hosts_file: String| -> mlua::Result<()> {
-                this.known_hosts_file.write().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    },
-                    |mut known_hosts_file| {
-                        *known_hosts_file = new_known_hosts_file;
-                        Ok(())
-                    },
-                )
+            |_, this, new_known_hosts_file: String| {
+                this.known_hosts_file
+                    .write()
+                    .map(|mut known_hosts_file| *known_hosts_file = new_known_hosts_file)
+                    .map_err(|_| handle_lock_error::<()>("known_hosts_file", true).unwrap_err())
             },
         );
 
-        methods.add_method("get_host_key_check", |_, this, ()| -> mlua::Result<bool> {
-            this.key_check.read().map_or_else(
-                |_| {
-                    Err(mlua::Error::RuntimeError(
-                        "Failed to acquire read lock".to_string(),
-                    ))
-                },
-                |key_check| Ok(*key_check),
-            )
+        methods.add_method("get_host_key_check", |_, this, ()| {
+            this.key_check
+                .read()
+                .map(|key_check| *key_check)
+                .map_err(|_| handle_lock_error::<bool>("key_check", false).unwrap_err())
         });
 
-        methods.add_method_mut(
-            "set_host_key_check",
-            |_, this, new_key_check: bool| -> mlua::Result<()> {
-                this.key_check.write().map_or_else(
-                    |_| {
-                        Err(mlua::Error::RuntimeError(
-                            "Failed to acquire write lock".to_string(),
-                        ))
-                    },
-                    |mut key_check| {
-                        *key_check = new_key_check;
-                        Ok(())
-                    },
-                )
-            },
-        );
+        methods.add_method_mut("set_host_key_check", |_, this, new_key_check: bool| {
+            this.key_check
+                .write()
+                .map(|mut key_check| *key_check = new_key_check)
+                .map_err(|_| handle_lock_error::<()>("key_check", true).unwrap_err())
+        });
 
         methods.add_method("get_all_env", |lua, this, ()| {
-            this.env.read().map_or_else(
-                |_| Err(mlua::Error::runtime("Failed to acquire lock")),
-                |map| lua.create_table_from(map.keys().cloned().enumerate()),
-            )
+            this.env
+                .read()
+                .map_err(|_| handle_lock_error::<()>("env", false).unwrap_err())
+                .and_then(|map| lua.create_table_from(map.keys().cloned().enumerate()))
         });
 
-        methods.add_method_mut("get_env", |_, this, key: String| -> mlua::Result<String> {
-            this.env.read().map_or_else(
-                |_| Err(mlua::Error::runtime("Failed to acquire lock")),
-                |map| {
+        methods.add_method_mut("get_env", |_, this, key: String| {
+            this.env
+                .read()
+                .map(|map| {
                     map.get(&key)
-                        .map_or_else(|| Ok(String::new()), |value| Ok(value.clone()))
-                },
-            )
+                        .map_or_else(|| String::new(), |value| value.clone())
+                })
+                .map_err(|_| handle_lock_error::<String>("env", false).unwrap_err())
         });
 
-        methods.add_method_mut(
-            "set_env",
-            |_, this, (key, value): (String, String)| -> mlua::Result<()> {
-                this.env.write().map_or_else(
-                    |_| Err(mlua::Error::runtime("Failed to acquire lock")),
-                    |mut map| {
-                        map.insert(key, value);
-                        Ok(())
-                    },
-                )
-            },
-        );
+        methods.add_method_mut("set_env", |_, this, (key, value): (String, String)| {
+            this.env
+                .write()
+                .map(|mut map| {
+                    map.insert(key, value);
+                })
+                .map_err(|_| handle_lock_error::<()>("env", true).unwrap_err())
+        });
 
-        methods.add_method_mut("remove_env", |_, this, key: String| -> mlua::Result<()> {
-            this.env.write().map_or_else(
-                |_| Err(mlua::Error::runtime("Failed to acquire lock")),
-                |mut map| {
+        methods.add_method_mut("remove_env", |_, this, key: String| {
+            this.env
+                .write()
+                .map(|mut map| {
                     map.remove(&key);
-                    Ok(())
-                },
-            )
+                })
+                .map_err(|_| handle_lock_error::<()>("env", true).unwrap_err())
         });
     }
 }
