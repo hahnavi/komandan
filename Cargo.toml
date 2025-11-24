@@ -1,6 +1,6 @@
 [package]
 name = "komandan"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Abdul Munif Hanafi"]
 license = "MIT"
 edition = "2024"
