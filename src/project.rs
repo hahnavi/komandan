@@ -1,36 +1,13 @@
 use anyhow::{Context, Result, bail};
+use minijinja::{Environment, context};
 use std::fs;
 use std::path::Path;
 
 use crate::args::{InitArgs, NewArgs, ProjectArgs, ProjectCommands};
 
-const KOMANDAN_TOML_TEMPLATE: &str = r#"[project]
-name = "{{project_name}}"
-version = "0.1.0"
-main = "main.lua"
-"#;
-
-const HOSTS_LUA_TEMPLATE: &str = r#"return {
-	{
-		name = "server1",
-		address = "10.0.0.1",
-		user = "user1",
-		tags = { "webserver" },
-	}
-}
-"#;
-
-const MAIN_LUA_TEMPLATE: &str = r#"local hosts = require("hosts")
-
-local task = {
-	name = "Hello world!",
-	komandan.modules.cmd({
-		cmd = "echo 123",
-	}),
-}
-
-komandan.komando(hosts[1], task)
-"#;
+const KOMANDAN_JSON_TEMPLATE: &str = include_str!("templates/komandan.json.j2");
+const HOSTS_LUA_TEMPLATE: &str = include_str!("templates/hosts.lua");
+const MAIN_LUA_TEMPLATE: &str = include_str!("templates/main.lua");
 
 /// Handles the project command
 ///
@@ -80,11 +57,15 @@ fn init_project(args: &InitArgs, project_name: Option<String>) -> Result<()> {
             .to_string()
     });
 
-    // Create komandan.toml
-    let komandan_toml = KOMANDAN_TOML_TEMPLATE.replace("{{project_name}}", &project_name);
-    let komandan_toml_path = dir.join("komandan.toml");
-    fs::write(&komandan_toml_path, komandan_toml)
-        .with_context(|| format!("Failed to write {}", komandan_toml_path.display()))?;
+    // Create komandan.json
+    let mut env = Environment::new();
+    env.add_template("komandan.json", KOMANDAN_JSON_TEMPLATE)?;
+    let tmpl = env.get_template("komandan.json")?;
+    let komandan_json = tmpl.render(context!(project_name => project_name))?;
+
+    let komandan_json_path = dir.join("komandan.json");
+    fs::write(&komandan_json_path, komandan_json)
+        .with_context(|| format!("Failed to write {}", komandan_json_path.display()))?;
 
     // Create hosts.lua
     let hosts_lua_path = dir.join("hosts.lua");
@@ -163,7 +144,7 @@ mod tests {
         init_project(&args, None)?;
 
         // Verify files were created
-        assert!(temp_dir.path().join("komandan.toml").exists());
+        assert!(temp_dir.path().join("komandan.json").exists());
         assert!(temp_dir.path().join("hosts.lua").exists());
         assert!(temp_dir.path().join("main.lua").exists());
 
@@ -211,10 +192,10 @@ mod tests {
 
         init_project(&args, None)?;
 
-        // Verify komandan.toml exists and has content
-        let toml_content = fs::read_to_string(temp_dir.path().join("komandan.toml"))?;
-        assert!(toml_content.contains("[project]"));
-        assert!(toml_content.contains("version = \"0.1.0\""));
+        // Verify komandan.json exists and has content
+        let json_content = fs::read_to_string(temp_dir.path().join("komandan.json"))?;
+        assert!(json_content.contains("\"name\""));
+        assert!(json_content.contains("\"version\": \"0.1.0\""));
 
         // Verify hosts.lua exists and has content
         let hosts_content = fs::read_to_string(temp_dir.path().join("hosts.lua"))?;
@@ -223,7 +204,7 @@ mod tests {
 
         // Verify main.lua exists and has content
         let main_content = fs::read_to_string(temp_dir.path().join("main.lua"))?;
-        assert!(main_content.contains("local hosts = require(\"hosts\")"));
+        assert!(main_content.contains("local hosts = komandan.defaults:get_hosts()"));
         assert!(main_content.contains("komandan.komando"));
 
         Ok(())
@@ -244,14 +225,14 @@ mod tests {
 
         init_project(&args, None)?;
 
-        // Verify project name was substituted in komandan.toml
-        let toml_content = fs::read_to_string(temp_dir.path().join("komandan.toml"))?;
+        // Verify project name was substituted in komandan.json
+        let json_content = fs::read_to_string(temp_dir.path().join("komandan.json"))?;
         let dir_name = temp_dir
             .path()
             .file_name()
             .and_then(|n| n.to_str())
             .context("valid directory name")?;
-        assert!(toml_content.contains(&format!("name = \"{dir_name}\"")));
+        assert!(json_content.contains(&format!("\"name\": \"{dir_name}\"")));
 
         Ok(())
     }
@@ -278,13 +259,13 @@ mod tests {
         assert!(project_path.exists());
 
         // Verify files were created
-        assert!(project_path.join("komandan.toml").exists());
+        assert!(project_path.join("komandan.json").exists());
         assert!(project_path.join("hosts.lua").exists());
         assert!(project_path.join("main.lua").exists());
 
-        // Verify project name in toml
-        let toml_content = fs::read_to_string(project_path.join("komandan.toml"))?;
-        assert!(toml_content.contains(&format!("name = \"{project_name}\"")));
+        // Verify project name in json
+        let json_content = fs::read_to_string(project_path.join("komandan.json"))?;
+        assert!(json_content.contains(&format!("\"name\": \"{project_name}\"")));
 
         Ok(())
     }
@@ -310,11 +291,11 @@ mod tests {
 
         // Verify custom directory was created
         assert!(project_path.exists());
-        assert!(project_path.join("komandan.toml").exists());
+        assert!(project_path.join("komandan.json").exists());
 
-        // Verify project name in toml
-        let toml_content = fs::read_to_string(project_path.join("komandan.toml"))?;
-        assert!(toml_content.contains("name = \"myproject\""));
+        // Verify project name in json
+        let json_content = fs::read_to_string(project_path.join("komandan.json"))?;
+        assert!(json_content.contains("\"name\": \"myproject\""));
 
         Ok(())
     }
@@ -370,7 +351,7 @@ mod tests {
         handle_project_command(&args)?;
 
         // Verify files were created
-        assert!(temp_dir.path().join("komandan.toml").exists());
+        assert!(temp_dir.path().join("komandan.json").exists());
         assert!(temp_dir.path().join("hosts.lua").exists());
         assert!(temp_dir.path().join("main.lua").exists());
 
@@ -399,7 +380,7 @@ mod tests {
 
         // Verify directory and files were created
         assert!(project_path.exists());
-        assert!(project_path.join("komandan.toml").exists());
+        assert!(project_path.join("komandan.json").exists());
         assert!(project_path.join("hosts.lua").exists());
         assert!(project_path.join("main.lua").exists());
 

@@ -1,5 +1,5 @@
 use anyhow::{Error, Result};
-use mlua::UserData;
+use mlua::{LuaSerdeExt, UserData};
 use std::{
     collections::HashMap,
     sync::{Arc, OnceLock, RwLock},
@@ -21,9 +21,15 @@ pub struct Defaults {
     pub known_hosts_file: Arc<RwLock<String>>,
     pub key_check: Arc<RwLock<bool>>,
     pub env: Arc<RwLock<HashMap<String, String>>>,
+    pub hosts: Arc<RwLock<Vec<serde_json::Value>>>,
 }
 
 impl Defaults {
+    /// Creates a new `Defaults` instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the environment variable map cannot be locked for writing.
     pub fn new() -> Result<Self> {
         let env = Arc::new(RwLock::new(HashMap::new()));
         {
@@ -79,9 +85,15 @@ impl Defaults {
             known_hosts_file: Arc::new(RwLock::new(known_hosts_file)),
             key_check: Arc::new(RwLock::new(key_check)),
             env,
+            hosts: Arc::new(RwLock::new(Vec::new())),
         })
     }
 
+    /// Returns the global `Defaults` instance.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the global defaults cannot be initialized (e.g., due to lock failure).
     pub fn global() -> Self {
         GLOBAL_DEFAULTS
             .get_or_init(|| {
@@ -296,6 +308,35 @@ impl UserData for Defaults {
                 |_| handle_lock_error("host_key_check", true),
                 |mut key_check| {
                     *key_check = new_key_check;
+                    Ok(())
+                },
+            )
+        });
+
+        methods.add_method("get_hosts", |lua, this, ()| {
+            this.hosts.read().map_or_else(
+                |_| handle_lock_error("hosts", false),
+                |hosts| {
+                    let table = lua.create_table()?;
+                    for (i, host) in hosts.iter().enumerate() {
+                        table.set(i + 1, lua.to_value(host)?)?;
+                    }
+                    Ok(table)
+                },
+            )
+        });
+
+        methods.add_method_mut("set_hosts", |lua, this, new_hosts: mlua::Table| {
+            this.hosts.write().map_or_else(
+                |_| handle_lock_error("hosts", true),
+                |mut hosts| {
+                    let mut new_vec = Vec::new();
+                    for pair in new_hosts.pairs::<mlua::Value, mlua::Value>() {
+                        let (_, value) = pair?;
+                        let json_value: serde_json::Value = lua.from_value(value)?;
+                        new_vec.push(json_value);
+                    }
+                    *hosts = new_vec;
                     Ok(())
                 },
             )

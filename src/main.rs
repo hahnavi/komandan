@@ -1,11 +1,17 @@
-use anyhow::Result;
+use anyhow::Context;
 use clap::Parser;
 use komandan::{
     args::{Args, Commands},
-    create_lua, print_version, project, repl, run_main_file,
+    create_lua,
+    defaults::Defaults,
+    models::KomandanConfig,
+    print_version, project, repl, run_main_file,
 };
+use mlua::LuaSerdeExt;
+use std::fs;
+use std::path::Path;
 
-fn main() -> Result<()> {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     if args.flags.version {
@@ -33,7 +39,55 @@ fn main() -> Result<()> {
     }
 
     if let Some(main_file) = &args.main_file {
-        run_main_file(&lua, main_file)?;
+        let path = Path::new(main_file);
+        if path.is_dir() {
+            let config_path = path.join("komandan.json");
+            if config_path.exists() {
+                let config_content = fs::read_to_string(&config_path)?;
+                let config: KomandanConfig = serde_json::from_str(&config_content)?;
+
+                // Load defaults
+                if let Some(hosts_file) = config.defaults.hosts {
+                    let hosts_path = path.join(hosts_file);
+                    if hosts_path.exists() {
+                        let hosts_content = fs::read_to_string(&hosts_path)?;
+                        let chunk = lua.load(&hosts_content);
+                        let hosts_table: mlua::Table = chunk.eval()?;
+
+                        let defaults = Defaults::global();
+                        let mut hosts_vec = Vec::new();
+                        for pair in hosts_table.pairs::<mlua::Value, mlua::Value>() {
+                            let (_, value) = pair?;
+                            let json_value: serde_json::Value =
+                                LuaSerdeExt::from_value(&lua, value)?;
+                            hosts_vec.push(json_value);
+                        }
+
+                        if let Ok(mut hosts_lock) = defaults.hosts.write() {
+                            *hosts_lock = hosts_vec;
+                        }
+                    }
+                }
+
+                let main_script_path = path.join(config.main);
+                run_main_file(
+                    &lua,
+                    &main_script_path
+                        .to_str()
+                        .context("Invalid path")?
+                        .to_string(),
+                )?;
+            } else {
+                // Directory but no komandan.json, maybe just try running main.lua?
+                // Or error out? User said "scan the file komandan.json if any".
+                // If not found, maybe fall back to treating it as a file (which will fail) or just error.
+                // I'll assume if it's a dir and no json, it's an error or just try `main.lua`.
+                // But `run_main_file` expects a file.
+                anyhow::bail!("Directory {main_file} does not contain komandan.json");
+            }
+        } else {
+            run_main_file(&lua, main_file)?;
+        }
     } else if args.chunk.is_none() {
         repl(&lua)?;
     }
@@ -48,6 +102,7 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
 
     #[test]
     fn test_module_imports() {

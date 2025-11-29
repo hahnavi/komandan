@@ -218,6 +218,22 @@ pub struct KomandoResult {
 
 impl UserData for KomandoResult {}
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KomandanConfig {
+    pub name: String,
+    pub version: String,
+    pub main: String,
+    #[serde(default)]
+    pub defaults: DefaultsConfig,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct DefaultsConfig {
+    pub hosts: Option<String>,
+    #[serde(flatten)]
+    pub other: HashMap<String, String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

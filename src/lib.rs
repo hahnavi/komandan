@@ -1,7 +1,7 @@
 pub mod args;
-mod defaults;
+pub mod defaults;
 mod komando;
-mod models;
+pub mod models;
 mod modules;
 pub mod project;
 mod report;
