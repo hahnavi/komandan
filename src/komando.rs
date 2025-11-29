@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::path::Path;
 
 use clap::Parser;
 use mlua::{Error::RuntimeError, FromLua, Integer, Lua, Table, Value};
@@ -25,7 +26,7 @@ pub fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
 
     let defaults = Defaults::global();
 
-    let (user, ssh_auth_method) = get_auth_config(&host, &task)?;
+    let (user, ssh_auth_method) = get_auth_config(&host, &task, None)?;
     let elevation = get_elevation_config(&host, &task)?;
 
     let default_port = match defaults.port.read() {
@@ -213,7 +214,7 @@ fn get_user(host: &Table, task: &Table) -> mlua::Result<String> {
     Ok(user)
 }
 
-fn get_auth_config(host: &Table, task: &Table) -> mlua::Result<(String, SSHAuthMethod)> {
+fn get_auth_config(host: &Table, task: &Table, home_override: Option<&str>) -> mlua::Result<(String, SSHAuthMethod)> {
     let host_display = host_display(host);
     let task_display = task_display(task);
 
@@ -257,12 +258,38 @@ fn get_auth_config(host: &Table, task: &Table) -> mlua::Result<(String, SSHAuthM
             },
             None => match host.get::<String>("password") {
                 Ok(password) => SSHAuthMethod::Password(password),
-                Err(_) => match default_password {
-                    Some(ref password) => SSHAuthMethod::Password(password.clone()),
-                    None => {
-                        return Err(RuntimeError(format!(
-                            "No authentication method specified for task '{task_display}' on host '{host_display}'."
-                        )));
+                Err(_) => if let Some(ref password) = default_password {
+                    SSHAuthMethod::Password(password.clone())
+                } else {
+                    let home = if let Some(h) = home_override {
+                        h.to_string()
+                    } else {
+                        env::var("HOME").map_err(|_| RuntimeError("HOME environment variable not set".to_string()))?
+                    };
+                    let ed25519_path = format!("{home}/.ssh/id_ed25519");
+                    if Path::new(&ed25519_path).exists() {
+                        SSHAuthMethod::PublicKey {
+                            private_key: ed25519_path,
+                            passphrase: host
+                                .get::<String>("private_key_pass")
+                                .ok()
+                                .or(default_private_key_pass),
+                        }
+                    } else {
+                        let rsa_path = format!("{home}/.ssh/id_rsa");
+                        if Path::new(&rsa_path).exists() {
+                            SSHAuthMethod::PublicKey {
+                                private_key: rsa_path,
+                                passphrase: host
+                                    .get::<String>("private_key_pass")
+                                    .ok()
+                                    .or(default_private_key_pass),
+                            }
+                        } else {
+                            return Err(RuntimeError(format!(
+                                "No authentication method specified for task '{task_display}' on host '{host_display}'."
+                            )));
+                        }
                     }
                 },
             },
@@ -464,7 +491,7 @@ mod tests {
         let task = lua.create_table()?;
         task.set(1, module)?;
 
-        let (user, auth) = get_auth_config(&host, &task)?;
+        let (user, auth) = get_auth_config(&host, &task, None)?;
         assert_eq!(user, "testuser");
         match auth {
             SSHAuthMethod::PublicKey {
@@ -476,19 +503,21 @@ mod tests {
             }
             SSHAuthMethod::Password(_) => panic!("Expected PublicKey authentication"),
         }
-
+    
         // Test with password auth
         host.set("private_key_file", Value::Nil)?;
         host.set("password", "testpass")?;
-        let (_, auth) = get_auth_config(&host, &task)?;
+        let (_, auth) = get_auth_config(&host, &task, None)?;
         match auth {
             SSHAuthMethod::Password(pass) => assert_eq!(pass, "testpass"),
             SSHAuthMethod::PublicKey { .. } => panic!("Expected Password authentication"),
         }
-
+    
         // Test with no authentication method
         host.set("password", Value::Nil)?;
-        let result = get_auth_config(&host, &task);
+        let temp_dir = tempfile::tempdir().map_err(|e| anyhow::anyhow!("failed to create temp dir: {e}"))?;
+        let home_path = temp_dir.path().display().to_string();
+        let result = get_auth_config(&host, &task, Some(&home_path));
         assert!(result.is_err());
 
         Ok(())
