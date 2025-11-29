@@ -70,18 +70,15 @@ fn init_project(args: &InitArgs, project_name: Option<String>) -> Result<()> {
     }
 
     // Get project name from directory
-    let project_name = project_name.map_or_else(
-        || {
-            let canonical_dir = dir.canonicalize().ok();
-            canonical_dir
-                .as_ref()
-                .and_then(|p| p.file_name())
-                .and_then(|n| n.to_str())
-                .unwrap_or("myproject")
-                .to_string()
-        },
-        |name| name,
-    );
+    let project_name = project_name.unwrap_or_else(|| {
+        let canonical_dir = dir.canonicalize().ok();
+        canonical_dir
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("myproject")
+            .to_string()
+    });
 
     // Create komandan.toml
     let komandan_toml = KOMANDAN_TOML_TEMPLATE.replace("{{project_name}}", &project_name);
