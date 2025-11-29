@@ -29,6 +29,12 @@ impl Defaults {
         env.write()
             .map_err(|_| Error::msg("Failed to acquire write lock"))?
             .insert("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string());
+        env.write()
+            .map_err(|_| Error::msg("Failed to acquire write lock"))?
+            .insert("LANG".to_string(), "C".to_string());
+        env.write()
+            .map_err(|_| Error::msg("Failed to acquire write lock"))?
+            .insert("LC_ALL".to_string(), "C".to_string());
 
         let port = std::env::var("KOMANDAN_SSH_PORT")
             .ok()
@@ -414,6 +420,8 @@ mod tests {
             env.get("DEBIAN_FRONTEND"),
             Some(&"noninteractive".to_string())
         );
+        assert_eq!(env.get("LANG"), Some(&"C".to_string()));
+        assert_eq!(env.get("LC_ALL"), Some(&"C".to_string()));
 
         Ok(())
     }

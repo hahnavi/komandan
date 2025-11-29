@@ -4,14 +4,20 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
     let base_module = super::base_module(lua)?;
     let module = lua
         .load(chunk! {
+            if params.update_cache == nil then
+                params.update_cache = false
+            end
+
             local valid_actions = {
                 install = true,
                 remove = true,
                 update = true,
+                upgrade = true,
+                autoremove = true,
             }
 
             if params.action ~= nil and not valid_actions[params.action] then
-                error("Invalid action: " .. params.action .. ". Valid actions are: install, remove, update.")
+                error("Invalid action: " .. params.action .. ". Valid actions are: install, remove, update, upgrade, autoremove.")
             end
 
             if (params.action == "install" or params.action == "remove") and params.package == nil then
@@ -35,7 +41,7 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 if type(input) ~= "string" then
                     return nil -- Ensure input is a string
                 end
-                return input:gsub("[^%w%-_=]", "")
+                return input:gsub("[^%w%-_=%.%+]", "")
             end
 
             local function sanitize_package_param(param)
@@ -62,6 +68,13 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.params = $params
 
+            module.update_cache = function(self)
+                local update_result = self.ssh:cmd("dnf makecache")
+                if update_result.exit_code == 0 and update_result.stdout:match("Metadata cache created") then
+                    self.ssh:set_changed(true)
+                end
+            end
+
             module.is_installed = function(self)
                 if self.params.package == nil then
                     return false
@@ -71,13 +84,23 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
                     local pkg_check = self.ssh:cmdq("dnf repoquery --installed --whatprovides " .. self.params.package .. " 2>/dev/null")
                     return pkg_check.stdout ~= ""
                 elseif type(self.params.package) == "table" then
+                    local all_installed = true
+                    local any_installed = false
+
                     for _, pkg in ipairs(self.params.package) do
                         local pkg_check = self.ssh:cmdq("dnf repoquery --installed --whatprovides " .. pkg .. " 2>/dev/null")
-                        if pkg_check.stdout == "" then
-                            return false
+                        if pkg_check.stdout ~= "" then
+                            any_installed = true
+                        else
+                            all_installed = false
                         end
                     end
-                    return true
+
+                    if self.params.action == "remove" then
+                        return any_installed
+                    else
+                        return all_installed
+                    end
                 else
                     return false
                 end
@@ -94,6 +117,10 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
             end
 
             module.dry_run = function(self)
+                if self.params.update_cache then
+                    self:update_cache()
+                end
+
                 local installed = self:is_installed()
                 local packages_str = self.package_list_to_string(self.params.package)
 
@@ -107,13 +134,20 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
                         self.ssh:cmd("dnf --assumeno remove " .. packages_str)
                         self.ssh:set_changed(true)
                     end
-                elseif self.params.action == "update" then
-                    self.ssh:cmd("dnf --assumeno update")
+                elseif self.params.action == "update" or self.params.action == "upgrade" then
+                    self.ssh:cmd("dnf --assumeno upgrade")
+                    self.ssh:set_changed(true)
+                elseif self.params.action == "autoremove" then
+                    self.ssh:cmd("dnf --assumeno autoremove")
                     self.ssh:set_changed(true)
                 end
             end
 
             module.run = function(self)
+                if self.params.update_cache then
+                    self:update_cache()
+                end
+
                 local installed = self:is_installed()
                 local packages_str = self.package_list_to_string(self.params.package)
 
@@ -127,8 +161,11 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
                         self.ssh:cmd("dnf remove -y " .. packages_str)
                         self.ssh:set_changed(true)
                     end
-                elseif self.params.action == "update" then
-                    self.ssh:cmd("dnf update -y")
+                elseif self.params.action == "update" or self.params.action == "upgrade" then
+                    self.ssh:cmd("dnf upgrade -y")
+                    self.ssh:set_changed(true)
+                elseif self.params.action == "autoremove" then
+                    self.ssh:cmd("dnf autoremove -y")
                     self.ssh:set_changed(true)
                 end
             end
@@ -169,6 +206,25 @@ mod tests {
         params.set("package", "vim")?;
         let result = dnf(&lua, params);
         assert!(result.is_ok());
+        Ok(())
+    }
+    #[test]
+    fn test_dnf_sanitization() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("package", "g++")?;
+        let module = dnf(&lua, params)?;
+        let params: Table = module.get("params")?;
+        let package: String = params.get("package")?;
+        assert_eq!(package, "g++");
+
+        let params = lua.create_table()?;
+        params.set("package", "python3.8")?;
+        let module = dnf(&lua, params)?;
+        let params: Table = module.get("params")?;
+        let package: String = params.get("package")?;
+        assert_eq!(package, "python3.8");
+
         Ok(())
     }
 }
