@@ -1,4 +1,4 @@
-use clap::{Args as ClapArgs, Parser};
+use clap::{Args as ClapArgs, Parser, Subcommand};
 
 /// Your army commander
 #[derive(Parser, Debug, PartialEq, Eq)]
@@ -14,6 +14,46 @@ pub struct Args {
 
     #[clap(flatten)]
     pub flags: Flags,
+
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum Commands {
+    /// Project management commands
+    Project(ProjectArgs),
+}
+
+#[derive(ClapArgs, Debug, PartialEq, Eq)]
+pub struct ProjectArgs {
+    #[command(subcommand)]
+    pub command: ProjectCommands,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum ProjectCommands {
+    /// Initialize a project in an existing directory
+    Init(InitArgs),
+    /// Create a new project in a new directory
+    New(NewArgs),
+}
+
+#[derive(ClapArgs, Debug, PartialEq, Eq)]
+pub struct InitArgs {
+    /// Directory to initialize (defaults to current directory)
+    #[arg(default_value = ".")]
+    pub directory: String,
+}
+
+#[derive(ClapArgs, Debug, PartialEq, Eq)]
+pub struct NewArgs {
+    /// Project name
+    pub name: String,
+
+    /// Directory to create the project in (defaults to project name)
+    #[arg(short, long)]
+    pub dir: Option<String>,
 }
 
 #[derive(ClapArgs, Debug, PartialEq, Eq)]

@@ -1,9 +1,9 @@
-mod args;
-
 use anyhow::Result;
-use args::Args;
 use clap::Parser;
-use komandan::{create_lua, print_version, repl, run_main_file};
+use komandan::{
+    args::{Args, Commands},
+    create_lua, print_version, project, repl, run_main_file,
+};
 
 fn main() -> Result<()> {
     let args = Args::parse();
@@ -11,6 +11,15 @@ fn main() -> Result<()> {
     if args.flags.version {
         print_version();
         return Ok(());
+    }
+
+    // Handle subcommands first
+    if let Some(command) = &args.command {
+        match command {
+            Commands::Project(project_args) => {
+                return project::handle_project_command(project_args);
+            }
+        }
     }
 
     let lua = create_lua()?;

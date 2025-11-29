@@ -1,8 +1,9 @@
-mod args;
+pub mod args;
 mod defaults;
 mod komando;
 mod models;
 mod modules;
+pub mod project;
 mod report;
 mod ssh;
 mod util;
@@ -205,6 +206,7 @@ mod tests {
             Args {
                 chunk: None,
                 main_file: Some("/tmp/test/main.lua".to_string()),
+                command: None,
                 flags: crate::args::Flags {
                     dry_run: false,
                     no_report: false,
