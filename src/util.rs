@@ -245,6 +245,7 @@ mod tests {
         let args = Args {
             main_file: None,
             chunk: None,
+            command: None,
             flags: crate::args::Flags {
                 dry_run: false,
                 no_report: false,
@@ -268,6 +269,7 @@ mod tests {
         let args = Args {
             main_file: None,
             chunk: None,
+            command: None,
             flags: crate::args::Flags {
                 dry_run: false,
                 no_report: false,

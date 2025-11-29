@@ -32,29 +32,45 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 params.install_recommends = true
             end
 
-            params.install_opts = ""
+            if params.install_opts == nil then
+                params.install_opts = ""
+            end
             if not params.install_recommends then
-                params.install_opts = params.install_opts .. "--no-install-recommends"
+                params.install_opts = params.install_opts .. " --no-install-recommends"
             end
 
-            local function sanitize_string(input)
+            local function sanitize_package_string(input)
                 if type(input) ~= "string" then
                     return nil -- Ensure input is a string
                 end
-                return input:gsub("[^%w%-_=]", "")
+                -- Allow alphanumeric, -, _, =, ., + (no spaces for package names)
+                return input:gsub("[^%w%-_=%.%+%:/]", "")
+            end
+
+            local function sanitize_opts_string(input)
+                if type(input) ~= "string" then
+                    return nil
+                end
+                -- Allow alphanumeric, -, _, =, ., +, and space (for opts)
+                return input:gsub("[^%w%-_=%.%+%:/ ]", "")
             end
 
             local function sanitize_package_param(param)
                 if type(param) == "string" then
-                    return sanitize_string(param)
+                    local sanitized = sanitize_package_string(param)
+                    if sanitized == "" then return nil end
+                    return sanitized
                 elseif type(param) == "table" then
                     local sanitized_packages = {}
                     for _, pkg in ipairs(param) do
                         if type(pkg) == "string" then
-                            local sanitized_pkg = sanitize_string(pkg)
-                            table.insert(sanitized_packages, sanitized_pkg)
+                            local sanitized_pkg = sanitize_package_string(pkg)
+                            if sanitized_pkg ~= "" then
+                                table.insert(sanitized_packages, sanitized_pkg)
+                            end
                         end
                     end
+                    if #sanitized_packages == 0 then return nil end
                     return sanitized_packages
                 else
                     return nil
@@ -62,7 +78,11 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
             end
 
             params.package = sanitize_package_param(params.package)
-            params.install_opts = sanitize_string(params.install_opts)
+            params.install_opts = sanitize_opts_string(params.install_opts)
+
+            if (params.action == "install" or params.action == "remove" or params.action == "purge") and params.package == nil then
+                error("package is required and must contain valid package names")
+            end
 
             local module = $base_module:new({ name = "apt" })
 
@@ -84,13 +104,26 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                     local pkg_check = self.ssh:cmdq("dpkg-query -W -f='${Status}' " .. self.params.package .. " 2>/dev/null | grep -q 'ok installed'")
                     return pkg_check.exit_code == 0
                 elseif type(self.params.package) == "table" then
+                    -- For install: return true only if ALL are installed
+                    -- For remove: return true if ANY is installed (so we know to run remove)
+
+                    local all_installed = true
+                    local any_installed = false
+
                     for _, pkg in ipairs(self.params.package) do
                         local pkg_check = self.ssh:cmdq("dpkg-query -W -f='${Status}' " .. pkg .. " 2>/dev/null | grep -q 'ok installed'")
-                        if pkg_check.exit_code ~= 0 then
-                            return false -- All packages must be installed
+                        if pkg_check.exit_code == 0 then
+                            any_installed = true
+                        else
+                            all_installed = false
                         end
                     end
-                    return true
+
+                    if self.params.action == "remove" or self.params.action == "purge" then
+                        return any_installed
+                    else
+                        return all_installed
+                    end
                 else
                     return false
                 end
@@ -112,29 +145,35 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 end
 
                 local installed = self:is_installed()
-                local packages_str = self.package_list_to_string(self.params.package)
 
                 if self.params.action == "install" then
                     if not installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("apt -s install " .. packages_str .. " " .. self.params.install_opts)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "remove" then
                     if installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("apt -s remove " .. packages_str)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "purge" then
                     if installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("apt -s purge " .. packages_str)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "upgrade" then
-                    self.ssh:cmd("apt -s upgrade")
-                    self.ssh:set_changed(true)
+                    local sim_result = self.ssh:cmd("apt -s upgrade")
+                    if sim_result.exit_code == 0 and not sim_result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
+                        self.ssh:set_changed(true)
+                    end
                 elseif self.params.action == "autoremove" then
-                    self.ssh:cmd("apt -s autoremove")
-                    self.ssh:set_changed(true)
+                    local sim_result = self.ssh:cmd("apt -s autoremove")
+                    if sim_result.exit_code == 0 and not sim_result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
+                        self.ssh:set_changed(true)
+                    end
                 end
             end
 
@@ -143,34 +182,38 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                     self:update_cache()
                 end
 
-                if self.params.package == nil then
-                    return
-                end
-
                 local installed = self:is_installed()
-                local packages_str = self.package_list_to_string(self.params.package)
 
                 if self.params.action == "install" then
                     if not installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("apt install -y " .. packages_str .. " " .. self.params.install_opts)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "remove" then
                     if installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("apt remove -y " .. packages_str)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "purge" then
                     if installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("apt purge -y " .. packages_str)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "upgrade" then
-                    self.ssh:cmd("apt upgrade -y")
-                    self.ssh:set_changed(true)
+                    local sim_result = self.ssh:cmd("apt -s upgrade")
+                    if sim_result.exit_code == 0 and not sim_result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
+                        self.ssh:cmd("apt upgrade -y")
+                        self.ssh:set_changed(true)
+                    end
                 elseif self.params.action == "autoremove" then
-                    self.ssh:cmd("apt autoremove -y")
-                    self.ssh:set_changed(true)
+                    local sim_result = self.ssh:cmd("apt -s autoremove")
+                    if sim_result.exit_code == 0 and not sim_result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
+                        self.ssh:cmd("apt autoremove -y")
+                        self.ssh:set_changed(true)
+                    end
                 end
             end
 
@@ -210,6 +253,63 @@ mod tests {
         params.set("package", "vim")?;
         let result = apt(&lua, params);
         assert!(result.is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn test_apt_sanitization() -> mlua::Result<()> {
+        let lua = create_lua()?;
+
+        // Test with allowed characters
+        let params = lua.create_table()?;
+        params.set("package", "g++")?;
+        let module = apt(&lua, params)?;
+        let params: Table = module.get("params")?;
+        let package: String = params.get("package")?;
+        assert_eq!(package, "g++");
+
+        let params = lua.create_table()?;
+        params.set("package", "python3.8")?;
+        let module = apt(&lua, params)?;
+        let params: Table = module.get("params")?;
+        let package: String = params.get("package")?;
+        assert_eq!(package, "python3.8");
+
+        // Test with a table of packages and disallowed characters
+        let package_table = lua.create_table()?;
+        package_table.set(1, "vim")?;
+        package_table.set(2, "git;")?;
+        package_table.set(3, "curl|wget")?;
+        package_table.set(4, "&&&")?; // This should be removed
+        let params = lua.create_table()?;
+        params.set("package", package_table)?;
+        let module = apt(&lua, params)?;
+        let params: Table = module.get("params")?;
+        let packages: Table = params.get("package")?;
+        let mut rust_packages: Vec<String> = Vec::new();
+        for pair in packages.pairs::<i32, String>() {
+            let (_, val) = pair?;
+            rust_packages.push(val);
+        }
+
+        assert_eq!(rust_packages.len(), 3);
+        assert_eq!(rust_packages[0], "vim");
+        assert_eq!(rust_packages[1], "git");
+        assert_eq!(rust_packages[2], "curlwget");
+
+        // Test with fully invalid package string
+        let params = lua.create_table()?;
+        params.set("package", ";|&&")?;
+        params.set("action", "install")?;
+        let result = apt(&lua, params);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(
+                e.to_string()
+                    .contains("package is required and must contain valid package names")
+            );
+        }
+
         Ok(())
     }
 }
