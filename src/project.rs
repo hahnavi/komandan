@@ -39,19 +39,20 @@ komandan.komando(hosts[1], task)
 /// Returns an error if project initialization or creation fails
 pub fn handle_project_command(args: &ProjectArgs) -> Result<()> {
     match &args.command {
-        ProjectCommands::Init(init_args) => init_project(init_args),
+        ProjectCommands::Init(init_args) => init_project(init_args, None),
         ProjectCommands::New(new_args) => new_project(new_args),
     }
 }
 
-/// Initialize a project in an existing directory
+/// Initialize a project in a directory, creating it if it does not exist.
 ///
 /// # Errors
 ///
 /// Returns an error if:
-/// - Directory is not empty
-/// - Files cannot be created
-fn init_project(args: &InitArgs) -> Result<()> {
+/// - The directory cannot be created.
+/// - The directory is not empty.
+/// - Files cannot be created.
+fn init_project(args: &InitArgs, project_name: Option<String>) -> Result<()> {
     let dir = Path::new(&args.directory);
 
     // Create directory if it doesn't exist
@@ -69,15 +70,21 @@ fn init_project(args: &InitArgs) -> Result<()> {
     }
 
     // Get project name from directory
-    let canonical_dir = dir.canonicalize().ok();
-    let project_name = canonical_dir
-        .as_ref()
-        .and_then(|p| p.file_name())
-        .and_then(|n| n.to_str())
-        .unwrap_or("myproject");
+    let project_name = project_name.map_or_else(
+        || {
+            let canonical_dir = dir.canonicalize().ok();
+            canonical_dir
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("myproject")
+                .to_string()
+        },
+        |name| name,
+    );
 
     // Create komandan.toml
-    let komandan_toml = KOMANDAN_TOML_TEMPLATE.replace("{{project_name}}", project_name);
+    let komandan_toml = KOMANDAN_TOML_TEMPLATE.replace("{{project_name}}", &project_name);
     let komandan_toml_path = dir.join("komandan.toml");
     fs::write(&komandan_toml_path, komandan_toml)
         .with_context(|| format!("Failed to write {}", komandan_toml_path.display()))?;
@@ -96,13 +103,17 @@ fn init_project(args: &InitArgs) -> Result<()> {
     Ok(())
 }
 
-/// Create a new project in a new directory
+/// Create a new project, in a new or existing empty directory.
+///
+/// The project name from the `name` argument is used. If `--dir` is provided, the project
+/// will be created in that directory. If `--dir` is not provided, a directory with the
+/// same name as the project will be created in the current location.
 ///
 /// # Errors
 ///
 /// Returns an error if:
-/// - Directory already exists and is not empty
-/// - Project initialization fails
+/// - The target directory already exists and is not empty.
+/// - Project initialization fails.
 fn new_project(args: &NewArgs) -> Result<()> {
     let dir_name = args.dir.as_ref().unwrap_or(&args.name);
     let dir = Path::new(dir_name);
@@ -128,7 +139,7 @@ fn new_project(args: &NewArgs) -> Result<()> {
     let init_args = InitArgs {
         directory: dir_name.clone(),
     };
-    init_project(&init_args)?;
+    init_project(&init_args, Some(args.name.clone()))?;
 
     Ok(())
 }
@@ -142,13 +153,17 @@ mod tests {
     #[test]
     fn test_init_project_success() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let dir_path = temp_dir.path().to_str().context("invalid utf-8 path")?.to_string();
+        let dir_path = temp_dir
+            .path()
+            .to_str()
+            .context("invalid utf-8 path")?
+            .to_string();
 
         let args = InitArgs {
             directory: dir_path,
         };
 
-        init_project(&args)?;
+        init_project(&args, None)?;
 
         // Verify files were created
         assert!(temp_dir.path().join("komandan.toml").exists());
@@ -161,7 +176,11 @@ mod tests {
     #[test]
     fn test_init_project_non_empty_directory() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let dir_path = temp_dir.path().to_str().context("invalid utf-8 path")?.to_string();
+        let dir_path = temp_dir
+            .path()
+            .to_str()
+            .context("invalid utf-8 path")?
+            .to_string();
 
         // Create a file to make directory non-empty
         fs::write(temp_dir.path().join("existing.txt"), "content")?;
@@ -170,7 +189,7 @@ mod tests {
             directory: dir_path,
         };
 
-        let result = init_project(&args);
+        let result = init_project(&args, None);
         if let Err(e) = result {
             assert!(e.to_string().contains("Directory is not empty"));
         } else {
@@ -183,13 +202,17 @@ mod tests {
     #[test]
     fn test_init_project_creates_all_files() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let dir_path = temp_dir.path().to_str().context("invalid utf-8 path")?.to_string();
+        let dir_path = temp_dir
+            .path()
+            .to_str()
+            .context("invalid utf-8 path")?
+            .to_string();
 
         let args = InitArgs {
             directory: dir_path,
         };
 
-        init_project(&args)?;
+        init_project(&args, None)?;
 
         // Verify komandan.toml exists and has content
         let toml_content = fs::read_to_string(temp_dir.path().join("komandan.toml"))?;
@@ -212,13 +235,17 @@ mod tests {
     #[test]
     fn test_init_project_template_substitution() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let dir_path = temp_dir.path().to_str().context("invalid utf-8 path")?.to_string();
+        let dir_path = temp_dir
+            .path()
+            .to_str()
+            .context("invalid utf-8 path")?
+            .to_string();
 
         let args = InitArgs {
             directory: dir_path,
         };
 
-        init_project(&args)?;
+        init_project(&args, None)?;
 
         // Verify project name was substituted in komandan.toml
         let toml_content = fs::read_to_string(temp_dir.path().join("komandan.toml"))?;
@@ -240,7 +267,12 @@ mod tests {
 
         let args = NewArgs {
             name: project_name.clone(),
-            dir: Some(project_path.to_str().context("invalid utf-8 path")?.to_string()),
+            dir: Some(
+                project_path
+                    .to_str()
+                    .context("invalid utf-8 path")?
+                    .to_string(),
+            ),
         };
 
         new_project(&args)?;
@@ -269,7 +301,12 @@ mod tests {
 
         let args = NewArgs {
             name: project_name,
-            dir: Some(project_path.to_str().context("invalid utf-8 path")?.to_string()),
+            dir: Some(
+                project_path
+                    .to_str()
+                    .context("invalid utf-8 path")?
+                    .to_string(),
+            ),
         };
 
         new_project(&args)?;
@@ -277,6 +314,10 @@ mod tests {
         // Verify custom directory was created
         assert!(project_path.exists());
         assert!(project_path.join("komandan.toml").exists());
+
+        // Verify project name in toml
+        let toml_content = fs::read_to_string(project_path.join("komandan.toml"))?;
+        assert!(toml_content.contains("name = \"myproject\""));
 
         Ok(())
     }
@@ -293,14 +334,20 @@ mod tests {
 
         let args = NewArgs {
             name: project_name,
-            dir: Some(existing_dir.to_str().context("invalid utf-8 path")?.to_string()),
+            dir: Some(
+                existing_dir
+                    .to_str()
+                    .context("invalid utf-8 path")?
+                    .to_string(),
+            ),
         };
 
         let result = new_project(&args);
         if let Err(e) = result {
-            assert!(e
-                .to_string()
-                .contains("Directory already exists and is not empty"));
+            assert!(
+                e.to_string()
+                    .contains("Directory already exists and is not empty")
+            );
         } else {
             panic!("Expected an error, but got Ok");
         }
@@ -311,7 +358,11 @@ mod tests {
     #[test]
     fn test_handle_project_command_init() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let dir_path = temp_dir.path().to_str().context("invalid utf-8 path")?.to_string();
+        let dir_path = temp_dir
+            .path()
+            .to_str()
+            .context("invalid utf-8 path")?
+            .to_string();
 
         let args = ProjectArgs {
             command: ProjectCommands::Init(InitArgs {
@@ -338,7 +389,12 @@ mod tests {
         let args = ProjectArgs {
             command: ProjectCommands::New(NewArgs {
                 name: project_name,
-                dir: Some(project_path.to_str().context("invalid utf-8 path")?.to_string()),
+                dir: Some(
+                    project_path
+                        .to_str()
+                        .context("invalid utf-8 path")?
+                        .to_string(),
+                ),
             }),
         };
 

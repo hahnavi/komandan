@@ -44,7 +44,7 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                     return nil -- Ensure input is a string
                 end
                 -- Allow alphanumeric, -, _, =, ., + (no spaces for package names)
-                return input:gsub("[^%w%-_=%.%+]", "")
+                return input:gsub("[^%w%-_=%.%+%:/]", "")
             end
 
             local function sanitize_opts_string(input)
@@ -52,20 +52,25 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                     return nil
                 end
                 -- Allow alphanumeric, -, _, =, ., +, and space (for opts)
-                return input:gsub("[^%w%-_=%.%+ ]", "")
+                return input:gsub("[^%w%-_=%.%+%:/ ]", "")
             end
 
             local function sanitize_package_param(param)
                 if type(param) == "string" then
-                    return sanitize_package_string(param)
+                    local sanitized = sanitize_package_string(param)
+                    if sanitized == "" then return nil end
+                    return sanitized
                 elseif type(param) == "table" then
                     local sanitized_packages = {}
                     for _, pkg in ipairs(param) do
                         if type(pkg) == "string" then
                             local sanitized_pkg = sanitize_package_string(pkg)
-                            table.insert(sanitized_packages, sanitized_pkg)
+                            if sanitized_pkg ~= "" then
+                                table.insert(sanitized_packages, sanitized_pkg)
+                            end
                         end
                     end
+                    if #sanitized_packages == 0 then return nil end
                     return sanitized_packages
                 else
                     return nil
@@ -74,6 +79,10 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             params.package = sanitize_package_param(params.package)
             params.install_opts = sanitize_opts_string(params.install_opts)
+
+            if (params.action == "install" or params.action == "remove" or params.action == "purge") and params.package == nil then
+                error("package is required and must contain valid package names")
+            end
 
             local module = $base_module:new({ name = "apt" })
 
@@ -194,13 +203,15 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "upgrade" then
-                    local result = self.ssh:cmd("apt upgrade -y")
-                    if result.exit_code == 0 and not result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
+                    local sim_result = self.ssh:cmd("apt -s upgrade")
+                    if sim_result.exit_code == 0 and not sim_result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
+                        self.ssh:cmd("apt upgrade -y")
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "autoremove" then
-                    local result = self.ssh:cmd("apt autoremove -y")
-                    if result.exit_code == 0 and not result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
+                    local sim_result = self.ssh:cmd("apt -s autoremove")
+                    if sim_result.exit_code == 0 and not sim_result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
+                        self.ssh:cmd("apt autoremove -y")
                         self.ssh:set_changed(true)
                     end
                 end
@@ -248,6 +259,8 @@ mod tests {
     #[test]
     fn test_apt_sanitization() -> mlua::Result<()> {
         let lua = create_lua()?;
+
+        // Test with allowed characters
         let params = lua.create_table()?;
         params.set("package", "g++")?;
         let module = apt(&lua, params)?;
@@ -261,6 +274,41 @@ mod tests {
         let params: Table = module.get("params")?;
         let package: String = params.get("package")?;
         assert_eq!(package, "python3.8");
+
+        // Test with a table of packages and disallowed characters
+        let package_table = lua.create_table()?;
+        package_table.set(1, "vim")?;
+        package_table.set(2, "git;")?;
+        package_table.set(3, "curl|wget")?;
+        package_table.set(4, "&&&")?; // This should be removed
+        let params = lua.create_table()?;
+        params.set("package", package_table)?;
+        let module = apt(&lua, params)?;
+        let params: Table = module.get("params")?;
+        let packages: Table = params.get("package")?;
+        let mut rust_packages: Vec<String> = Vec::new();
+        for pair in packages.pairs::<i32, String>() {
+            let (_, val) = pair?;
+            rust_packages.push(val);
+        }
+
+        assert_eq!(rust_packages.len(), 3);
+        assert_eq!(rust_packages[0], "vim");
+        assert_eq!(rust_packages[1], "git");
+        assert_eq!(rust_packages[2], "curlwget");
+
+        // Test with fully invalid package string
+        let params = lua.create_table()?;
+        params.set("package", ";|&&")?;
+        params.set("action", "install")?;
+        let result = apt(&lua, params);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(
+                e.to_string()
+                    .contains("package is required and must contain valid package names")
+            );
+        }
 
         Ok(())
     }
