@@ -69,8 +69,10 @@ fn init_project(args: &InitArgs) -> Result<()> {
     }
 
     // Get project name from directory
-    let project_name = dir
-        .file_name()
+    let canonical_dir = dir.canonicalize().ok();
+    let project_name = canonical_dir
+        .as_ref()
+        .and_then(|p| p.file_name())
         .and_then(|n| n.to_str())
         .unwrap_or("myproject");
 

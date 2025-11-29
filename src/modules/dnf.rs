@@ -70,7 +70,7 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             module.update_cache = function(self)
                 local update_result = self.ssh:cmd("dnf makecache")
-                if update_result.exit_code == 0 and update_result.stdout:match("Metadata cache created") then
+                if update_result.exit_code == 0 then
                     self.ssh:set_changed(true)
                 end
             end

@@ -157,12 +157,12 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                     end
                 elseif self.params.action == "upgrade" then
                     local sim_result = self.ssh:cmd("apt -s upgrade")
-                    if not sim_result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
+                    if sim_result.exit_code == 0 and not sim_result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "autoremove" then
                     local sim_result = self.ssh:cmd("apt -s autoremove")
-                    if not sim_result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
+                    if sim_result.exit_code == 0 and not sim_result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
                         self.ssh:set_changed(true)
                     end
                 end
