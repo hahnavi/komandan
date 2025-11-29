@@ -39,9 +39,17 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 params.install_opts = params.install_opts .. " --no-install-recommends"
             end
 
-            local function sanitize_string(input)
+            local function sanitize_package_string(input)
                 if type(input) ~= "string" then
                     return nil -- Ensure input is a string
+                end
+                -- Allow alphanumeric, -, _, =, ., + (no spaces for package names)
+                return input:gsub("[^%w%-_=%.%+]", "")
+            end
+
+            local function sanitize_opts_string(input)
+                if type(input) ~= "string" then
+                    return nil
                 end
                 -- Allow alphanumeric, -, _, =, ., +, and space (for opts)
                 return input:gsub("[^%w%-_=%.%+ ]", "")
@@ -49,12 +57,12 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             local function sanitize_package_param(param)
                 if type(param) == "string" then
-                    return sanitize_string(param)
+                    return sanitize_package_string(param)
                 elseif type(param) == "table" then
                     local sanitized_packages = {}
                     for _, pkg in ipairs(param) do
                         if type(pkg) == "string" then
-                            local sanitized_pkg = sanitize_string(pkg)
+                            local sanitized_pkg = sanitize_package_string(pkg)
                             table.insert(sanitized_packages, sanitized_pkg)
                         end
                     end
@@ -65,7 +73,7 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
             end
 
             params.package = sanitize_package_param(params.package)
-            params.install_opts = sanitize_string(params.install_opts)
+            params.install_opts = sanitize_opts_string(params.install_opts)
 
             local module = $base_module:new({ name = "apt" })
 
@@ -128,33 +136,33 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 end
 
                 local installed = self:is_installed()
-                local packages_str = self.package_list_to_string(self.params.package)
 
                 if self.params.action == "install" then
                     if not installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("apt -s install " .. packages_str .. " " .. self.params.install_opts)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "remove" then
                     if installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("apt -s remove " .. packages_str)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "purge" then
                     if installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("apt -s purge " .. packages_str)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "upgrade" then
-                    local check = self.ssh:cmd("apt -s upgrade | grep -q '0 upgraded, 0 newly installed, 0 to remove'")
-                    if check.exit_code ~= 0 then
-                         self.ssh:cmd("apt -s upgrade")
-                         self.ssh:set_changed(true)
+                    local sim_result = self.ssh:cmd("apt -s upgrade")
+                    if not sim_result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
+                        self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "autoremove" then
-                    local check = self.ssh:cmd("apt -s autoremove | grep -q '0 upgraded, 0 newly installed, 0 to remove'")
-                    if check.exit_code ~= 0 then
-                        self.ssh:cmd("apt -s autoremove")
+                    local sim_result = self.ssh:cmd("apt -s autoremove")
+                    if not sim_result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
                         self.ssh:set_changed(true)
                     end
                 end
@@ -165,38 +173,34 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                     self:update_cache()
                 end
 
-                if self.params.package == nil then
-                    return
-                end
-
                 local installed = self:is_installed()
-                local packages_str = self.package_list_to_string(self.params.package)
 
                 if self.params.action == "install" then
                     if not installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("apt install -y " .. packages_str .. " " .. self.params.install_opts)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "remove" then
                     if installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("apt remove -y " .. packages_str)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "purge" then
                     if installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("apt purge -y " .. packages_str)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "upgrade" then
-                    local check = self.ssh:cmd("apt -s upgrade | grep -q '0 upgraded, 0 newly installed, 0 to remove'")
-                    if check.exit_code ~= 0 then
-                        self.ssh:cmd("apt upgrade -y")
+                    local result = self.ssh:cmd("apt upgrade -y")
+                    if result.exit_code == 0 and not result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "autoremove" then
-                    local check = self.ssh:cmd("apt -s autoremove | grep -q '0 upgraded, 0 newly installed, 0 to remove'")
-                    if check.exit_code ~= 0 then
-                        self.ssh:cmd("apt autoremove -y")
+                    local result = self.ssh:cmd("apt autoremove -y")
+                    if result.exit_code == 0 and not result.stdout:match("0 upgraded, 0 newly installed, 0 to remove") then
                         self.ssh:set_changed(true)
                     end
                 end

@@ -44,3 +44,36 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_module_imports() {
+        // This test verifies that all necessary modules are accessible
+        // and can be imported without errors
+        let _ = Args::parse_from(["komandan", "--version"]);
+    }
+
+    #[test]
+    fn test_args_struct_exists() {
+        // Verify Args struct can be constructed
+        let args = Args::parse_from(["komandan"]);
+        assert!(args.main_file.is_none());
+        assert!(args.chunk.is_none());
+        assert!(args.command.is_none());
+    }
+
+    #[test]
+    fn test_flags_default_values() {
+        // Verify default flag values
+        let args = Args::parse_from(["komandan"]);
+        assert!(!args.flags.dry_run);
+        assert!(!args.flags.no_report);
+        assert!(!args.flags.interactive);
+        assert!(!args.flags.verbose);
+        assert!(!args.flags.unsafe_lua);
+        assert!(!args.flags.version);
+    }
+}

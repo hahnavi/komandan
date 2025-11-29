@@ -20,7 +20,7 @@ const HOSTS_LUA_TEMPLATE: &str = r#"return {
 }
 "#;
 
-const MAIN_LUA_TEMPLATE: &str = r#"local host = require("hosts")
+const MAIN_LUA_TEMPLATE: &str = r#"local hosts = require("hosts")
 
 local task = {
 	name = "Hello world!",
@@ -116,11 +116,11 @@ fn new_project(args: &NewArgs) -> Result<()> {
                 dir.display()
             );
         }
+    } else {
+        // Create the directory
+        fs::create_dir_all(dir)
+            .with_context(|| format!("Failed to create directory: {}", dir.display()))?;
     }
-
-    // Create the directory
-    fs::create_dir_all(dir)
-        .with_context(|| format!("Failed to create directory: {}", dir.display()))?;
 
     // Initialize the project
     let init_args = InitArgs {
@@ -129,4 +129,225 @@ fn new_project(args: &NewArgs) -> Result<()> {
     init_project(&init_args)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_init_project_success() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let dir_path = temp_dir.path().to_str().context("invalid utf-8 path")?.to_string();
+
+        let args = InitArgs {
+            directory: dir_path,
+        };
+
+        init_project(&args)?;
+
+        // Verify files were created
+        assert!(temp_dir.path().join("komandan.toml").exists());
+        assert!(temp_dir.path().join("hosts.lua").exists());
+        assert!(temp_dir.path().join("main.lua").exists());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_init_project_non_empty_directory() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let dir_path = temp_dir.path().to_str().context("invalid utf-8 path")?.to_string();
+
+        // Create a file to make directory non-empty
+        fs::write(temp_dir.path().join("existing.txt"), "content")?;
+
+        let args = InitArgs {
+            directory: dir_path,
+        };
+
+        let result = init_project(&args);
+        if let Err(e) = result {
+            assert!(e.to_string().contains("Directory is not empty"));
+        } else {
+            panic!("Expected an error, but got Ok");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_init_project_creates_all_files() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let dir_path = temp_dir.path().to_str().context("invalid utf-8 path")?.to_string();
+
+        let args = InitArgs {
+            directory: dir_path,
+        };
+
+        init_project(&args)?;
+
+        // Verify komandan.toml exists and has content
+        let toml_content = fs::read_to_string(temp_dir.path().join("komandan.toml"))?;
+        assert!(toml_content.contains("[project]"));
+        assert!(toml_content.contains("version = \"0.1.0\""));
+
+        // Verify hosts.lua exists and has content
+        let hosts_content = fs::read_to_string(temp_dir.path().join("hosts.lua"))?;
+        assert!(hosts_content.contains("return {"));
+        assert!(hosts_content.contains("server1"));
+
+        // Verify main.lua exists and has content
+        let main_content = fs::read_to_string(temp_dir.path().join("main.lua"))?;
+        assert!(main_content.contains("local hosts = require(\"hosts\")"));
+        assert!(main_content.contains("komandan.komando"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_init_project_template_substitution() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let dir_path = temp_dir.path().to_str().context("invalid utf-8 path")?.to_string();
+
+        let args = InitArgs {
+            directory: dir_path,
+        };
+
+        init_project(&args)?;
+
+        // Verify project name was substituted in komandan.toml
+        let toml_content = fs::read_to_string(temp_dir.path().join("komandan.toml"))?;
+        let dir_name = temp_dir
+            .path()
+            .file_name()
+            .and_then(|n| n.to_str())
+            .context("valid directory name")?;
+        assert!(toml_content.contains(&format!("name = \"{dir_name}\"")));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_new_project_success() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let project_name = "test_project".to_string();
+        let project_path = temp_dir.path().join(&project_name);
+
+        let args = NewArgs {
+            name: project_name.clone(),
+            dir: Some(project_path.to_str().context("invalid utf-8 path")?.to_string()),
+        };
+
+        new_project(&args)?;
+
+        // Verify directory was created
+        assert!(project_path.exists());
+
+        // Verify files were created
+        assert!(project_path.join("komandan.toml").exists());
+        assert!(project_path.join("hosts.lua").exists());
+        assert!(project_path.join("main.lua").exists());
+
+        // Verify project name in toml
+        let toml_content = fs::read_to_string(project_path.join("komandan.toml"))?;
+        assert!(toml_content.contains(&format!("name = \"{project_name}\"")));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_new_project_with_custom_dir() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let project_name = "myproject".to_string();
+        let custom_dir = "custom_directory".to_string();
+        let project_path = temp_dir.path().join(&custom_dir);
+
+        let args = NewArgs {
+            name: project_name,
+            dir: Some(project_path.to_str().context("invalid utf-8 path")?.to_string()),
+        };
+
+        new_project(&args)?;
+
+        // Verify custom directory was created
+        assert!(project_path.exists());
+        assert!(project_path.join("komandan.toml").exists());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_new_project_existing_non_empty_dir() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let project_name = "test_project".to_string();
+
+        // Create a non-empty directory
+        let existing_dir = temp_dir.path().join(&project_name);
+        fs::create_dir(&existing_dir)?;
+        fs::write(existing_dir.join("existing.txt"), "content")?;
+
+        let args = NewArgs {
+            name: project_name,
+            dir: Some(existing_dir.to_str().context("invalid utf-8 path")?.to_string()),
+        };
+
+        let result = new_project(&args);
+        if let Err(e) = result {
+            assert!(e
+                .to_string()
+                .contains("Directory already exists and is not empty"));
+        } else {
+            panic!("Expected an error, but got Ok");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_handle_project_command_init() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let dir_path = temp_dir.path().to_str().context("invalid utf-8 path")?.to_string();
+
+        let args = ProjectArgs {
+            command: ProjectCommands::Init(InitArgs {
+                directory: dir_path,
+            }),
+        };
+
+        handle_project_command(&args)?;
+
+        // Verify files were created
+        assert!(temp_dir.path().join("komandan.toml").exists());
+        assert!(temp_dir.path().join("hosts.lua").exists());
+        assert!(temp_dir.path().join("main.lua").exists());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_handle_project_command_new() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let project_name = "test_project".to_string();
+        let project_path = temp_dir.path().join(&project_name);
+
+        let args = ProjectArgs {
+            command: ProjectCommands::New(NewArgs {
+                name: project_name,
+                dir: Some(project_path.to_str().context("invalid utf-8 path")?.to_string()),
+            }),
+        };
+
+        handle_project_command(&args)?;
+
+        // Verify directory and files were created
+        assert!(project_path.exists());
+        assert!(project_path.join("komandan.toml").exists());
+        assert!(project_path.join("hosts.lua").exists());
+        assert!(project_path.join("main.lua").exists());
+
+        Ok(())
+    }
 }

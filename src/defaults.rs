@@ -26,15 +26,14 @@ pub struct Defaults {
 impl Defaults {
     pub fn new() -> Result<Self> {
         let env = Arc::new(RwLock::new(HashMap::new()));
-        env.write()
-            .map_err(|_| Error::msg("Failed to acquire write lock"))?
-            .insert("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string());
-        env.write()
-            .map_err(|_| Error::msg("Failed to acquire write lock"))?
-            .insert("LANG".to_string(), "C".to_string());
-        env.write()
-            .map_err(|_| Error::msg("Failed to acquire write lock"))?
-            .insert("LC_ALL".to_string(), "C".to_string());
+        {
+            let mut env_guard = env
+                .write()
+                .map_err(|_| Error::msg("Failed to acquire write lock"))?;
+            env_guard.insert("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string());
+            env_guard.insert("LANG".to_string(), "C".to_string());
+            env_guard.insert("LC_ALL".to_string(), "C".to_string());
+        }
 
         let port = std::env::var("KOMANDAN_SSH_PORT")
             .ok()

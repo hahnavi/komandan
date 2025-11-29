@@ -122,24 +122,29 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 end
 
                 local installed = self:is_installed()
-                local packages_str = self.package_list_to_string(self.params.package)
 
                 if self.params.action == "install" then
                     if not installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("dnf --assumeno install " .. packages_str .. " " .. self.params.install_opts)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "remove" then
                     if installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("dnf --assumeno remove " .. packages_str)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "update" or self.params.action == "upgrade" then
-                    self.ssh:cmd("dnf --assumeno upgrade")
-                    self.ssh:set_changed(true)
+                    local result = self.ssh:cmd("dnf --assumeno upgrade")
+                    if result.exit_code == 1 and not result.stdout:match("Nothing to do") then
+                        self.ssh:set_changed(true)
+                    end
                 elseif self.params.action == "autoremove" then
-                    self.ssh:cmd("dnf --assumeno autoremove")
-                    self.ssh:set_changed(true)
+                    local result = self.ssh:cmd("dnf --assumeno autoremove")
+                    if result.exit_code == 1 and not result.stdout:match("Nothing to do") then
+                        self.ssh:set_changed(true)
+                    end
                 end
             end
 
@@ -149,24 +154,29 @@ pub fn dnf(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 end
 
                 local installed = self:is_installed()
-                local packages_str = self.package_list_to_string(self.params.package)
 
                 if self.params.action == "install" then
                     if not installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("dnf install -y " .. packages_str .. " " .. self.params.install_opts)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "remove" then
                     if installed then
+                        local packages_str = self.package_list_to_string(self.params.package)
                         self.ssh:cmd("dnf remove -y " .. packages_str)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "update" or self.params.action == "upgrade" then
-                    self.ssh:cmd("dnf upgrade -y")
-                    self.ssh:set_changed(true)
+                    local result = self.ssh:cmd("dnf upgrade -y")
+                    if result.exit_code == 0 and not result.stdout:match("Nothing to do") then
+                        self.ssh:set_changed(true)
+                    end
                 elseif self.params.action == "autoremove" then
-                    self.ssh:cmd("dnf autoremove -y")
-                    self.ssh:set_changed(true)
+                    local result = self.ssh:cmd("dnf autoremove -y")
+                    if result.exit_code == 0 and not result.stdout:match("Nothing to do") then
+                        self.ssh:set_changed(true)
+                    end
                 end
             end
 
