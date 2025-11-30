@@ -1,11 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 use komandan::create_lua;
 use mlua::{Integer, Table, Value, chunk};
 
 #[test]
-fn test_komando_parallel_hosts() {
-    let lua = create_lua().unwrap();
+fn test_komando_parallel_hosts() -> mlua::Result<()> {
+    let lua = create_lua()?;
 
     let results = lua
         .load(chunk! {
@@ -42,11 +40,11 @@ fn test_komando_parallel_hosts() {
 
             return komandan.komando_parallel_hosts(hosts, task)
         })
-        .eval::<Table>()
-        .unwrap();
+        .eval::<Table>()?;
 
     for pair in results.pairs::<Value, Table>() {
-        let (_, table) = pair.unwrap();
-        assert!(table.get::<Integer>("exit_code").unwrap() == 0);
+        let (_, table) = pair?;
+        assert!(table.get::<Integer>("exit_code")? == 0);
     }
+    Ok(())
 }

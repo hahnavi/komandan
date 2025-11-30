@@ -6,6 +6,9 @@ on:
       version:
         description: 'Version number (e.g. 0.0.1)'
         required: true
+      release_body:
+        description: 'Release body'
+        required: false
 
 jobs:
   build-x86_64:
@@ -81,7 +84,7 @@ jobs:
         with:
           tag: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_TAG }}
-          body: Release ${{ env.RELEASE_TAG }}
+          body: ${{ github.event.inputs.release_body || format('Release {0}', env.RELEASE_TAG) }}
           artifacts: |
             komandan_${{ env.RELEASE_TAG }}-linux-x86_64.zip
             komandan_${{ env.RELEASE_TAG }}-linux-aarch64.zip
