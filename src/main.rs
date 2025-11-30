@@ -74,6 +74,11 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
                                 eprintln!("Warning: Failed to set hosts defaults: {e}");
                             }
                         }
+                    } else {
+                        eprintln!(
+                            "Warning: Hosts file '{}' not found; hosts defaults were not loaded",
+                            hosts_path.display()
+                        );
                     }
                 }
 
@@ -86,11 +91,6 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
                         .to_string(),
                 )?;
             } else {
-                // Directory but no komandan.json, maybe just try running main.lua?
-                // Or error out? User said "scan the file komandan.json if any".
-                // If not found, maybe fall back to treating it as a file (which will fail) or just error.
-                // I'll assume if it's a dir and no json, it's an error or just try `main.lua`.
-                // But `run_main_file` expects a file.
                 anyhow::bail!("Directory {main_file} does not contain komandan.json");
             }
         } else {

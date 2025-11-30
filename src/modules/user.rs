@@ -25,7 +25,7 @@ pub fn user(lua: &Lua, params: Table) -> mlua::Result<Table> {
 
             local function shell_escape(s)
                 if s == nil then return "''" end
-                return "'" .. string.gsub(s, "'", "'\\''") .. "'"
+                return "'" .. string.gsub(s, "'", "'\"'\"'") .. "'"
             end
 
             local function split(s, delimiter)
