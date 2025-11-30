@@ -25,7 +25,6 @@ Komandan is a server automation tool that simplifies remote server management by
 
 - [Installation](#installation)
 - [Getting Started](#getting-started)
-- [Usage](#usage)
 - [`komando` function](#komando-function)
 - [Modules](#modules)
 - [Built-in functions](#built-in-functions)
@@ -50,52 +49,32 @@ This script will download the latest Komandan release for your system and instal
 
 ## Getting Started
 
+Create a new project using the komandan CLI:
+
+```bash
+# Create a new komandan project with scaffolded structure
+komandan project new myproject
+
+# Navigate to the project directory
+cd myproject
+
+# Execute the main.lua script in the current directory
+komandan .
+
+# Run in verbose mode to see detailed execution logs
+komandan -v .
+```
+
+This will create a new project directory with the following structure:
+- `komandan.json` - Project configuration file
+- `main.lua` - Main script where you define your automation tasks
+- `hosts.lua` - Host definitions and connection details
+
+You can then edit `main.lua` to define your tasks and `hosts.lua` to configure your target servers.
+
 For comprehensive documentation, including detailed guides and references, please visit the [Komandan Documentation Site](https://komandan.vercel.app/docs).
 
-## Usage
 
-Here's a simple example to get you started. Create a Lua script named `main.lua`:
-
-```lua
--- main.lua
-
-local hosts = {
-  {
-    name = "webserver1",
-    address = "10.20.30.41",
-    tags = { "webserver" },
-  },
-  {
-    name = "dbserver1",
-    address = "10.20.30.42",
-    tags = { "database" },
-  },
-}
-
-komandan.defaults:set_user("user1")
-komandan.defaults:set_private_key_file(os.getenv("HOME") .. "/.ssh/id_ed25519"),
-
-local webservers = komandan.filter_hosts(hosts, "webserver")
-
-local task = {
-  name = "Create a directory",
-  komandan.modules.cmd({
-    cmd = "mkdir -p /tmp/komandan_test",
-  }),
-}
-
-for _, host in ipairs(webservers) do
-  komandan.komando(host, task)
-end
-```
-
-Run the script using the `komandan` command:
-
-```sh
-$ komandan main.lua
-```
-
-This script will connect to `webserver1` as `user1` using the specified SSH key and create the directory `/tmp/komandan_test`.
 
 ## `komando` function
 
