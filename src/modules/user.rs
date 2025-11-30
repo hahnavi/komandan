@@ -60,13 +60,25 @@ pub fn user(lua: &Lua, params: Table) -> mlua::Result<Table> {
             end
 
             module.get_user_groups = function(self)
+                -- Get primary group first
+                local primary_result = self.ssh:cmdq("id -gn " .. shell_escape(self.params.name))
+                if primary_result.exit_code ~= 0 then
+                    return {}
+                end
+                local primary_group = primary_result.stdout:gsub("%s+", "")
+
+                -- Get all groups
                 local result = self.ssh:cmdq("id -Gn " .. shell_escape(self.params.name))
                 if result.exit_code ~= 0 then
                     return {}
                 end
+
+                -- Build supplementary groups list, filtering out the primary group
                 local groups = {}
                 for g in result.stdout:gmatch("%S+") do
-                    table.insert(groups, g)
+                    if g ~= primary_group then
+                        table.insert(groups, g)
+                    end
                 end
                 return groups
             end

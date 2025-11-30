@@ -11,15 +11,8 @@ use tempfile::{NamedTempFile, TempDir};
 use super::{ElevationMethod, SSHSession};
 use crate::executor::CommandExecutor;
 
-/// Test configuration for SSH operations
-#[derive(Clone, Debug, Default)]
-pub struct TestConfig {
-    pub command_outputs: HashMap<String, (String, String, i32)>,
-}
-
 /// Builder for test SSH sessions
 pub struct TestSSHSessionBuilder {
-    config: TestConfig,
     env: HashMap<String, String>,
     elevation: super::Elevation,
 }
@@ -27,27 +20,12 @@ pub struct TestSSHSessionBuilder {
 impl TestSSHSessionBuilder {
     pub fn new() -> Self {
         Self {
-            config: TestConfig::default(),
             env: HashMap::new(),
             elevation: super::Elevation {
                 method: ElevationMethod::None,
                 as_user: None,
             },
         }
-    }
-
-    pub fn with_command_output(
-        mut self,
-        command: &str,
-        stdout: &str,
-        stderr: &str,
-        exit_code: i32,
-    ) -> Self {
-        self.config.command_outputs.insert(
-            command.to_string(),
-            (stdout.to_string(), stderr.to_string(), exit_code),
-        );
-        self
     }
 
     pub fn with_env(mut self, key: &str, value: &str) -> Self {
@@ -135,29 +113,22 @@ pub mod scenarios {
     /// Create a scenario for testing basic command execution
     pub fn basic_command_execution() -> TestSSHSessionBuilder {
         TestSSHSessionBuilder::new()
-            .with_command_output("ls -la", "file1.txt\nfile2.txt", "", 0)
-            .with_command_output("echo test", "test", "", 0)
     }
 
     /// Create a scenario for testing environment variables
     pub fn environment_variables() -> TestSSHSessionBuilder {
-        TestSSHSessionBuilder::new()
-            .with_env("TEST_VAR", "test_value")
-            .with_command_output("echo $TEST_VAR", "test_value", "", 0)
+        TestSSHSessionBuilder::new().with_env("TEST_VAR", "test_value")
     }
 
     /// Create a scenario for testing elevation
     pub fn elevation_scenarios() -> TestSSHSessionBuilder {
         TestSSHSessionBuilder::new()
             .with_elevation(ElevationMethod::Sudo, Some("admin".to_string()))
-            .with_command_output("whoami", "admin", "", 0)
     }
 
     /// Create a scenario for testing error conditions
     pub fn error_conditions() -> TestSSHSessionBuilder {
         TestSSHSessionBuilder::new()
-            .with_command_output("invalid_command", "", "command not found", 127)
-            .with_command_output("exit 1", "", "", 1)
     }
 }
 

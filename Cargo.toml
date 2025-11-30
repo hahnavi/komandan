@@ -12,7 +12,7 @@ vendored-openssl = ["http-klien/vendored-openssl", "ssh2/vendored-openssl"]
 anyhow = "1.0.100"
 clap = { version = "4.5.53", features = ["derive"] }
 http-klien = { git = "https://github.com/hahnavi/http-klien-rs", branch = "main" }
-minijinja = { version = "2.12.0", features = ["loader"] }
+minijinja = { version = "2.12.0", features = ["loader", "json"] }
 mlua = { version = "0.11.5", features = [
     "anyhow",
     "luajit",
@@ -30,7 +30,7 @@ ssh2 = "0.9.5"
 
 [dev-dependencies]
 tempfile = "3.23.0"
-mockall = "0.12.0"
+mockall = "0.14.0"
 
 [profile.release]
 lto = "fat"

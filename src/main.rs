@@ -66,8 +66,13 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
                             hosts_vec.push(json_value);
                         }
 
-                        if let Ok(mut hosts_lock) = defaults.hosts.write() {
-                            *hosts_lock = hosts_vec;
+                        match defaults.hosts.write() {
+                            Ok(mut hosts_lock) => {
+                                *hosts_lock = hosts_vec;
+                            }
+                            Err(e) => {
+                                eprintln!("Warning: Failed to set hosts defaults: {e}");
+                            }
                         }
                     }
                 }
