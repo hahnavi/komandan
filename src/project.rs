@@ -200,7 +200,7 @@ mod tests {
         // Verify hosts.lua exists and has content
         let hosts_content = fs::read_to_string(temp_dir.path().join("hosts.lua"))?;
         assert!(hosts_content.contains("return {"));
-        assert!(hosts_content.contains("server1"));
+        assert!(hosts_content.contains("localhost"));
 
         // Verify main.lua exists and has content
         let main_content = fs::read_to_string(temp_dir.path().join("main.lua"))?;

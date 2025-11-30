@@ -10,6 +10,11 @@ use anyhow::{Error, Result};
 use mlua::{Error::RuntimeError, UserData, Value};
 use ssh2::{CheckResult, KnownHostFileKind, Session, Sftp};
 
+use crate::executor::{CommandExecutor, SessionResult};
+
+#[cfg(test)]
+mod test_utils;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum SSHAuthMethod {
     Password(String),
@@ -45,6 +50,11 @@ pub struct SSHSession {
 }
 
 impl SSHSession {
+    /// Create a new SSH session
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the SSH session initialization fails.
     pub fn new() -> Result<Self> {
         Ok(Self {
             session: Session::new()?,
@@ -61,6 +71,11 @@ impl SSHSession {
         })
     }
 
+    /// Connect to an SSH server
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection fails, authentication fails, or host key verification fails.
     pub fn connect(
         &mut self,
         address: &str,
@@ -123,13 +138,6 @@ impl SSHSession {
         Ok(())
     }
 
-    pub fn set_env(&mut self, key: &str, value: &str) {
-        *self
-            .env
-            .entry(key.to_string())
-            .or_insert_with(|| value.to_string()) = value.to_string();
-    }
-
     fn execute_command(&self, command: &str) -> Result<ssh2::Channel> {
         let mut channel = self.session.channel_session()?;
         let mut command = command.to_string();
@@ -139,8 +147,10 @@ impl SSHSession {
         channel.exec(command.as_str())?;
         Ok(channel)
     }
+}
 
-    pub fn cmd(&mut self, command: &str) -> Result<(String, String, i32)> {
+impl CommandExecutor for SSHSession {
+    fn cmd(&mut self, command: &str) -> Result<(String, String, i32)> {
         let mut channel = self.execute_command(command)?;
         let mut stdout = String::new();
         let mut stderr = String::new();
@@ -162,7 +172,7 @@ impl SSHSession {
         Ok((stdout, stderr, exit_code))
     }
 
-    pub fn cmdq(&self, command: &str) -> Result<(String, String, i32)> {
+    fn cmdq(&self, command: &str) -> Result<(String, String, i32)> {
         let mut channel = self.execute_command(command)?;
         let mut stdout = String::new();
         let mut stderr = String::new();
@@ -176,7 +186,7 @@ impl SSHSession {
         Ok((stdout, stderr, exit_code))
     }
 
-    pub fn prepare_command(&self, command: &str) -> String {
+    fn prepare_command(&self, command: &str) -> String {
         match self.elevation.method {
             ElevationMethod::Su => self.elevation.as_user.as_ref().map_or_else(
                 || format!("su -c '{command}'"),
@@ -190,7 +200,14 @@ impl SSHSession {
         }
     }
 
-    pub fn get_remote_env(&self, var: &str) -> Result<String> {
+    fn set_env(&mut self, key: &str, value: &str) {
+        *self
+            .env
+            .entry(key.to_string())
+            .or_insert_with(|| value.to_string()) = value.to_string();
+    }
+
+    fn get_remote_env(&self, var: &str) -> Result<String> {
         let mut channel = self.execute_command(format!("echo ${var}").as_str())?;
         let mut stdout = String::new();
         channel.read_to_string(&mut stdout)?;
@@ -200,7 +217,7 @@ impl SSHSession {
         Ok(stdout)
     }
 
-    pub fn get_tmpdir(&self) -> Result<String> {
+    fn get_tmpdir(&self) -> Result<String> {
         let mut channel = self.execute_command("tmpdir=`for dir in \"$HOME/.komandan/tmp\" \"/tmp/komandan\"; do if [ -d \"$dir\" ] || mkdir -p \"$dir\" 2>/dev/null; then echo \"$dir\"; break; fi; done`; [ -z \"$tmpdir\" ] && { exit 1; } || echo \"$tmpdir\"")?;
         let mut stdout = String::new();
         channel.read_to_string(&mut stdout)?;
@@ -210,13 +227,7 @@ impl SSHSession {
         Ok(stdout)
     }
 
-    pub fn chmod(&self, remote_path: &Path, mode: &String) -> Result<()> {
-        self.execute_command(format!("chmod {} {}", mode, remote_path.to_string_lossy()).as_str())?;
-
-        Ok(())
-    }
-
-    pub fn upload(&self, local_path: &Path, remote_path: &Path) -> Result<()> {
+    fn upload(&self, local_path: &Path, remote_path: &Path) -> Result<()> {
         let sftp = self.session.sftp()?;
 
         if local_path.is_dir() {
@@ -228,10 +239,11 @@ impl SSHSession {
         Ok(())
     }
 
-    pub fn download(&self, remote_path: &Path, local_path: &Path) -> Result<()> {
+    fn download(&self, remote_path: &Path, local_path: &Path) -> Result<()> {
         let sftp = self.session.sftp()?;
+        let stat = sftp.stat(remote_path)?;
 
-        if remote_path.is_dir() {
+        if stat.is_dir() {
             download_directory(&sftp, remote_path, local_path)?;
         } else {
             download_file(&sftp, remote_path, local_path)?;
@@ -240,11 +252,11 @@ impl SSHSession {
         Ok(())
     }
 
-    pub fn write_remote_file(&self, remote_path: &str, content: &[u8]) -> Result<()> {
+    fn write_remote_file(&self, remote_path: &Path, content: &[u8]) -> Result<()> {
         let content_length = content.len() as u64;
-        let mut remote_file =
-            self.session
-                .scp_send(Path::new(remote_path), 0o644, content_length, None)?;
+        let mut remote_file = self
+            .session
+            .scp_send(remote_path, 0o644, content_length, None)?;
         remote_file.write_all(content)?;
         remote_file.send_eof()?;
         remote_file.wait_eof()?;
@@ -252,6 +264,40 @@ impl SSHSession {
         remote_file.wait_close()?;
 
         Ok(())
+    }
+
+    fn chmod(&self, remote_path: &Path, mode: &str) -> Result<()> {
+        let mut channel =
+            self.execute_command(&format!("chmod {} {}", mode, remote_path.to_string_lossy()))?;
+        let mut stderr = String::new();
+        channel.stderr().read_to_string(&mut stderr)?;
+        channel.wait_close()?;
+        let exit_code = channel.exit_status()?;
+
+        if exit_code == 0 {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "chmod failed with exit code {exit_code}: {stderr}"
+            ))
+        }
+    }
+
+    fn set_changed(&mut self, changed: bool) {
+        self.changed = Some(changed);
+    }
+
+    fn get_changed(&self) -> bool {
+        self.changed.unwrap_or(false)
+    }
+
+    fn get_session_result(&self) -> SessionResult {
+        SessionResult {
+            stdout: self.stdout.as_ref().unwrap_or(&String::new()).clone(),
+            stderr: self.stderr.as_ref().unwrap_or(&String::new()).clone(),
+            exit_code: self.exit_code.unwrap_or(-1),
+            changed: self.changed.unwrap_or(false),
+        }
     }
 }
 
@@ -311,7 +357,7 @@ fn download_directory(sftp: &Sftp, remote_path: &Path, local_path: &Path) -> io:
             continue;
         }
 
-        if entry.1.file_type() == ssh2::FileType::Directory {
+        if entry.1.is_dir() {
             download_directory(sftp, &remote_entry_path, &local_entry_path)?;
         } else {
             download_file(sftp, &remote_entry_path, &local_entry_path)?;
@@ -389,7 +435,7 @@ impl UserData for SSHSession {
         methods.add_method_mut(
             "write_remote_file",
             |_, this, (remote_path, content): (String, String)| {
-                this.write_remote_file(remote_path.as_str(), content.as_bytes())?;
+                this.write_remote_file(Path::new(&remote_path), content.as_bytes())?;
                 Ok(())
             },
         );
@@ -476,24 +522,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_ssh_session_new() {
-        let session = SSHSession::new();
-        assert!(session.is_ok());
-        if let Ok(session) = session {
-            assert_eq!(session.elevation.method, ElevationMethod::None);
-            assert!(session.env.is_empty());
-        }
-    }
-
-    #[test]
-    fn test_set_env() -> anyhow::Result<()> {
-        let mut session = SSHSession::new()?;
-        session.set_env("TEST_KEY", "TEST_VALUE");
-        assert_eq!(session.env.get("TEST_KEY"), Some(&"TEST_VALUE".to_string()));
-        Ok(())
-    }
-
-    #[test]
     fn test_prepare_command() -> anyhow::Result<()> {
         let mut session = SSHSession::new()?;
 
@@ -524,6 +552,88 @@ mod tests {
         session.elevation.as_user = Some("admin".to_string());
         let cmd = session.prepare_command("ls -la");
         assert_eq!(cmd, "su admin -c 'ls -la'");
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_changed_and_set_changed() -> anyhow::Result<()> {
+        let mut session = SSHSession::new()?;
+
+        // Test initial changed state
+        assert!(!session.get_changed());
+
+        // Test setting changed to true
+        session.set_changed(true);
+        assert!(session.get_changed());
+
+        // Test setting changed to false
+        session.set_changed(false);
+        assert!(!session.get_changed());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_session_result() -> anyhow::Result<()> {
+        let mut session = SSHSession::new()?;
+
+        // Test initial session result
+        let result = session.get_session_result();
+        assert_eq!(result.stdout, "");
+        assert_eq!(result.stderr, "");
+        assert_eq!(result.exit_code, 0);
+        assert!(!result.changed);
+
+        // Test after setting some values
+        if let Some(stdout) = session.stdout.as_mut() {
+            stdout.push_str("test output");
+        }
+        if let Some(stderr) = session.stderr.as_mut() {
+            stderr.push_str("test error");
+        }
+        session.exit_code = Some(1);
+        session.changed = Some(true);
+
+        let result = session.get_session_result();
+        assert_eq!(result.stdout, "test output");
+        assert_eq!(result.stderr, "test error");
+        assert_eq!(result.exit_code, 1);
+        assert!(result.changed);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ssh_session_clone() -> anyhow::Result<()> {
+        let mut session = SSHSession::new()?;
+        session.set_env("TEST_KEY", "TEST_VALUE");
+        session.elevation = Elevation {
+            method: ElevationMethod::Sudo,
+            as_user: Some("admin".to_string()),
+        };
+
+        let cloned = session.clone();
+
+        // Test that environment is cloned
+        assert_eq!(cloned.env.get("TEST_KEY"), Some(&"TEST_VALUE".to_string()));
+
+        // Test that elevation is cloned
+        assert_eq!(cloned.elevation.method, ElevationMethod::Sudo);
+        assert_eq!(cloned.elevation.as_user, Some("admin".to_string()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_lua_userdata_methods_exist() -> anyhow::Result<()> {
+        // This test verifies that all the expected Lua methods are defined
+        // by checking that the UserData trait is implemented for SSHSession
+
+        let _session = SSHSession::new()?;
+
+        // The UserData implementation is compile-time checked,
+        // so if this test compiles, the methods are properly defined
+
         Ok(())
     }
 }

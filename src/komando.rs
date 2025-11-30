@@ -10,11 +10,36 @@ use rayon::prelude::*;
 use crate::args::Args;
 use crate::create_lua;
 use crate::defaults::Defaults;
-use crate::models::{Host, KomandoResult, Task};
+use crate::executor::CommandExecutor;
+use crate::local::LocalSession;
+use crate::models::{ConnectionType, Host, KomandoResult, Task};
 use crate::report::{TaskStatus, insert_record};
 use crate::ssh::{Elevation, ElevationMethod, SSHAuthMethod, SSHSession};
 use crate::util::{host_display, task_display};
 use crate::validator::{validate_host, validate_task};
+
+fn is_localhost(address: &str) -> bool {
+    matches!(address, "localhost" | "127.0.0.1" | "::1")
+}
+
+fn determine_connection_type(host: &Table) -> mlua::Result<ConnectionType> {
+    // Check if connection type is explicitly set
+    if let Some(conn_type) = host
+        .get::<String>("connection")
+        .ok()
+        .and_then(|s| s.parse().ok())
+    {
+        return Ok(conn_type);
+    }
+
+    // Check if address is localhost
+    let address = host.get::<String>("address")?;
+    if is_localhost(&address) {
+        Ok(ConnectionType::Local)
+    } else {
+        Ok(ConnectionType::SSH)
+    }
+}
 
 pub fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
     let host = lua.create_function(validate_host)?.call::<Table>(&host)?;
@@ -25,33 +50,45 @@ pub fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
     let task_display = task_display(&task);
 
     let defaults = Defaults::global();
+    let connection_type = determine_connection_type(&host)?;
 
-    let (user, ssh_auth_method) = get_auth_config(&host, &task, None)?;
-    let elevation = get_elevation_config(&host, &task)?;
+    let result = match connection_type {
+        ConnectionType::Local => {
+            let elevation = get_elevation_config(&host, &task)?;
+            let mut local = LocalSession::new();
+            local.elevation = elevation;
 
-    let default_port = match defaults.port.read() {
-        Ok(port) => *port,
-        Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
+            setup_environment_local(&mut local, &host, &task)?;
+            execute_task_local(lua, &module, local, &task_display, &host_display)?
+        }
+        ConnectionType::SSH => {
+            let (user, ssh_auth_method) = get_auth_config(&host, &task, None)?;
+            let elevation = get_elevation_config(&host, &task)?;
+
+            let default_port = match defaults.port.read() {
+                Ok(port) => *port,
+                Err(_) => return Err(RuntimeError("Failed to acquire read lock".to_string())),
+            };
+
+            let port = host
+                .get::<Integer>("port")
+                .unwrap_or_else(|_| i64::from(default_port));
+            let port = u16::try_from(port).unwrap_or(default_port);
+
+            let mut ssh = create_ssh_session(&host)?;
+            ssh.elevation = elevation;
+
+            ssh.connect(
+                host.get::<String>("address")?.as_str(),
+                port,
+                &user,
+                ssh_auth_method,
+            )?;
+
+            setup_environment_ssh(&mut ssh, &host, &task)?;
+            execute_task_ssh(lua, &module, ssh, &task_display, &host_display)?
+        }
     };
-
-    let port = host
-        .get::<Integer>("port")
-        .unwrap_or_else(|_| i64::from(default_port));
-    let port = u16::try_from(port).unwrap_or(default_port);
-
-    let mut ssh = create_ssh_session(&host)?;
-    ssh.elevation = elevation;
-
-    ssh.connect(
-        host.get::<String>("address")?.as_str(),
-        port,
-        &user,
-        ssh_auth_method,
-    )?;
-
-    setup_environment(&mut ssh, &host, &task)?;
-
-    let result = execute_task(lua, &module, ssh, &task_display, &host_display)?;
 
     let default_ignore_exit_code = match defaults.ignore_exit_code.read() {
         Ok(ignore_exit_code) => *ignore_exit_code,
@@ -214,7 +251,11 @@ fn get_user(host: &Table, task: &Table) -> mlua::Result<String> {
     Ok(user)
 }
 
-fn get_auth_config(host: &Table, task: &Table, home_override: Option<&str>) -> mlua::Result<(String, SSHAuthMethod)> {
+fn get_auth_config(
+    host: &Table,
+    task: &Table,
+    home_override: Option<&str>,
+) -> mlua::Result<(String, SSHAuthMethod)> {
     let host_display = host_display(host);
     let task_display = task_display(task);
 
@@ -258,40 +299,44 @@ fn get_auth_config(host: &Table, task: &Table, home_override: Option<&str>) -> m
             },
             None => match host.get::<String>("password") {
                 Ok(password) => SSHAuthMethod::Password(password),
-                Err(_) => if let Some(ref password) = default_password {
-                    SSHAuthMethod::Password(password.clone())
-                } else {
-                    let home = if let Some(h) = home_override {
-                        h.to_string()
+                Err(_) => {
+                    if let Some(ref password) = default_password {
+                        SSHAuthMethod::Password(password.clone())
                     } else {
-                        env::var("HOME").map_err(|_| RuntimeError("HOME environment variable not set".to_string()))?
-                    };
-                    let ed25519_path = format!("{home}/.ssh/id_ed25519");
-                    if Path::new(&ed25519_path).exists() {
-                        SSHAuthMethod::PublicKey {
-                            private_key: ed25519_path,
-                            passphrase: host
-                                .get::<String>("private_key_pass")
-                                .ok()
-                                .or(default_private_key_pass),
-                        }
-                    } else {
-                        let rsa_path = format!("{home}/.ssh/id_rsa");
-                        if Path::new(&rsa_path).exists() {
+                        let home = if let Some(h) = home_override {
+                            h.to_string()
+                        } else {
+                            env::var("HOME").map_err(|_| {
+                                RuntimeError("HOME environment variable not set".to_string())
+                            })?
+                        };
+                        let ed25519_path = format!("{home}/.ssh/id_ed25519");
+                        if Path::new(&ed25519_path).exists() {
                             SSHAuthMethod::PublicKey {
-                                private_key: rsa_path,
+                                private_key: ed25519_path,
                                 passphrase: host
                                     .get::<String>("private_key_pass")
                                     .ok()
                                     .or(default_private_key_pass),
                             }
                         } else {
-                            return Err(RuntimeError(format!(
-                                "No authentication method specified for task '{task_display}' on host '{host_display}'."
-                            )));
+                            let rsa_path = format!("{home}/.ssh/id_rsa");
+                            if Path::new(&rsa_path).exists() {
+                                SSHAuthMethod::PublicKey {
+                                    private_key: rsa_path,
+                                    passphrase: host
+                                        .get::<String>("private_key_pass")
+                                        .ok()
+                                        .or(default_private_key_pass),
+                                }
+                            } else {
+                                return Err(RuntimeError(format!(
+                                    "No authentication method specified for task '{task_display}' on host '{host_display}'."
+                                )));
+                            }
                         }
                     }
-                },
+                }
             },
         },
     };
@@ -387,7 +432,7 @@ fn create_ssh_session(host: &Table) -> mlua::Result<SSHSession> {
     Ok(ssh)
 }
 
-fn setup_environment(ssh: &mut SSHSession, host: &Table, task: &Table) -> mlua::Result<()> {
+fn setup_environment_ssh(ssh: &mut SSHSession, host: &Table, task: &Table) -> mlua::Result<()> {
     let defaults = Defaults::global();
 
     let Ok(default_env) = defaults.env.read() else {
@@ -418,7 +463,42 @@ fn setup_environment(ssh: &mut SSHSession, host: &Table, task: &Table) -> mlua::
     Ok(())
 }
 
-fn execute_task(
+fn setup_environment_local(
+    local: &mut LocalSession,
+    host: &Table,
+    task: &Table,
+) -> mlua::Result<()> {
+    let defaults = Defaults::global();
+
+    let Ok(default_env) = defaults.env.read() else {
+        return Err(RuntimeError("Failed to acquire read lock".to_string()));
+    };
+
+    let env_host = host.get::<Option<Table>>("env")?;
+    let env_task = task.get::<Option<Table>>("env")?;
+
+    for (key, value) in default_env.iter() {
+        local.set_env(key, value);
+    }
+
+    if let Some(env_host) = env_host {
+        for pair in env_host.pairs::<String, String>() {
+            let (key, value) = pair?;
+            local.set_env(&key, &value);
+        }
+    }
+
+    if let Some(env_task) = env_task {
+        for pair in env_task.pairs::<String, String>() {
+            let (key, value) = pair?;
+            local.set_env(&key, &value);
+        }
+    }
+
+    Ok(())
+}
+
+fn execute_task_ssh(
     lua: &Lua,
     module: &Table,
     ssh: SSHSession,
@@ -460,7 +540,53 @@ fn execute_task(
 
         return result
     })
-    .set_name("execute_task")
+    .set_name("execute_task_ssh")
+    .eval::<Table>()
+}
+
+fn execute_task_local(
+    lua: &Lua,
+    module: &Table,
+    local_session: LocalSession,
+    task_display: &str,
+    host_display: &str,
+) -> mlua::Result<Table> {
+    let dry_run = Args::parse().flags.dry_run;
+
+    lua.load(chunk! {
+        print(">> Running task '" .. $task_display .. "' on host '" .. $host_display .."' (local) ...")
+        $module.ssh = $local_session
+
+        if $dry_run then
+            if $module.dry_run ~= nil then
+                $module:dry_run()
+            else
+                print("[[ Task '" .. $task_display .. "' on host '" .. $host_display .."' does not support dry-run. Assuming 'changed' is true. ]]")
+                $module.ssh:set_changed(true)
+            end
+        else
+            $module:run()
+        end
+
+        local result = $module.ssh:get_session_result()
+        komandan.dprint(result.stdout)
+        if result.exit_code ~= 0 then
+            print(">> Task '" .. $task_display .. "' on host '" .. $host_display .."' failed with exit code " .. result.exit_code .. ": " .. result.stderr)
+        else
+            local state = "[OK]"
+            if result.changed then
+                state = "[Changed]"
+            end
+            print(">> Task '" .. $task_display .. "' on host '" .. $host_display .."' succeeded. " .. state)
+        end
+
+        if $module.cleanup ~= nil then
+            $module:cleanup()
+        end
+
+        return result
+    })
+    .set_name("execute_task_local")
     .eval::<Table>()
 }
 
@@ -503,7 +629,7 @@ mod tests {
             }
             SSHAuthMethod::Password(_) => panic!("Expected PublicKey authentication"),
         }
-    
+
         // Test with password auth
         host.set("private_key_file", Value::Nil)?;
         host.set("password", "testpass")?;
@@ -512,10 +638,11 @@ mod tests {
             SSHAuthMethod::Password(pass) => assert_eq!(pass, "testpass"),
             SSHAuthMethod::PublicKey { .. } => panic!("Expected Password authentication"),
         }
-    
+
         // Test with no authentication method
         host.set("password", Value::Nil)?;
-        let temp_dir = tempfile::tempdir().map_err(|e| anyhow::anyhow!("failed to create temp dir: {e}"))?;
+        let temp_dir =
+            tempfile::tempdir().map_err(|e| anyhow::anyhow!("failed to create temp dir: {e}"))?;
         let home_path = temp_dir.path().display().to_string();
         let result = get_auth_config(&host, &task, Some(&home_path));
         assert!(result.is_err());
@@ -629,7 +756,7 @@ mod tests {
         env_task.set("TASK_VAR", "task_value")?;
         task.set("env", env_task)?;
 
-        setup_environment(&mut ssh, &host, &task)?;
+        setup_environment_ssh(&mut ssh, &host, &task)?;
 
         Ok(())
     }

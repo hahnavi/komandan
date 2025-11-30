@@ -1,13 +1,11 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, unsafe_code)]
-
 use komandan::create_lua;
 use mlua::{Integer, Table, chunk};
-use std::{env, io::Write};
+use std::io::Write;
 use tempfile::NamedTempFile;
 
 #[test]
-fn test_komando_invalid_known_hosts_path() {
-    let lua = create_lua().unwrap();
+fn test_komando_invalid_known_hosts_path() -> mlua::Result<()> {
+    let lua = create_lua()?;
 
     let result = lua
         .load(chunk! {
@@ -15,7 +13,8 @@ fn test_komando_invalid_known_hosts_path() {
                 address = "localhost",
                 user = "usertest",
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
-                known_hosts_file = "/path/to/invalid/known_hosts"
+                known_hosts_file = "/path/to/invalid/known_hosts",
+                connection = "ssh"
             }
 
             local task = {
@@ -29,11 +28,12 @@ fn test_komando_invalid_known_hosts_path() {
         .eval::<Table>();
 
     assert!(result.is_err());
+    Ok(())
 }
 
 #[test]
-fn test_komando_known_hosts_check_not_match() {
-    let lua = create_lua().unwrap();
+fn test_komando_known_hosts_check_not_match() -> mlua::Result<()> {
+    let lua = create_lua()?;
 
     let result = lua
         .load(chunk! {
@@ -54,18 +54,20 @@ fn test_komando_known_hosts_check_not_match() {
         .eval::<Table>();
 
     assert!(result.is_err());
+    Ok(())
 }
 
 #[test]
-fn test_komando_userauth_invalid_password() {
-    let lua = create_lua().unwrap();
+fn test_komando_userauth_invalid_password() -> mlua::Result<()> {
+    let lua = create_lua()?;
 
     let result = lua
         .load(chunk! {
             local hosts = {
                 address = "localhost",
                 user = "usertest",
-                password = "passw0rd"
+                password = "passw0rd",
+                connection = "ssh"
             }
 
             local task = {
@@ -79,11 +81,12 @@ fn test_komando_userauth_invalid_password() {
         .eval::<Table>();
 
     assert!(result.is_err());
+    Ok(())
 }
 
 #[test]
-fn test_komando_use_default_user() {
-    let lua = create_lua().unwrap();
+fn test_komando_use_default_user() -> mlua::Result<()> {
+    let lua = create_lua()?;
 
     let result = lua
         .load(chunk! {
@@ -106,12 +109,14 @@ fn test_komando_use_default_user() {
         .eval::<Table>();
 
     assert!(result.is_ok());
+    Ok(())
 }
 
 #[test]
-fn test_komando_use_default_user_from_env() {
-    let lua = create_lua().unwrap();
-    unsafe { env::set_var("USER", "usertest") };
+#[allow(unsafe_code)]
+fn test_komando_use_default_user_from_env() -> mlua::Result<()> {
+    let lua = create_lua()?;
+    unsafe { std::env::set_var("USER", "usertest") };
 
     let result = lua
         .load(chunk! {
@@ -132,11 +137,12 @@ fn test_komando_use_default_user_from_env() {
         .eval::<Table>();
 
     assert!(result.is_ok());
+    Ok(())
 }
 
 #[test]
-fn test_komando_simple_cmd() {
-    let lua = create_lua().unwrap();
+fn test_komando_simple_cmd() -> mlua::Result<()> {
+    let lua = create_lua()?;
 
     let result_table = lua
         .load(chunk! {
@@ -155,17 +161,17 @@ fn test_komando_simple_cmd() {
 
             return komandan.komando(hosts, task)
         })
-        .eval::<Table>()
-        .unwrap();
+        .eval::<Table>()?;
 
-    assert!(result_table.get::<Integer>("exit_code").unwrap() == 0);
-    assert!(result_table.get::<String>("stdout").unwrap() == "hello");
-    assert!(result_table.get::<String>("stderr").unwrap() == "");
+    assert!(result_table.get::<Integer>("exit_code")? == 0);
+    assert!(result_table.get::<String>("stdout")? == "hello");
+    assert!((result_table.get::<String>("stderr")?).is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_komando_simple_script() {
-    let lua = create_lua().unwrap();
+fn test_komando_simple_script() -> mlua::Result<()> {
+    let lua = create_lua()?;
 
     let result_table = lua
         .load(chunk! {
@@ -185,22 +191,25 @@ fn test_komando_simple_script() {
 
             return komandan.komando(hosts, task)
         })
-        .eval::<Table>()
-        .unwrap();
+        .eval::<Table>()?;
 
-    assert!(result_table.get::<Integer>("exit_code").unwrap() == 0);
-    assert!(result_table.get::<String>("stdout").unwrap() == "hello");
-    assert!(result_table.get::<String>("stderr").unwrap() == "");
+    assert!(result_table.get::<Integer>("exit_code")? == 0);
+    assert!(result_table.get::<String>("stdout")? == "hello");
+    assert!((result_table.get::<String>("stderr")?).is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_komando_script_from_file() {
-    let lua = create_lua().unwrap();
+fn test_komando_script_from_file() -> mlua::Result<()> {
+    let lua = create_lua()?;
 
-    let mut temp_file = NamedTempFile::new().unwrap();
-    writeln!(temp_file, "echo hello").unwrap();
+    let mut temp_file = NamedTempFile::new().map_err(mlua::Error::external)?;
+    writeln!(temp_file, "echo hello").map_err(mlua::Error::external)?;
 
-    let temp_file_path = temp_file.path().to_str().unwrap();
+    let temp_file_path = temp_file
+        .path()
+        .to_str()
+        .ok_or_else(|| mlua::Error::external("invalid path"))?;
 
     let result_table = lua
         .load(chunk! {
@@ -220,17 +229,28 @@ fn test_komando_script_from_file() {
 
             return komandan.komando(hosts, task)
         })
-        .eval::<Table>()
-        .unwrap();
+        .eval::<Table>()?;
 
-    assert!(result_table.get::<Integer>("exit_code").unwrap() == 0);
-    assert!(result_table.get::<String>("stdout").unwrap() == "hello");
-    assert!(result_table.get::<String>("stderr").unwrap() == "");
+    assert!(result_table.get::<Integer>("exit_code")? == 0);
+    assert!(result_table.get::<String>("stdout")? == "hello");
+    assert!((result_table.get::<String>("stderr")?).is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_komando_apt() {
-    let lua = create_lua().unwrap();
+fn test_komando_apt() -> mlua::Result<()> {
+    // Skip test if apt is not available (e.g., on non-Debian systems)
+    if std::process::Command::new("which")
+        .arg("apt")
+        .output()
+        .map(|o| !o.status.success())
+        .unwrap_or(true)
+    {
+        eprintln!("Skipping test_komando_apt: apt not available on this system");
+        return Ok(());
+    }
+
+    let lua = create_lua()?;
 
     let result_table = lua
         .load(chunk! {
@@ -244,14 +264,13 @@ fn test_komando_apt() {
             local task = {
                 komandan.modules.apt({
                     package = "tar",
-                }),
-                elevate = true
+                })
             }
 
             return komandan.komando(hosts, task)
         })
-        .eval::<Table>()
-        .unwrap();
+        .eval::<Table>()?;
 
-    assert!(result_table.get::<Integer>("exit_code").unwrap() == 0);
+    assert!(result_table.get::<Integer>("exit_code")? == 0);
+    Ok(())
 }

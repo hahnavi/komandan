@@ -1,11 +1,13 @@
 pub mod args;
 pub mod defaults;
+pub mod executor;
 mod komando;
+mod local;
 pub mod models;
 mod modules;
 pub mod project;
 mod report;
-mod ssh;
+pub mod ssh;
 mod util;
 mod validator;
 

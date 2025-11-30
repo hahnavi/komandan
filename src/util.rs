@@ -230,7 +230,6 @@ pub fn task_display(task: &Table) -> String {
 
 // Tests
 #[cfg(test)]
-#[allow(unsafe_code)]
 mod tests {
     use tempfile::NamedTempFile;
 
@@ -240,6 +239,7 @@ mod tests {
     use std::{env, fs::write, io::Write};
 
     #[test]
+    #[allow(unsafe_code)]
     fn test_dprint_verbose() -> mlua::Result<()> {
         // Simulate verbose flag being set
         let args = Args {
@@ -264,6 +264,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unsafe_code)]
     fn test_dprint_not_verbose() -> mlua::Result<()> {
         // Simulate verbose flag not being set
         let args = Args {

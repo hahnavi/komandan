@@ -107,7 +107,7 @@ pub fn user(lua: &Lua, params: Table) -> mlua::Result<Table> {
                         if self.params.groups ~= nil then
                             local desired_groups = {}
                             for _, g in ipairs(self.params.groups) do desired_groups[g] = true end
-                            
+
                             local current_groups_set = {}
                             for _, g in ipairs(current_groups) do current_groups_set[g] = true end
 
@@ -149,7 +149,7 @@ pub fn user(lua: &Lua, params: Table) -> mlua::Result<Table> {
                         local cmd = "useradd"
                         if self.params.uid ~= nil then cmd = cmd .. " --uid " .. shell_escape(tostring(self.params.uid)) end
                         if self.params.group ~= nil then cmd = cmd .. " --gid " .. shell_escape(self.params.group) end
-                        if self.params.groups ~= nil then 
+                        if self.params.groups ~= nil then
                             local groups_str = table.concat(self.params.groups, ",")
                             cmd = cmd .. " --groups " .. shell_escape(groups_str) 
                         end
@@ -194,7 +194,7 @@ pub fn user(lua: &Lua, params: Table) -> mlua::Result<Table> {
                         if self.params.groups ~= nil then
                             local desired_groups = {}
                             for _, g in ipairs(self.params.groups) do desired_groups[g] = true end
-                            
+
                             local current_groups_set = {}
                             for _, g in ipairs(current_groups) do current_groups_set[g] = true end
 
@@ -277,18 +277,21 @@ mod tests {
 
         // Mock SSH
         let ssh = lua.create_table()?;
-        ssh.set("cmdq", lua.create_function(|lua, (_self, cmd): (Table, String)| {
-            let result = lua.create_table()?;
-            result.set("exit_code", 0)?;
-            if cmd.contains("getent passwd") {
-                // Return output with empty fields (e.g. empty GECOS) and trailing newline
-                // testuser:x:1000:1000::/home/testuser:/bin/bash\n
-                result.set("stdout", "testuser:x:1000:1000::/home/testuser:/bin/bash\n")?;
-            } else {
-                result.set("stdout", "")?;
-            }
-            Ok(result)
-        })?)?;
+        ssh.set(
+            "cmdq",
+            lua.create_function(|lua, (_self, cmd): (Table, String)| {
+                let result = lua.create_table()?;
+                result.set("exit_code", 0)?;
+                if cmd.contains("getent passwd") {
+                    // Return output with empty fields (e.g. empty GECOS) and trailing newline
+                    // testuser:x:1000:1000::/home/testuser:/bin/bash\n
+                    result.set("stdout", "testuser:x:1000:1000::/home/testuser:/bin/bash\n")?;
+                } else {
+                    result.set("stdout", "")?;
+                }
+                Ok(result)
+            })?,
+        )?;
         module.set("ssh", ssh)?;
 
         let get_user_info: mlua::Function = module.get("get_user_info")?;
@@ -313,32 +316,39 @@ mod tests {
 
         // Mock SSH
         let ssh = lua.create_table()?;
-        ssh.set("cmdq", lua.create_function(|lua, (_self, cmd): (Table, String)| {
-            let result = lua.create_table()?;
-            result.set("exit_code", 0)?;
-            if cmd.contains("id -Gn") {
-                // Return groups in different order
-                result.set("stdout", "group2 group1")?;
-            } else if cmd.contains("id -u") {
+        ssh.set(
+            "cmdq",
+            lua.create_function(|lua, (_self, cmd): (Table, String)| {
+                let result = lua.create_table()?;
                 result.set("exit_code", 0)?;
-            } else if cmd.contains("getent passwd") {
-                result.set("stdout", "testuser:x:1000:1000::/home/testuser:/bin/bash")?;
-            } else {
-                result.set("stdout", "")?;
-            }
-            Ok(result)
-        })?)?;
-        
+                if cmd.contains("id -Gn") {
+                    // Return groups in different order
+                    result.set("stdout", "group2 group1")?;
+                } else if cmd.contains("id -u") {
+                    result.set("exit_code", 0)?;
+                } else if cmd.contains("getent passwd") {
+                    result.set("stdout", "testuser:x:1000:1000::/home/testuser:/bin/bash")?;
+                } else {
+                    result.set("stdout", "")?;
+                }
+                Ok(result)
+            })?,
+        )?;
+
         let changed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let changed_clone = changed.clone();
-        ssh.set("set_changed", lua.create_function(move |_, (_self, val): (Table, bool)| {
-            changed_clone.store(val, std::sync::atomic::Ordering::SeqCst);
-            Ok(())
-        })?)?;
-        
-        ssh.set("get_changed", lua.create_function(|_, _self: Table| {
-            Ok(false)
-        })?)?;
+        ssh.set(
+            "set_changed",
+            lua.create_function(move |_, (_self, val): (Table, bool)| {
+                changed_clone.store(val, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            })?,
+        )?;
+
+        ssh.set(
+            "get_changed",
+            lua.create_function(|_, _self: Table| Ok(false))?,
+        )?;
 
         module.set("ssh", ssh)?;
 

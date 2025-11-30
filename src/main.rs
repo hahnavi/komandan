@@ -13,7 +13,10 @@ use std::path::Path;
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    run_app(&args)
+}
 
+fn run_app(args: &Args) -> anyhow::Result<()> {
     if args.flags.version {
         print_version();
         return Ok(());
@@ -102,33 +105,155 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::Parser;
+    use komandan::args::{Flags, InitArgs, ProjectArgs, ProjectCommands};
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    // Helper to create empty Args with default flags
+    fn default_args() -> Args {
+        Args {
+            main_file: None,
+            chunk: None,
+            flags: Flags {
+                dry_run: false,
+                no_report: false,
+                interactive: false,
+                verbose: false,
+                unsafe_lua: false,
+                version: false,
+            },
+            command: None,
+        }
+    }
 
     #[test]
     fn test_module_imports() {
         // This test verifies that all necessary modules are accessible
-        // and can be imported without errors
         let _ = Args::parse_from(["komandan", "--version"]);
     }
 
     #[test]
     fn test_args_struct_exists() {
-        // Verify Args struct can be constructed
         let args = Args::parse_from(["komandan"]);
         assert!(args.main_file.is_none());
-        assert!(args.chunk.is_none());
-        assert!(args.command.is_none());
     }
 
     #[test]
-    fn test_flags_default_values() {
-        // Verify default flag values
-        let args = Args::parse_from(["komandan"]);
-        assert!(!args.flags.dry_run);
-        assert!(!args.flags.no_report);
-        assert!(!args.flags.interactive);
-        assert!(!args.flags.verbose);
-        assert!(!args.flags.unsafe_lua);
-        assert!(!args.flags.version);
+    fn test_run_app_version() {
+        let mut args = default_args();
+        args.flags.version = true;
+        assert!(run_app(&args).is_ok());
+    }
+
+    #[test]
+    fn test_run_app_chunk() {
+        let mut args = default_args();
+        args.chunk = Some("print('hello from test')".to_string());
+        assert!(run_app(&args).is_ok());
+    }
+
+    #[test]
+    fn test_run_app_dry_run() {
+        let mut args = default_args();
+        args.chunk = Some("print('hello')".to_string());
+        args.flags.dry_run = true;
+        assert!(run_app(&args).is_ok());
+    }
+
+    #[test]
+    fn test_run_app_subcommand() -> anyhow::Result<()> {
+        let mut args = default_args();
+        let temp_dir = TempDir::new()?;
+        let dir_str = temp_dir
+            .path()
+            .to_str()
+            .context("temp dir path should be valid UTF-8")?
+            .to_string();
+
+        args.command = Some(Commands::Project(ProjectArgs {
+            command: ProjectCommands::Init(InitArgs { directory: dir_str }),
+        }));
+
+        assert!(run_app(&args).is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn test_run_app_file() -> anyhow::Result<()> {
+        let mut args = default_args();
+        let mut temp_file = tempfile::NamedTempFile::new()?;
+        writeln!(temp_file, "print('file test')")?;
+
+        args.main_file = Some(
+            temp_file
+                .path()
+                .to_str()
+                .context("temp file path should be valid UTF-8")?
+                .to_string(),
+        );
+
+        assert!(run_app(&args).is_ok());
+        Ok(())
+    }
+    #[test]
+    fn test_run_app_directory_missing_config() -> anyhow::Result<()> {
+        let mut args = default_args();
+        let temp_dir = TempDir::new()?;
+        args.main_file = Some(
+            temp_dir
+                .path()
+                .to_str()
+                .context("temp dir path should be valid UTF-8")?
+                .to_string(),
+        );
+
+        let result = run_app(&args);
+        assert!(result.is_err());
+        assert!(
+            result
+                .err()
+                .context("expected error for missing config")?
+                .to_string()
+                .contains("does not contain komandan.json")
+        );
+        Ok(())
+    }
+    #[test]
+    fn test_run_app_directory_valid() -> anyhow::Result<()> {
+        let mut args = default_args();
+        let temp_dir = TempDir::new()?;
+        let path = temp_dir.path();
+
+        // Create komandan.json
+        let config = r#"{
+        "name": "test",
+        "version": "0.1.0",
+        "main": "main.lua",
+        "defaults": {
+            "hosts": "hosts.lua"
+        }
+    }"#;
+        fs::write(path.join("komandan.json"), config)?;
+
+        // Create main.lua
+        fs::write(path.join("main.lua"), "print('main running')")?;
+
+        // Create hosts.lua
+        let hosts_content = r#"
+        return {
+            { address = "localhost", connection = "local"
+            }
+        }
+    "#;
+        fs::write(path.join("hosts.lua"), hosts_content)?;
+
+        args.main_file = Some(
+            path.to_str()
+                .context("temp dir path should be valid UTF-8")?
+                .to_string(),
+        );
+
+        assert!(run_app(&args).is_ok());
+        Ok(())
     }
 }

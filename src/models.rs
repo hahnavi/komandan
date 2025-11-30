@@ -5,6 +5,34 @@ use serde::{Deserialize, Serialize};
 
 use crate::ssh::ElevationMethod;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConnectionType {
+    Local,
+    SSH,
+}
+
+impl std::str::FromStr for ConnectionType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "local" => Ok(Self::Local),
+            "ssh" => Ok(Self::SSH),
+            _ => Err(()),
+        }
+    }
+}
+
+impl ConnectionType {
+    #[must_use]
+    pub const fn as_str(&self) -> &str {
+        match self {
+            Self::Local => "local",
+            Self::SSH => "ssh",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Host {
     name: Option<String>,
@@ -19,6 +47,7 @@ pub struct Host {
     elevation_method: Option<ElevationMethod>,
     as_user: Option<String>,
     env: Option<HashMap<String, String>>,
+    connection: Option<ConnectionType>,
 }
 
 impl FromLua for Host {
@@ -46,6 +75,10 @@ impl FromLua for Host {
             }),
             as_user: table.get("as_user")?,
             env: table.get("env")?,
+            connection: table
+                .get::<String>("connection")
+                .ok()
+                .and_then(|s| s.parse().ok()),
         })
     }
 }
@@ -90,6 +123,9 @@ impl IntoLua for Host {
         }
         if let Some(env) = self.env {
             table.set("env", env)?;
+        }
+        if let Some(connection) = self.connection {
+            table.set("connection", connection.as_str())?;
         }
         Ok(Value::Table(table))
     }
@@ -295,6 +331,7 @@ mod tests {
             elevation_method: Some(ElevationMethod::Sudo),
             as_user: Some("root".to_string()),
             env: Some(env.clone()),
+            connection: None,
         };
 
         let table = host
