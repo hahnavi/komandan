@@ -1,13 +1,6 @@
 use mlua::{ExternalResult, Lua, Table, chunk};
-use rand::{Rng, distr::Alphanumeric};
 
 pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
-    let random_file_name: String = rand::rng()
-        .sample_iter(&Alphanumeric)
-        .map(char::from)
-        .take(10)
-        .collect();
-
     let base_module = super::base_module(lua)?;
     let module = lua
         .load(chunk! {
@@ -38,36 +31,32 @@ pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
             local module = $base_module:new({ name = "lineinfile" })
 
             module.params = $params
-            module.random_file_name = $random_file_name
             module.lineinfile_script = $LINEINFILE_SCRIPT
 
             module.run_lineinfile_script = function(self)
-                local tmpdir = self.ssh:get_tmpdir()
-                self.remote_script = tmpdir .. "/." .. self.random_file_name
-                self.ssh:write_remote_file(self.remote_script, self.lineinfile_script)
-                self.ssh:chmod(self.remote_script, "+x")
-
-                local cmd = self.remote_script .. " --path \"" .. self.params.path .. "\" --create " .. tostring(self.params.create) .. " --backup " .. tostring(self.params.backup) .. " --state " .. self.params.state
+                local args = " --path \"" .. self.params.path .. "\" --create " .. tostring(self.params.create) .. " --backup " .. tostring(self.params.backup) .. " --state " .. self.params.state
                 if self.params.line ~= nil then
-                    cmd = cmd .. " --line \"" .. self.params.line .. "\""
+                    args = args .. " --line \"" .. self.params.line .. "\""
                 end
 
                 if self.params.pattern ~= nil then
-                    cmd = cmd .. " --pattern \"" .. self.params.pattern .. "\""
+                    args = args .. " --pattern \"" .. self.params.pattern .. "\""
                 end
 
                 if self.params.insert_after ~= nil then
-                    cmd = cmd .. " --insert_after \"" .. self.params.insert_after .. "\""
+                    args = args .. " --insert_after \"" .. self.params.insert_after .. "\""
                 end
 
                 if self.params.insert_before ~= nil then
-                    cmd = cmd .. " --insert_before \"" .. self.params.insert_before .. "\""
+                    args = args .. " --insert_before \"" .. self.params.insert_before .. "\""
                 end
 
                 if self.params.dry_run then
-                    cmd = cmd .. " --dry-run"
+                    args = args .. " --dry-run"
                 end
 
+                -- Execute script inline using heredoc
+                local cmd = "sh -s --" .. args .. " <<'LINEINFILE_EOF'\n" .. self.lineinfile_script .. "\nLINEINFILE_EOF"
                 return self.ssh:cmd(cmd)
             end
 
@@ -87,7 +76,7 @@ pub fn lineinfile(lua: &Lua, params: Table) -> mlua::Result<Table> {
             end
 
             module.cleanup = function(self)
-                self.ssh:cmd("rm " .. self.remote_script)
+                -- No cleanup needed
             end
 
             return module

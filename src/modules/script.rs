@@ -25,27 +25,49 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
             module.random_file_name = $random_file_name
 
             module.run = function(self)
-                local tmpdir = self.ssh:get_tmpdir()
-                self.remote_path = tmpdir .. "/." .. self.random_file_name
-
-                if self.params.script ~= nil then
-                    self.ssh:write_remote_file(self.remote_path, self.params.script)
-                elseif self.params.from_file ~= nil then
-                    self.ssh:upload(self.params.from_file, self.remote_path)
+                local script_content = self.params.script
+                local use_inline = false
+                
+                -- Determine if we can execute inline (script < 100KB and not from_file)
+                if script_content ~= nil then
+                    local script_size = #script_content
+                    if script_size < 102400 then -- 100KB = 102400 bytes
+                        use_inline = true
+                    end
                 end
 
-                if self.params.interpreter ~= nil then
-                    self.ssh:cmd(self.params.interpreter .. " " .. self.remote_path)
+                if use_inline then
+                    -- Execute inline using heredoc
+                    local interpreter = self.params.interpreter or "sh"
+                    local cmd = interpreter .. " <<'SCRIPT_EOF'\n" .. script_content .. "\nSCRIPT_EOF"
+                    self.ssh:cmd(cmd)
                 else
-                    self.ssh:chmod(self.remote_path, "+x")
-                    self.ssh:cmd(self.remote_path)
+                    -- Transfer file and execute (for large scripts or from_file)
+                    local tmpdir = self.ssh:get_tmpdir()
+                    self.remote_path = tmpdir .. "/." .. self.random_file_name
+
+                    if self.params.script ~= nil then
+                        self.ssh:write_remote_file(self.remote_path, self.params.script)
+                    elseif self.params.from_file ~= nil then
+                        self.ssh:upload(self.params.from_file, self.remote_path)
+                    end
+
+                    if self.params.interpreter ~= nil then
+                        self.ssh:cmd(self.params.interpreter .. " " .. self.remote_path)
+                    else
+                        self.ssh:chmod(self.remote_path, "+x")
+                        self.ssh:cmd(self.remote_path)
+                    end
                 end
 
                 self.ssh:set_changed(true)
             end
 
             module.cleanup = function(self)
-                self.ssh:cmd("rm " .. self.remote_path)
+                -- Only cleanup if created a remote file
+                if self.remote_path ~= nil then
+                    self.ssh:cmd("rm " .. self.remote_path)
+                end
             end
 
             return module
