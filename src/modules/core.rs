@@ -1,8 +1,8 @@
 use mlua::Table;
 
 use super::{
-    apt, cmd, dnf, download, file, get_url, lineinfile, postgresql_user, script, systemd_service,
-    template, upload, user,
+    apt, cmd, dnf, download, file, get_url, group, lineinfile, postgresql_user, script,
+    systemd_service, template, upload, user,
 };
 
 pub fn collect_core_modules(lua: &mlua::Lua) -> mlua::Result<Table> {
@@ -13,6 +13,7 @@ pub fn collect_core_modules(lua: &mlua::Lua) -> mlua::Result<Table> {
     modules.set("download", lua.create_function(download::download)?)?;
     modules.set("file", lua.create_function(file::file)?)?;
     modules.set("get_url", lua.create_function(get_url::get_url)?)?;
+    modules.set("group", lua.create_function(group::group)?)?;
     modules.set("lineinfile", lua.create_function(lineinfile::lineinfile)?)?;
     modules.set(
         "postgresql_user",

@@ -27,7 +27,7 @@ pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
             module.run = function(self)
                 local script_content = self.params.script
                 local use_inline = false
-                
+
                 -- Determine if we can execute inline (script < 100KB and not from_file)
                 if script_content ~= nil then
                     local script_size = #script_content

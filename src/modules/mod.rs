@@ -6,6 +6,7 @@ mod dnf;
 mod download;
 mod file;
 mod get_url;
+mod group;
 mod lineinfile;
 mod postgresql_user;
 mod script;
