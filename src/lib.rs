@@ -5,6 +5,7 @@ mod komando;
 mod local;
 pub mod models;
 mod modules;
+pub mod notification;
 pub mod project;
 mod report;
 pub mod ssh;
@@ -107,6 +108,9 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
 
     // Add core modules
     komandan.set("modules", collect_core_modules(lua)?)?;
+
+    // Add notification functions
+    notification::register_notification_functions(lua, &komandan)?;
 
     lua.globals().set("komandan", &komandan)?;
 
@@ -245,6 +249,12 @@ mod tests {
         assert!(modules_table.contains_key("template")?);
         assert!(modules_table.contains_key("upload")?);
         assert!(modules_table.contains_key("download")?);
+
+        // Assert that the notification table is set up correctly
+        let notification_table = komandan_table.get::<Table>("notification")?;
+        assert!(notification_table.contains_key("google_chat_webhook")?);
+        assert!(notification_table.contains_key("slack_webhook")?);
+        assert!(notification_table.contains_key("smtp")?);
 
         Ok(())
     }
