@@ -42,8 +42,21 @@ fn determine_connection_type(host: &Table) -> mlua::Result<ConnectionType> {
 }
 
 pub fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
-    let host = lua.create_function(validate_host)?.call::<Table>(&host)?;
-    let task = lua.create_function(validate_task)?.call::<Table>(&task)?;
+    let (host, task) = if task.is_nil() {
+        (
+            lua.load(chunk! {
+                return { address = "localhost" }
+            })
+            .eval::<Table>()?,
+            lua.create_function(validate_task)?.call::<Table>(&host)?,
+        )
+    } else {
+        (
+            lua.create_function(validate_host)?.call::<Table>(&host)?,
+            lua.create_function(validate_task)?.call::<Table>(&task)?,
+        )
+    };
+
     let module = task.get::<Table>(1)?;
 
     let host_display = host_display(&host);
