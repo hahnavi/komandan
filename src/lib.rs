@@ -21,7 +21,9 @@ use modules::{base_module, collect_core_modules};
 use report::generate_report;
 use rustyline::DefaultEditor;
 use std::{env, fs, path::Path};
-use util::{dprint, filter_hosts, parse_hosts_json_file, parse_hosts_json_url, regex_is_match};
+use util::{
+    dprint, filter_hosts, host_info, parse_hosts_json_file, parse_hosts_json_url, regex_is_match,
+};
 
 /// Creates a new Lua instance with Komandan configuration.
 ///
@@ -104,6 +106,7 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(parse_hosts_json_url)?,
     )?;
     komandan.set("dprint", lua.create_function(dprint)?)?;
+    komandan.set("host_info", lua.create_function(host_info)?)?;
 
     // Add core modules
     komandan.set("modules", collect_core_modules(lua)?)?;
@@ -243,6 +246,7 @@ mod tests {
         assert!(komandan_table.contains_key("parse_hosts_json_file")?);
         assert!(komandan_table.contains_key("parse_hosts_json_url")?);
         assert!(komandan_table.contains_key("dprint")?);
+        assert!(komandan_table.contains_key("host_info")?);
 
         let modules_table = komandan_table.get::<Table>("modules")?;
         assert!(modules_table.contains_key("apt")?);
