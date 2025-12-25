@@ -41,19 +41,19 @@ fn determine_connection_type(host: &Table) -> mlua::Result<ConnectionType> {
     }
 }
 
-pub fn komando(lua: &Lua, (host, task): (Value, Value)) -> mlua::Result<Table> {
-    let (host, task) = if task.is_nil() {
+pub fn komando(lua: &Lua, (task, host): (Value, Value)) -> mlua::Result<Table> {
+    let (task, host) = if host.is_nil() {
         (
+            lua.create_function(validate_task)?.call::<Table>(&host)?,
             lua.load(chunk! {
                 return { address = "localhost" }
             })
             .eval::<Table>()?,
-            lua.create_function(validate_task)?.call::<Table>(&host)?,
         )
     } else {
         (
-            lua.create_function(validate_host)?.call::<Table>(&host)?,
             lua.create_function(validate_task)?.call::<Table>(&task)?,
+            lua.create_function(validate_host)?.call::<Table>(&host)?,
         )
     };
 
@@ -139,7 +139,7 @@ enum ParallelHashMapKey {
     Text(String),
 }
 
-pub fn komando_parallel_tasks(lua: &Lua, (host, tasks): (Value, Value)) -> mlua::Result<Table> {
+pub fn komando_parallel_tasks(lua: &Lua, (tasks, host): (Value, Value)) -> mlua::Result<Table> {
     let host = Host::from_lua(host, lua)?;
     let mut tasks_hm = HashMap::<ParallelHashMapKey, Task>::new();
     let tasks_table = tasks
@@ -167,7 +167,7 @@ pub fn komando_parallel_tasks(lua: &Lua, (host, tasks): (Value, Value)) -> mlua:
             let lua = create_lua().ok()?;
             let host = host.clone().into_lua(&lua).ok()?;
             let task = task.clone().into_lua(&lua).ok()?;
-            let result = komando(&lua, (host, task)).ok()?;
+            let result = komando(&lua, (task, host)).ok()?;
 
             Some((
                 i.clone(),
@@ -189,7 +189,7 @@ pub fn komando_parallel_tasks(lua: &Lua, (host, tasks): (Value, Value)) -> mlua:
     Ok(results_table)
 }
 
-pub fn komando_parallel_hosts(lua: &Lua, (hosts, task): (Value, Value)) -> mlua::Result<Table> {
+pub fn komando_parallel_hosts(lua: &Lua, (task, hosts): (Value, Value)) -> mlua::Result<Table> {
     let task = Task::from_lua(task, lua)?;
     let mut hosts_hm = HashMap::<ParallelHashMapKey, Host>::new();
     let hosts_table = hosts
@@ -217,7 +217,7 @@ pub fn komando_parallel_hosts(lua: &Lua, (hosts, task): (Value, Value)) -> mlua:
             let lua = create_lua().ok()?;
             let host = host.clone().into_lua(&lua).ok()?;
             let task = task.clone().into_lua(&lua).ok()?;
-            let result = komando(&lua, (host, task)).ok()?;
+            let result = komando(&lua, (task, host)).ok()?;
 
             Some((
                 i.clone(),

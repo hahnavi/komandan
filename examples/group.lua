@@ -107,22 +107,22 @@ local create_local_group_task = {
 
 -- Execute tasks
 print("Creating basic group...")
-komandan.komando(host, create_group_task)
+komandan.komando(create_group_task, host)
 
 print("Creating group with specific GID...")
-komandan.komando(host, create_group_with_gid_task)
+komandan.komando(create_group_with_gid_task, host)
 
 print("Creating system group...")
-komandan.komando(host, create_system_group_task)
+komandan.komando(create_system_group_task, host)
 
 print("Creating another group with specific GID...")
-komandan.komando(host, create_another_group_task)
+komandan.komando(create_another_group_task, host)
 
 -- Uncomment to test other operations:
--- komandan.komando(host, modify_group_gid_task)
--- komandan.komando(host, delete_group_task)
--- komandan.komando(host, force_delete_group_task)
--- komandan.komando(host, create_non_unique_gid_task)
--- komandan.komando(host, create_local_group_task)
+-- komandan.komando(modify_group_gid_task, host)
+-- komandan.komando(delete_group_task, host)
+-- komandan.komando(force_delete_group_task, host)
+-- komandan.komando(create_non_unique_gid_task, host)
+-- komandan.komando(create_local_group_task, host)
 
 print("Group management tasks completed!")

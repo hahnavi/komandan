@@ -568,7 +568,7 @@ mod tests {
         let lua = create_lua()?;
         let result = parse_hosts_json_url(
             &lua,
-            Value::String(lua.create_string("https://komandan.vercel.app/examples/hosts.json")?),
+            Value::String(lua.create_string("https://komandan.vercel.app/examples/hosts2.json")?),
         );
         assert!(result.is_err());
         if let Err(e) = result {
@@ -582,7 +582,7 @@ mod tests {
         let lua = create_lua()?;
         let result = parse_hosts_json_url(
             &lua,
-            Value::String(lua.create_string("https://komandan.surge.sh/examples/hosts.json")?),
+            Value::String(lua.create_string("https://komandan.vercel.app/examples/hosts.json")?),
         );
         assert!(result.is_ok());
         Ok(())

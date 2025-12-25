@@ -98,7 +98,7 @@ local tasks_postgresql_install = {
 }
 
 for _, task in pairs(tasks_postgresql_install) do
-	komandan.komando_parallel_hosts(hosts, task)
+	komandan.komando_parallel_hosts(task, hosts)
 end
 
 -- Setup PostgreSQL primary
@@ -117,7 +117,7 @@ local tasks_setup_primary = {
 local host_primary = komandan.filter_hosts(hosts, "primary")[1]
 
 for _, task in pairs(tasks_setup_primary) do
-	komandan.komando(host_primary, task)
+	komandan.komando(task, host_primary)
 end
 
 -- Setup PostgreSQL replica
@@ -177,5 +177,5 @@ local tasks_setup_replica = {
 local host_replica = komandan.filter_hosts(hosts, "replica")[1]
 
 for _, task in pairs(tasks_setup_replica) do
-	komandan.komando(host_replica, task)
+	komandan.komando(task, host_replica)
 end

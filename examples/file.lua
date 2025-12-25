@@ -17,4 +17,4 @@ local task = {
     elevate = true,
 }
 
-komandan.komando(host, task)
+komandan.komando(task, host)

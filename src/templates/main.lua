@@ -7,4 +7,4 @@ local task = {
 	}),
 }
 
-komandan.komando(hosts[1], task)
+komandan.komando(task, hosts[1])

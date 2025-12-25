@@ -17,7 +17,7 @@ print(x * y)
 	}),
 }
 
-local result = komandan.komando(host, task)
+local result = komandan.komando(task, host)
 
 print(result.stdout)
 

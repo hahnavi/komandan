@@ -38,7 +38,7 @@ fn test_komando_parallel_hosts() -> mlua::Result<()> {
                 }),
             }
 
-            return komandan.komando_parallel_hosts(hosts, task)
+            return komandan.komando_parallel_hosts(task, hosts)
         })
         .eval::<Table>()?;
 

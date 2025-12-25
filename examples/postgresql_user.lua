@@ -17,5 +17,5 @@ local task = {
     as_user = "postgres",
 }
 
-local result = komandan.komando(host, task)
+local result = komandan.komando(task, host)
 
