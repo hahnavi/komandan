@@ -110,6 +110,14 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
 
     lua.globals().set("komandan", &komandan)?;
 
+    // Create alias 'k' for 'komandan'
+    lua.globals().set("k", &komandan)?;
+
+    // Create alias 'k.mods' for 'komandan.modules'
+    let k_table = lua.globals().get::<mlua::Table>("k")?;
+    let modules_table = komandan.get::<mlua::Table>("modules")?;
+    k_table.set("mods", modules_table)?;
+
     Ok(())
 }
 
@@ -245,6 +253,16 @@ mod tests {
         assert!(modules_table.contains_key("template")?);
         assert!(modules_table.contains_key("upload")?);
         assert!(modules_table.contains_key("download")?);
+
+        // Test aliases
+        let k_table = lua.globals().get::<Table>("k")?;
+        assert!(k_table.contains_key("defaults")?);
+        assert!(k_table.contains_key("komando")?);
+        assert!(k_table.contains_key("modules")?);
+
+        let k_mods_table = k_table.get::<Table>("mods")?;
+        assert!(k_mods_table.contains_key("apt")?);
+        assert!(k_mods_table.contains_key("cmd")?);
 
         Ok(())
     }
