@@ -1,4 +1,5 @@
 pub mod args;
+pub mod connection;
 pub mod defaults;
 pub mod executor;
 mod komando;
@@ -26,6 +27,9 @@ use util::{
 };
 
 /// Creates a new Lua instance with Komandan configuration.
+///
+/// This function initializes a Lua environment with all Komandan modules,
+/// utilities, and the centralized connection factory for SSH and local connections.
 ///
 /// # Errors
 ///

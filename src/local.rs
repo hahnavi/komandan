@@ -31,7 +31,7 @@ fn is_valid_env_var_name(name: &str) -> bool {
     RE.is_match(name)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LocalSession {
     env: HashMap<String, String>,
     pub elevation: Elevation,

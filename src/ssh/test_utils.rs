@@ -1,134 +1,368 @@
-//! Test utilities for SSH module testing
-//!
-//! Provides helper functions and test scenarios for testing SSH operations
-//! without requiring actual SSH connections.
-
-use std::{collections::HashMap, io::Write};
-
+use crate::ssh::{Elevation, ElevationMethod, SSHAuthMethod, SSHSession};
 use anyhow::Result;
-use tempfile::{NamedTempFile, TempDir};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
-use super::{ElevationMethod, SSHSession};
-use crate::executor::CommandExecutor;
+/// Test utilities for SSH module testing
+pub struct SSHTestUtils;
 
-/// Builder for test SSH sessions
-pub struct TestSSHSessionBuilder {
-    env: HashMap<String, String>,
-    elevation: super::Elevation,
-}
-
-impl TestSSHSessionBuilder {
-    pub fn new() -> Self {
-        Self {
-            env: HashMap::new(),
-            elevation: super::Elevation {
-                method: ElevationMethod::None,
-                as_user: None,
-            },
-        }
+impl SSHTestUtils {
+    /// Create a test SSH session that doesn't require actual network connection
+    /// This is useful for testing SSH session logic without network dependencies
+    pub fn create_test_ssh_session() -> Result<SSHSession> {
+        SSHSession::new()
     }
 
-    pub fn with_env(mut self, key: &str, value: &str) -> Self {
-        self.env.insert(key.to_string(), value.to_string());
-        self
+    /// Create test authentication methods for various scenarios
+    pub fn create_test_auth_methods() -> Vec<(&'static str, SSHAuthMethod)> {
+        vec![
+            ("password", SSHAuthMethod::Password("testpass".to_string())),
+            (
+                "key_no_pass",
+                SSHAuthMethod::PublicKey {
+                    private_key: "/path/to/test/key".to_string(),
+                    passphrase: None,
+                },
+            ),
+            (
+                "key_with_pass",
+                SSHAuthMethod::PublicKey {
+                    private_key: "/path/to/test/key".to_string(),
+                    passphrase: Some("keypass".to_string()),
+                },
+            ),
+        ]
     }
 
-    pub fn with_elevation(mut self, method: ElevationMethod, as_user: Option<String>) -> Self {
-        self.elevation = super::Elevation { method, as_user };
-        self
+    /// Create test elevation configurations
+    pub fn create_test_elevations() -> Vec<(&'static str, Elevation)> {
+        vec![
+            (
+                "none",
+                Elevation {
+                    method: ElevationMethod::None,
+                    as_user: None,
+                },
+            ),
+            (
+                "sudo",
+                Elevation {
+                    method: ElevationMethod::Sudo,
+                    as_user: None,
+                },
+            ),
+            (
+                "sudo_user",
+                Elevation {
+                    method: ElevationMethod::Sudo,
+                    as_user: Some("admin".to_string()),
+                },
+            ),
+            (
+                "su",
+                Elevation {
+                    method: ElevationMethod::Su,
+                    as_user: None,
+                },
+            ),
+            (
+                "su_user",
+                Elevation {
+                    method: ElevationMethod::Su,
+                    as_user: Some("admin".to_string()),
+                },
+            ),
+        ]
     }
 
-    pub fn build(self) -> Result<SSHSession> {
-        // Create a real session for testing basic functionality
-        // Note: This won't actually connect to a real SSH server
+    /// Create a test SSH session with specific elevation settings
+    pub fn create_ssh_session_with_elevation(elevation: Elevation) -> Result<SSHSession> {
         let mut session = SSHSession::new()?;
-
-        // Set the environment variables
-        for (key, value) in self.env {
-            session.set_env(&key, &value);
-        }
-
-        // Set elevation
-        session.elevation = self.elevation;
-
+        session.elevation = elevation;
         Ok(session)
     }
+
+    /// Create test connection parameters for various scenarios
+    pub fn create_test_connection_params() -> Vec<(&'static str, &'static str, u16, &'static str)> {
+        vec![
+            ("localhost", "localhost", 22, "testuser"),
+            ("remote", "remote.example.com", 22, "deploy"),
+            ("custom_port", "custom.example.com", 2222, "admin"),
+            ("ipv4", "192.168.1.100", 22, "user"),
+            ("ipv6", "::1", 22, "testuser"),
+        ]
+    }
+
+    /// Simulate common SSH command outputs for testing
+    pub fn get_common_command_outputs() -> HashMap<&'static str, (&'static str, &'static str, i32)>
+    {
+        let mut outputs = HashMap::new();
+
+        // System information commands
+        outputs.insert("whoami", ("testuser", "", 0));
+        outputs.insert("hostname", ("testhost", "", 0));
+        outputs.insert("pwd", ("/home/testuser", "", 0));
+        outputs.insert("echo $HOME", ("/home/testuser", "", 0));
+        outputs.insert("id -u", ("1000", "", 0));
+        outputs.insert("id -g", ("1000", "", 0));
+        outputs.insert("id -un", ("testuser", "", 0));
+        outputs.insert("id -gn", ("testuser", "", 0));
+
+        // OS detection commands
+        outputs.insert("uname -s", ("Linux", "", 0));
+        outputs.insert("uname -r", ("5.4.0-42-generic", "", 0));
+        outputs.insert("uname -m", ("x86_64", "", 0));
+        outputs.insert(
+            "cat /etc/os-release",
+            (
+                "NAME=\"Ubuntu\"\nVERSION=\"20.04.1 LTS (Focal Fossa)\"\nID=ubuntu",
+                "",
+                0,
+            ),
+        );
+
+        // Package management commands
+        outputs.insert("which apt", ("/usr/bin/apt", "", 0));
+        outputs.insert(
+            "which yum",
+            ("", "which: no yum in (/usr/local/bin:/usr/bin:/bin)", 1),
+        );
+        outputs.insert(
+            "dpkg -l | grep nginx",
+            (
+                "ii  nginx  1.18.0-0ubuntu1  all  small, powerful, scalable web/proxy server",
+                "",
+                0,
+            ),
+        );
+
+        // Service management commands
+        outputs.insert("systemctl is-active nginx", ("active", "", 0));
+        outputs.insert("systemctl is-enabled nginx", ("enabled", "", 0));
+        outputs.insert("service nginx status", ("nginx is running", "", 0));
+
+        // File system commands
+        outputs.insert("ls -la /tmp", ("total 8\ndrwxrwxrwt  2 root root 4096 Jan  1 12:00 .\ndrwxr-xr-x 20 root root 4096 Jan  1 12:00 ..", "", 0));
+        outputs.insert("df -h", ("Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1        20G  5.0G   14G  27% /", "", 0));
+        outputs.insert("free -m", ("              total        used        free      shared  buff/cache   available\nMem:           2048         512        1024          64         512        1472", "", 0));
+
+        // Network commands
+        outputs.insert("ip addr show", ("1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN\n    inet 127.0.0.1/8 scope host lo", "", 0));
+        outputs.insert("netstat -tlnp", ("Active Internet connections (only servers)\nProto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name", "", 0));
+
+        // Error conditions
+        outputs.insert("false", ("", "", 1));
+        outputs.insert("exit 1", ("", "", 1));
+        outputs.insert(
+            "nonexistent_command",
+            ("", "bash: nonexistent_command: command not found", 127),
+        );
+
+        outputs
+    }
+
+    /// Create test environment variables
+    pub fn create_test_environment() -> HashMap<String, String> {
+        let mut env = HashMap::new();
+        env.insert("HOME".to_string(), "/home/testuser".to_string());
+        env.insert("USER".to_string(), "testuser".to_string());
+        env.insert(
+            "PATH".to_string(),
+            "/usr/local/bin:/usr/bin:/bin".to_string(),
+        );
+        env.insert("SHELL".to_string(), "/bin/bash".to_string());
+        env.insert("TERM".to_string(), "xterm-256color".to_string());
+        env.insert("LANG".to_string(), "en_US.UTF-8".to_string());
+        env.insert("PWD".to_string(), "/home/testuser".to_string());
+        env.insert("KOMANDAN_TEST".to_string(), "true".to_string());
+        env
+    }
+
+    /// Validate SSH authentication method for testing
+    pub fn validate_auth_method(auth: &SSHAuthMethod) -> Result<()> {
+        match auth {
+            SSHAuthMethod::Password(pass) => {
+                if pass.is_empty() {
+                    return Err(anyhow::anyhow!("Password cannot be empty"));
+                }
+            }
+            SSHAuthMethod::PublicKey { private_key, .. } => {
+                if private_key.is_empty() {
+                    return Err(anyhow::anyhow!("Private key path cannot be empty"));
+                }
+                if !private_key.starts_with('/') {
+                    return Err(anyhow::anyhow!("Private key path must be absolute"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Create test scenarios for SSH connection testing
+    pub fn create_connection_test_scenarios() -> Vec<ConnectionTestScenario> {
+        vec![
+            ConnectionTestScenario {
+                name: "successful_password_auth",
+                address: "test.example.com",
+                port: 22,
+                username: "testuser",
+                auth: SSHAuthMethod::Password("testpass".to_string()),
+                should_succeed: true,
+                expected_error: None,
+            },
+            ConnectionTestScenario {
+                name: "successful_key_auth",
+                address: "test.example.com",
+                port: 22,
+                username: "testuser",
+                auth: SSHAuthMethod::PublicKey {
+                    private_key: "/home/testuser/.ssh/id_rsa".to_string(),
+                    passphrase: None,
+                },
+                should_succeed: true,
+                expected_error: None,
+            },
+            ConnectionTestScenario {
+                name: "auth_failure",
+                address: "test.example.com",
+                port: 22,
+                username: "testuser",
+                auth: SSHAuthMethod::Password("wrongpass".to_string()),
+                should_succeed: false,
+                expected_error: Some("authentication"),
+            },
+            ConnectionTestScenario {
+                name: "connection_refused",
+                address: "unreachable.example.com",
+                port: 22,
+                username: "testuser",
+                auth: SSHAuthMethod::Password("testpass".to_string()),
+                should_succeed: false,
+                expected_error: Some("connection refused"),
+            },
+            ConnectionTestScenario {
+                name: "host_key_verification_failure",
+                address: "untrusted.example.com",
+                port: 22,
+                username: "testuser",
+                auth: SSHAuthMethod::Password("testpass".to_string()),
+                should_succeed: false,
+                expected_error: Some("host key"),
+            },
+        ]
+    }
 }
 
-/// Helper function to create a test SSH session with environment variables
-pub fn create_test_ssh_session_with_env(env: &[(&str, &str)]) -> Result<SSHSession> {
-    let mut builder = TestSSHSessionBuilder::new();
-    for (key, value) in env {
-        builder = builder.with_env(key, value);
-    }
-    builder.build()
+/// Test scenario for SSH connection testing
+#[derive(Debug, Clone)]
+pub struct ConnectionTestScenario {
+    pub name: &'static str,
+    pub address: &'static str,
+    pub port: u16,
+    pub username: &'static str,
+    pub auth: SSHAuthMethod,
+    pub should_succeed: bool,
+    pub expected_error: Option<&'static str>,
 }
 
-/// Helper function to create a test SSH session with elevation
-pub fn create_test_ssh_session_with_elevation(
-    method: ElevationMethod,
-    as_user: Option<&str>,
-) -> Result<SSHSession> {
-    TestSSHSessionBuilder::new()
-        .with_elevation(method, as_user.map(ToString::to_string))
-        .build()
+/// Mock SSH session for integration testing
+/// This provides a way to test SSH functionality without actual network connections
+pub struct MockSSHIntegration {
+    /// Simulated command responses
+    command_responses: Arc<Mutex<HashMap<String, (String, String, i32)>>>,
+    /// Whether connection should succeed
+    connection_success: Arc<Mutex<bool>>,
+    /// Simulated connection parameters
+    connection_params: Arc<Mutex<Option<(String, u16, String, SSHAuthMethod)>>>,
 }
 
-/// Test utilities for file operations
-pub mod file_utils {
-    use super::*;
-
-    /// Create a temporary test file with content
-    pub fn create_test_file(content: &str) -> Result<NamedTempFile> {
-        let mut file = NamedTempFile::new()?;
-        file.write_all(content.as_bytes())?;
-        file.flush()?;
-        Ok(file)
+impl MockSSHIntegration {
+    /// Create a new mock SSH integration
+    pub fn new() -> Self {
+        Self {
+            command_responses: Arc::new(Mutex::new(HashMap::new())),
+            connection_success: Arc::new(Mutex::new(true)),
+            connection_params: Arc::new(Mutex::new(None)),
+        }
     }
 
-    /// Create a temporary test directory
-    pub fn create_test_dir() -> Result<TempDir> {
-        Ok(TempDir::new()?)
+    /// Set whether connections should succeed
+    pub fn set_connection_success(&self, success: bool) {
+        *self.connection_success.lock().unwrap() = success;
     }
 
-    /// Create a test directory structure
-    pub fn create_test_directory_structure() -> Result<TempDir> {
-        let temp_dir = create_test_dir()?;
+    /// Add a command response
+    pub fn add_command_response(&self, command: &str, stdout: &str, stderr: &str, exit_code: i32) {
+        let mut responses = self.command_responses.lock().unwrap();
+        responses.insert(
+            command.to_string(),
+            (stdout.to_string(), stderr.to_string(), exit_code),
+        );
+    }
 
-        // Create subdirectories and files
-        let subdir = temp_dir.path().join("subdir");
-        std::fs::create_dir(&subdir)?;
+    /// Add multiple command responses
+    pub fn add_command_responses(&self, responses: &[(&str, &str, &str, i32)]) {
+        let mut response_map = self.command_responses.lock().unwrap();
+        for (cmd, stdout, stderr, exit_code) in responses {
+            response_map.insert(
+                cmd.to_string(),
+                (stdout.to_string(), stderr.to_string(), *exit_code),
+            );
+        }
+    }
 
-        std::fs::write(temp_dir.path().join("file1.txt"), "content1")?;
-        std::fs::write(subdir.join("file2.txt"), "content2")?;
+    /// Get stored connection parameters
+    pub fn get_connection_params(&self) -> Option<(String, u16, String, SSHAuthMethod)> {
+        self.connection_params.lock().unwrap().clone()
+    }
 
-        Ok(temp_dir)
+    /// Simulate SSH connection for testing
+    pub fn simulate_connection(
+        &self,
+        address: &str,
+        port: u16,
+        username: &str,
+        auth_method: SSHAuthMethod,
+    ) -> Result<()> {
+        // Store connection parameters
+        {
+            let mut params = self.connection_params.lock().unwrap();
+            *params = Some((address.to_string(), port, username.to_string(), auth_method));
+        }
+
+        // Check if connection should succeed
+        let success = *self.connection_success.lock().unwrap();
+        if !success {
+            return Err(anyhow::anyhow!("Simulated connection failure"));
+        }
+
+        Ok(())
+    }
+
+    /// Simulate command execution
+    pub fn simulate_command(&self, command: &str) -> Result<(String, String, i32)> {
+        let responses = self.command_responses.lock().unwrap();
+
+        // Try exact match first
+        if let Some((stdout, stderr, exit_code)) = responses.get(command) {
+            return Ok((stdout.clone(), stderr.clone(), *exit_code));
+        }
+
+        // Try pattern matching
+        for (pattern, (stdout, stderr, exit_code)) in responses.iter() {
+            if command.contains(pattern) {
+                return Ok((stdout.clone(), stderr.clone(), *exit_code));
+            }
+        }
+
+        // Default response
+        Ok(("".to_string(), "".to_string(), 0))
     }
 }
 
-/// Test scenarios for SSH operations
-pub mod scenarios {
-    use super::*;
-
-    /// Create a scenario for testing basic command execution
-    pub fn basic_command_execution() -> TestSSHSessionBuilder {
-        TestSSHSessionBuilder::new()
-    }
-
-    /// Create a scenario for testing environment variables
-    pub fn environment_variables() -> TestSSHSessionBuilder {
-        TestSSHSessionBuilder::new().with_env("TEST_VAR", "test_value")
-    }
-
-    /// Create a scenario for testing elevation
-    pub fn elevation_scenarios() -> TestSSHSessionBuilder {
-        TestSSHSessionBuilder::new()
-            .with_elevation(ElevationMethod::Sudo, Some("admin".to_string()))
-    }
-
-    /// Create a scenario for testing error conditions
-    pub fn error_conditions() -> TestSSHSessionBuilder {
-        TestSSHSessionBuilder::new()
+impl Default for MockSSHIntegration {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -137,63 +371,191 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_test_ssh_session_builder() -> Result<()> {
-        let session = TestSSHSessionBuilder::new().build()?;
-        assert!(session.env.is_empty());
-        assert!(matches!(session.elevation.method, ElevationMethod::None));
+    fn test_create_test_ssh_session() -> Result<()> {
+        let session = SSHTestUtils::create_test_ssh_session()?;
+        // Just verify we can create a session without errors
+        assert_eq!(session.elevation.method, ElevationMethod::None);
         Ok(())
     }
 
     #[test]
-    fn test_test_ssh_session_with_env() -> Result<()> {
-        let session = create_test_ssh_session_with_env(&[("TEST_KEY", "TEST_VALUE")])?;
-        // Note: We can't easily test the internal state without exposing it
-        // This test mainly verifies that the function doesn't panic
-        assert!(matches!(session.elevation.method, ElevationMethod::None));
+    fn test_create_test_auth_methods() {
+        let auth_methods = SSHTestUtils::create_test_auth_methods();
+        assert_eq!(auth_methods.len(), 3);
+
+        // Verify we have the expected auth methods
+        let names: Vec<&str> = auth_methods.iter().map(|(name, _)| *name).collect();
+        assert!(names.contains(&"password"));
+        assert!(names.contains(&"key_no_pass"));
+        assert!(names.contains(&"key_with_pass"));
+    }
+
+    #[test]
+    fn test_create_test_elevations() {
+        let elevations = SSHTestUtils::create_test_elevations();
+        assert_eq!(elevations.len(), 5);
+
+        // Verify we have the expected elevation methods
+        let names: Vec<&str> = elevations.iter().map(|(name, _)| *name).collect();
+        assert!(names.contains(&"none"));
+        assert!(names.contains(&"sudo"));
+        assert!(names.contains(&"sudo_user"));
+        assert!(names.contains(&"su"));
+        assert!(names.contains(&"su_user"));
+    }
+
+    #[test]
+    fn test_create_ssh_session_with_elevation() -> Result<()> {
+        let elevation = Elevation {
+            method: ElevationMethod::Sudo,
+            as_user: Some("admin".to_string()),
+        };
+
+        let session = SSHTestUtils::create_ssh_session_with_elevation(elevation.clone())?;
+        assert_eq!(session.elevation.method, ElevationMethod::Sudo);
+        assert_eq!(session.elevation.as_user, Some("admin".to_string()));
+
         Ok(())
     }
 
     #[test]
-    fn test_test_ssh_session_with_elevation() -> Result<()> {
-        let session = create_test_ssh_session_with_elevation(ElevationMethod::Sudo, Some("admin"))?;
-        assert!(matches!(session.elevation.method, ElevationMethod::Sudo));
+    fn test_validate_auth_method() {
+        // Test valid password auth
+        let password_auth = SSHAuthMethod::Password("validpass".to_string());
+        assert!(SSHTestUtils::validate_auth_method(&password_auth).is_ok());
+
+        // Test invalid password auth
+        let empty_password_auth = SSHAuthMethod::Password("".to_string());
+        assert!(SSHTestUtils::validate_auth_method(&empty_password_auth).is_err());
+
+        // Test valid key auth
+        let key_auth = SSHAuthMethod::PublicKey {
+            private_key: "/path/to/key".to_string(),
+            passphrase: None,
+        };
+        assert!(SSHTestUtils::validate_auth_method(&key_auth).is_ok());
+
+        // Test invalid key auth (empty path)
+        let empty_key_auth = SSHAuthMethod::PublicKey {
+            private_key: "".to_string(),
+            passphrase: None,
+        };
+        assert!(SSHTestUtils::validate_auth_method(&empty_key_auth).is_err());
+
+        // Test invalid key auth (relative path)
+        let relative_key_auth = SSHAuthMethod::PublicKey {
+            private_key: "relative/path/key".to_string(),
+            passphrase: None,
+        };
+        assert!(SSHTestUtils::validate_auth_method(&relative_key_auth).is_err());
+    }
+
+    #[test]
+    fn test_get_common_command_outputs() {
+        let outputs = SSHTestUtils::get_common_command_outputs();
+
+        // Verify some expected commands are present
+        assert!(outputs.contains_key("whoami"));
+        assert!(outputs.contains_key("hostname"));
+        assert!(outputs.contains_key("uname -s"));
+        assert!(outputs.contains_key("false"));
+
+        // Verify output format
+        let (stdout, stderr, exit_code) = outputs["whoami"];
+        assert_eq!(stdout, "testuser");
+        assert_eq!(stderr, "");
+        assert_eq!(exit_code, 0);
+
+        // Verify error command
+        let (stdout, stderr, exit_code) = outputs["false"];
+        assert_eq!(stdout, "");
+        assert_eq!(stderr, "");
+        assert_eq!(exit_code, 1);
+    }
+
+    #[test]
+    fn test_create_test_environment() {
+        let env = SSHTestUtils::create_test_environment();
+
+        // Verify expected environment variables
+        assert_eq!(env.get("USER"), Some(&"testuser".to_string()));
+        assert_eq!(env.get("HOME"), Some(&"/home/testuser".to_string()));
+        assert_eq!(env.get("SHELL"), Some(&"/bin/bash".to_string()));
+        assert_eq!(env.get("KOMANDAN_TEST"), Some(&"true".to_string()));
+    }
+
+    #[test]
+    fn test_create_connection_test_scenarios() {
+        let scenarios = SSHTestUtils::create_connection_test_scenarios();
+        assert!(!scenarios.is_empty());
+
+        // Verify we have both success and failure scenarios
+        let success_count = scenarios.iter().filter(|s| s.should_succeed).count();
+        let failure_count = scenarios.iter().filter(|s| !s.should_succeed).count();
+
+        assert!(success_count > 0);
+        assert!(failure_count > 0);
+
+        // Verify scenario structure
+        let first_scenario = &scenarios[0];
+        assert!(!first_scenario.name.is_empty());
+        assert!(!first_scenario.address.is_empty());
+        assert!(!first_scenario.username.is_empty());
+    }
+
+    #[test]
+    fn test_mock_ssh_integration() -> Result<()> {
+        let mock = MockSSHIntegration::new();
+
+        // Test command responses
+        mock.add_command_response("echo test", "test", "", 0);
+        let (stdout, stderr, exit_code) = mock.simulate_command("echo test")?;
+        assert_eq!(stdout, "test");
+        assert_eq!(stderr, "");
+        assert_eq!(exit_code, 0);
+
+        // Test connection simulation
+        let result = mock.simulate_connection(
+            "test.com",
+            22,
+            "user",
+            SSHAuthMethod::Password("pass".to_string()),
+        );
+        assert!(result.is_ok());
+
+        // Test connection failure
+        mock.set_connection_success(false);
+        let result = mock.simulate_connection(
+            "test.com",
+            22,
+            "user",
+            SSHAuthMethod::Password("pass".to_string()),
+        );
+        assert!(result.is_err());
+
         Ok(())
     }
 
     #[test]
-    fn test_file_utils() -> Result<()> {
-        let file = file_utils::create_test_file("test content")?;
-        let content = std::fs::read_to_string(file.path())?;
-        assert_eq!(content, "test content");
+    fn test_mock_ssh_integration_multiple_responses() -> Result<()> {
+        let mock = MockSSHIntegration::new();
 
-        let dir = file_utils::create_test_dir()?;
-        assert!(dir.path().exists());
+        let responses = [
+            ("whoami", "testuser", "", 0),
+            ("hostname", "testhost", "", 0),
+            ("false", "", "", 1),
+        ];
 
-        let structured_dir = file_utils::create_test_directory_structure()?;
-        assert!(structured_dir.path().join("file1.txt").exists());
-        assert!(structured_dir.path().join("subdir").exists());
-        assert!(structured_dir.path().join("subdir/file2.txt").exists());
+        mock.add_command_responses(&responses);
 
-        Ok(())
-    }
+        // Test each response
+        for (cmd, expected_stdout, expected_stderr, expected_exit_code) in &responses {
+            let (stdout, stderr, exit_code) = mock.simulate_command(cmd)?;
+            assert_eq!(stdout, *expected_stdout);
+            assert_eq!(stderr, *expected_stderr);
+            assert_eq!(exit_code, *expected_exit_code);
+        }
 
-    #[test]
-    fn test_scenarios() -> Result<()> {
-        let builder = scenarios::basic_command_execution();
-        let session = builder.build()?;
-        assert!(matches!(session.elevation.method, ElevationMethod::None));
-
-        let builder = scenarios::environment_variables();
-        let session = builder.build()?;
-        assert!(matches!(session.elevation.method, ElevationMethod::None));
-
-        let builder = scenarios::elevation_scenarios();
-        let session = builder.build()?;
-        assert!(matches!(session.elevation.method, ElevationMethod::Sudo));
-
-        let builder = scenarios::error_conditions();
-        let session = builder.build()?;
-        assert!(matches!(session.elevation.method, ElevationMethod::None));
         Ok(())
     }
 }

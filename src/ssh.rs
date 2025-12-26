@@ -13,9 +13,9 @@ use ssh2::{CheckResult, KnownHostFileKind, Session, Sftp};
 use crate::executor::{CommandExecutor, SessionResult};
 
 #[cfg(test)]
-mod test_utils;
+pub mod test_utils;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum SSHAuthMethod {
     Password(String),
     PublicKey {
@@ -47,6 +47,20 @@ pub struct SSHSession {
     stderr: Option<String>,
     exit_code: Option<i32>,
     changed: Option<bool>,
+}
+
+impl std::fmt::Debug for SSHSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SSHSession")
+            .field("known_hosts_file", &self.known_hosts_file)
+            .field("env", &self.env)
+            .field("elevation", &self.elevation)
+            .field("stdout", &self.stdout)
+            .field("stderr", &self.stderr)
+            .field("exit_code", &self.exit_code)
+            .field("changed", &self.changed)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SSHSession {
