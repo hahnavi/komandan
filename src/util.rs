@@ -238,9 +238,13 @@ struct HostInfo {
 
 #[derive(Debug, Default)]
 struct OSInfo {
-    distribution: Option<String>,
+    name: Option<String>,
+    pretty_name: Option<String>,
     version: Option<String>,
-    family: Option<String>,
+    version_id: Option<String>,
+    version_codename: Option<String>,
+    id: Option<String>,
+    id_like: Option<Vec<String>>,
     kernel: Option<String>,
     hostname: Option<String>,
 }
@@ -275,9 +279,16 @@ struct MemoryInfo {
 /// - Maintains backward compatibility with existing host parameter formats
 /// - Provides detailed error logging while preserving function stability
 pub fn host_info(lua: &Lua, host: Value) -> mlua::Result<Table> {
-    // Input validation using existing validate_host function
-    let host_table = validate_host(lua, host)
-        .map_err(|e| mlua::Error::RuntimeError(format!("Host validation failed: {e}")))?;
+    // Handle nil host by defaulting to localhost, same as komando function
+    let host_table = if host.is_nil() {
+        lua.load(chunk! {
+            return { address = "localhost" }
+        })
+        .eval::<Table>()?
+    } else {
+        validate_host(lua, host)
+            .map_err(|e| mlua::Error::RuntimeError(format!("Host validation failed: {e}")))?
+    };
 
     // Create connection using centralized factory with detailed error handling
     let mut connection = match create_connection(lua, &Value::Table(host_table)) {
@@ -293,23 +304,23 @@ pub fn host_info(lua: &Lua, host: Value) -> mlua::Result<Table> {
     // Execute information gathering script
     let script = r#"
 {
-  # Distribution and version
-  if command -v lsb_release >/dev/null 2>&1; then
-    echo "DISTRO=$(lsb_release -si 2>/dev/null || echo 'Unknown')"
-    echo "VERSION=$(lsb_release -sr 2>/dev/null || echo 'Unknown')"
-    echo "FAMILY=$(lsb_release -si 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo 'unknown')"
-  elif [ -f /etc/os-release ]; then
-    echo "DISTRO=$(grep '^NAME=' /etc/os-release | cut -d'=' -f2 | tr -d '\"' || echo 'Unknown')"
-    echo "VERSION=$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '\"' || echo 'Unknown')"
-    echo "FAMILY=$(grep '^ID=' /etc/os-release | cut -d'=' -f2 | tr -d '\"' || echo 'unknown')"
-  elif [ -f /etc/redhat-release ]; then
-    echo "DISTRO=$(cat /etc/redhat-release | cut -d' ' -f1 || echo 'Unknown')"
-    echo "VERSION=$(cat /etc/redhat-release | grep -o '[0-9]\+\.[0-9]\+' | head -1 || echo 'Unknown')"
-    echo "FAMILY=rhel"
+  # OS Release information
+  if [ -f /etc/os-release ]; then
+    echo "OS_NAME=$(grep '^NAME=' /etc/os-release | cut -d'=' -f2 | tr -d '\"' 2>/dev/null || echo 'Unknown')"
+    echo "OS_PRETTY_NAME=$(grep '^PRETTY_NAME=' /etc/os-release | cut -d'=' -f2 | tr -d '\"' 2>/dev/null || echo 'Unknown')"
+    echo "OS_VERSION=$(grep '^VERSION=' /etc/os-release | cut -d'=' -f2 | tr -d '\"' 2>/dev/null || echo 'Unknown')"
+    echo "OS_VERSION_ID=$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '\"' 2>/dev/null || echo 'Unknown')"
+    echo "OS_VERSION_CODENAME=$(grep '^VERSION_CODENAME=' /etc/os-release | cut -d'=' -f2 | tr -d '\"' 2>/dev/null || echo 'Unknown')"
+    echo "OS_ID=$(grep '^ID=' /etc/os-release | cut -d'=' -f2 | tr -d '\"' 2>/dev/null || echo 'Unknown')"
+    echo "OS_ID_LIKE=$(grep '^ID_LIKE=' /etc/os-release | cut -d'=' -f2 | tr -d '\"' 2>/dev/null || echo 'Unknown')"
   else
-    echo "DISTRO=Unknown"
-    echo "VERSION=Unknown"
-    echo "FAMILY=unknown"
+    echo "OS_NAME=Unknown"
+    echo "OS_PRETTY_NAME=Unknown"
+    echo "OS_VERSION=Unknown"
+    echo "OS_VERSION_ID=Unknown"
+    echo "OS_VERSION_CODENAME=Unknown"
+    echo "OS_ID=Unknown"
+    echo "OS_ID_LIKE=Unknown"
   fi
 
   # Kernel and hostname with fallbacks
@@ -353,9 +364,13 @@ pub fn host_info(lua: &Lua, host: Value) -> mlua::Result<Table> {
 fn create_unknown_host_info() -> HostInfo {
     HostInfo {
         os: OSInfo {
-            distribution: Some("Unknown".to_string()),
+            name: Some("Unknown".to_string()),
+            pretty_name: Some("Unknown".to_string()),
             version: Some("Unknown".to_string()),
-            family: Some("unknown".to_string()),
+            version_id: Some("Unknown".to_string()),
+            version_codename: Some("Unknown".to_string()),
+            id: Some("Unknown".to_string()),
+            id_like: Some(vec!["Unknown".to_string()]),
             kernel: Some("Unknown".to_string()),
             hostname: Some("Unknown".to_string()),
         },
@@ -384,9 +399,26 @@ fn parse_host_info_output(output: &str) -> HostInfo {
             };
 
             match key {
-                "DISTRO" => os_info.distribution = value,
-                "VERSION" => os_info.version = value,
-                "FAMILY" => os_info.family = value,
+                "OS_NAME" => os_info.name = value,
+                "OS_PRETTY_NAME" => os_info.pretty_name = value,
+                "OS_VERSION" => os_info.version = value,
+                "OS_VERSION_ID" => os_info.version_id = value,
+                "OS_VERSION_CODENAME" => os_info.version_codename = value,
+                "OS_ID" => os_info.id = value,
+                "OS_ID_LIKE" => {
+                    if let Some(id_like_str) = value {
+                        // Split space-separated values into a vector
+                        let id_like_vec: Vec<String> = id_like_str
+                            .split_whitespace()
+                            .map(std::string::ToString::to_string)
+                            .collect();
+                        os_info.id_like = if id_like_vec.is_empty() {
+                            None
+                        } else {
+                            Some(id_like_vec)
+                        };
+                    }
+                }
                 "KERNEL" => os_info.kernel = value,
                 "HOSTNAME" => os_info.hostname = value,
                 "CPU_MODEL" => cpu_info.model = value,
@@ -426,41 +458,61 @@ fn create_info_table(lua: &Lua, info: HostInfo) -> mlua::Result<Table> {
 
     // Create OS section
     let os_table = lua.create_table()?;
-    if let Some(distribution) = info.os.distribution {
-        os_table.set("distribution", distribution)?;
-    }
-    if let Some(version) = info.os.version {
-        os_table.set("version", version)?;
-    }
-    if let Some(family) = info.os.family {
-        os_table.set("family", family)?;
-    }
-    if let Some(kernel) = info.os.kernel {
-        os_table.set("kernel", kernel)?;
-    }
-    if let Some(hostname) = info.os.hostname {
-        os_table.set("hostname", hostname)?;
-    }
+    os_table.set(
+        "name",
+        info.os.name.unwrap_or_else(|| "Unknown".to_string()),
+    )?;
+    os_table.set(
+        "pretty_name",
+        info.os.pretty_name.unwrap_or_else(|| "Unknown".to_string()),
+    )?;
+    os_table.set(
+        "version",
+        info.os.version.unwrap_or_else(|| "Unknown".to_string()),
+    )?;
+    os_table.set(
+        "version_id",
+        info.os.version_id.unwrap_or_else(|| "Unknown".to_string()),
+    )?;
+    os_table.set(
+        "version_codename",
+        info.os
+            .version_codename
+            .unwrap_or_else(|| "Unknown".to_string()),
+    )?;
+    os_table.set("id", info.os.id.unwrap_or_else(|| "Unknown".to_string()))?;
+
+    // Handle id_like as a table, defaulting to ["Unknown"] if None
+    let id_like_table = if let Some(id_like) = info.os.id_like {
+        lua.create_sequence_from(id_like)?
+    } else {
+        lua.create_sequence_from(vec!["Unknown".to_string()])?
+    };
+    os_table.set("id_like", id_like_table)?;
+
+    os_table.set(
+        "kernel",
+        info.os.kernel.unwrap_or_else(|| "Unknown".to_string()),
+    )?;
+    os_table.set(
+        "hostname",
+        info.os.hostname.unwrap_or_else(|| "Unknown".to_string()),
+    )?;
     table.set("os", os_table)?;
 
     // Create CPU section
     let cpu_table = lua.create_table()?;
-    if let Some(model) = info.cpu.model {
-        cpu_table.set("model", model)?;
-    }
-    if let Some(cores) = info.cpu.cores {
-        cpu_table.set("cores", cores)?;
-    }
+    cpu_table.set(
+        "model",
+        info.cpu.model.unwrap_or_else(|| "Unknown".to_string()),
+    )?;
+    cpu_table.set("cores", info.cpu.cores.unwrap_or(0))?;
     table.set("cpu", cpu_table)?;
 
     // Create memory section
     let memory_table = lua.create_table()?;
-    if let Some(total_mb) = info.memory.total_mb {
-        memory_table.set("total_mb", total_mb)?;
-    }
-    if let Some(free_mb) = info.memory.free_mb {
-        memory_table.set("free_mb", free_mb)?;
-    }
+    memory_table.set("total_mb", info.memory.total_mb.unwrap_or(0))?;
+    memory_table.set("free_mb", info.memory.free_mb.unwrap_or(0))?;
     table.set("memory", memory_table)?;
 
     Ok(table)
@@ -860,17 +912,27 @@ mod tests {
         assert!(result.contains_key("cpu")?);
         assert!(result.contains_key("memory")?);
 
-        // Check OS section exists (fields may be nil if not determinable)
-        let _os_table = result.get::<Table>("os")?;
-        // Just verify the table exists - fields may be nil
+        // Check OS section - all fields should now always exist
+        let os_table = result.get::<Table>("os")?;
+        assert!(os_table.contains_key("name")?);
+        assert!(os_table.contains_key("pretty_name")?);
+        assert!(os_table.contains_key("version")?);
+        assert!(os_table.contains_key("version_id")?);
+        assert!(os_table.contains_key("version_codename")?);
+        assert!(os_table.contains_key("id")?);
+        assert!(os_table.contains_key("id_like")?);
+        assert!(os_table.contains_key("kernel")?);
+        assert!(os_table.contains_key("hostname")?);
 
-        // Check CPU section exists (fields may be nil if not determinable)
-        let _cpu_table = result.get::<Table>("cpu")?;
-        // Just verify the table exists - fields may be nil
+        // Check CPU section - all fields should now always exist
+        let cpu_table = result.get::<Table>("cpu")?;
+        assert!(cpu_table.contains_key("model")?);
+        assert!(cpu_table.contains_key("cores")?);
 
-        // Check memory section exists (fields may be nil if not determinable)
-        let _memory_table = result.get::<Table>("memory")?;
-        // Just verify the table exists - fields may be nil
+        // Check memory section - all fields should now always exist
+        let memory_table = result.get::<Table>("memory")?;
+        assert!(memory_table.contains_key("total_mb")?);
+        assert!(memory_table.contains_key("free_mb")?);
 
         Ok(())
     }
@@ -915,9 +977,9 @@ mod tests {
 
         // Check that OS fields contain "Unknown" values due to connection failure
         let os_table = result.get::<Table>("os")?;
-        if let Ok(distribution) = os_table.get::<String>("distribution") {
-            assert_eq!(distribution, "Unknown");
-        }
+        assert_eq!(os_table.get::<String>("name")?, "Unknown");
+        assert_eq!(os_table.get::<String>("version_id")?, "Unknown");
+        assert_eq!(os_table.get::<String>("id")?, "Unknown");
 
         Ok(())
     }
@@ -943,9 +1005,9 @@ mod tests {
 
         // Check that OS fields contain "Unknown" values due to connection failure
         let os_table = result.get::<Table>("os")?;
-        if let Ok(distribution) = os_table.get::<String>("distribution") {
-            assert_eq!(distribution, "Unknown");
-        }
+        assert_eq!(os_table.get::<String>("name")?, "Unknown");
+        assert_eq!(os_table.get::<String>("version_id")?, "Unknown");
+        assert_eq!(os_table.get::<String>("id")?, "Unknown");
 
         Ok(())
     }
@@ -970,9 +1032,9 @@ mod tests {
 
         // Check that OS fields contain "Unknown" values
         let os_table = result.get::<Table>("os")?;
-        if let Ok(distribution) = os_table.get::<String>("distribution") {
-            assert_eq!(distribution, "Unknown");
-        }
+        assert_eq!(os_table.get::<String>("name")?, "Unknown");
+        assert_eq!(os_table.get::<String>("version_id")?, "Unknown");
+        assert_eq!(os_table.get::<String>("id")?, "Unknown");
 
         Ok(())
     }
@@ -982,9 +1044,13 @@ mod tests {
         let info = create_unknown_host_info();
 
         // Check OS info has "Unknown" values
-        assert_eq!(info.os.distribution, Some("Unknown".to_string()));
+        assert_eq!(info.os.name, Some("Unknown".to_string()));
+        assert_eq!(info.os.pretty_name, Some("Unknown".to_string()));
         assert_eq!(info.os.version, Some("Unknown".to_string()));
-        assert_eq!(info.os.family, Some("unknown".to_string()));
+        assert_eq!(info.os.version_id, Some("Unknown".to_string()));
+        assert_eq!(info.os.version_codename, Some("Unknown".to_string()));
+        assert_eq!(info.os.id, Some("Unknown".to_string()));
+        assert_eq!(info.os.id_like, Some(vec!["Unknown".to_string()]));
         assert_eq!(info.os.kernel, Some("Unknown".to_string()));
         assert_eq!(info.os.hostname, Some("Unknown".to_string()));
 
@@ -999,9 +1065,13 @@ mod tests {
 
     #[test]
     fn test_parse_host_info_output() -> anyhow::Result<()> {
-        let sample_output = r#"DISTRO=Ubuntu
-VERSION=22.04
-FAMILY=ubuntu
+        let sample_output = r#"OS_NAME=Ubuntu
+OS_PRETTY_NAME=Ubuntu 22.04.3 LTS
+OS_VERSION=22.04.3 LTS (Jammy Jellyfish)
+OS_VERSION_ID=22.04
+OS_VERSION_CODENAME=jammy
+OS_ID=ubuntu
+OS_ID_LIKE=debian
 KERNEL=5.15.0-101-generic
 HOSTNAME=test-host
 CPU_MODEL=Intel(R) Xeon(R) CPU E5-2676 v3 @ 2.40GHz
@@ -1012,9 +1082,16 @@ MEM_AVAILABLE_KB=461824"#;
         let info = parse_host_info_output(sample_output);
 
         // Check OS info
-        assert_eq!(info.os.distribution, Some("Ubuntu".to_string()));
-        assert_eq!(info.os.version, Some("22.04".to_string()));
-        assert_eq!(info.os.family, Some("ubuntu".to_string()));
+        assert_eq!(info.os.name, Some("Ubuntu".to_string()));
+        assert_eq!(info.os.pretty_name, Some("Ubuntu 22.04.3 LTS".to_string()));
+        assert_eq!(
+            info.os.version,
+            Some("22.04.3 LTS (Jammy Jellyfish)".to_string())
+        );
+        assert_eq!(info.os.version_id, Some("22.04".to_string()));
+        assert_eq!(info.os.version_codename, Some("jammy".to_string()));
+        assert_eq!(info.os.id, Some("ubuntu".to_string()));
+        assert_eq!(info.os.id_like, Some(vec!["debian".to_string()]));
         assert_eq!(info.os.kernel, Some("5.15.0-101-generic".to_string()));
         assert_eq!(info.os.hostname, Some("test-host".to_string()));
 
@@ -1034,9 +1111,13 @@ MEM_AVAILABLE_KB=461824"#;
 
     #[test]
     fn test_parse_host_info_output_with_unknown_values() -> anyhow::Result<()> {
-        let sample_output = r#"DISTRO=Unknown
-VERSION=Unknown
-FAMILY=Unknown
+        let sample_output = r#"OS_NAME=Unknown
+OS_PRETTY_NAME=Unknown
+OS_VERSION=Unknown
+OS_VERSION_ID=Unknown
+OS_VERSION_CODENAME=Unknown
+OS_ID=Unknown
+OS_ID_LIKE=Unknown
 KERNEL=Unknown
 HOSTNAME=Unknown
 CPU_MODEL=Unknown
@@ -1047,9 +1128,13 @@ MEM_AVAILABLE_KB=0"#;
         let info = parse_host_info_output(sample_output);
 
         // Check that "Unknown" strings are converted to None
-        assert_eq!(info.os.distribution, None);
+        assert_eq!(info.os.name, None);
+        assert_eq!(info.os.pretty_name, None);
         assert_eq!(info.os.version, None);
-        assert_eq!(info.os.family, None);
+        assert_eq!(info.os.version_id, None);
+        assert_eq!(info.os.version_codename, None);
+        assert_eq!(info.os.id, None);
+        assert_eq!(info.os.id_like, None);
         assert_eq!(info.os.kernel, None);
         assert_eq!(info.os.hostname, None);
         assert_eq!(info.cpu.model, None);
@@ -1064,20 +1149,24 @@ MEM_AVAILABLE_KB=0"#;
 
     #[test]
     fn test_parse_host_info_output_partial_data() -> anyhow::Result<()> {
-        let sample_output = r#"DISTRO=CentOS
-VERSION=8.5
-FAMILY=rhel
+        let sample_output = r#"OS_NAME=CentOS Linux
+OS_VERSION_ID=8.5
+OS_ID=centos
 CPU_CORES=4"#;
 
         let info = parse_host_info_output(sample_output);
 
         // Check that present values are parsed
-        assert_eq!(info.os.distribution, Some("CentOS".to_string()));
-        assert_eq!(info.os.version, Some("8.5".to_string()));
-        assert_eq!(info.os.family, Some("rhel".to_string()));
+        assert_eq!(info.os.name, Some("CentOS Linux".to_string()));
+        assert_eq!(info.os.version_id, Some("8.5".to_string()));
+        assert_eq!(info.os.id, Some("centos".to_string()));
         assert_eq!(info.cpu.cores, Some(4));
 
         // Check that missing values are None
+        assert_eq!(info.os.pretty_name, None);
+        assert_eq!(info.os.version, None);
+        assert_eq!(info.os.version_codename, None);
+        assert_eq!(info.os.id_like, None);
         assert_eq!(info.os.kernel, None);
         assert_eq!(info.os.hostname, None);
         assert_eq!(info.cpu.model, None);
@@ -1089,15 +1178,15 @@ CPU_CORES=4"#;
 
     #[test]
     fn test_parse_host_info_output_lowercase_unknown() -> anyhow::Result<()> {
-        let sample_output = r#"DISTRO=Ubuntu
-FAMILY=unknown
+        let sample_output = r#"OS_NAME=Ubuntu
+OS_ID=ubuntu
 KERNEL=5.15.0-101-generic"#;
 
         let info = parse_host_info_output(sample_output);
 
-        // Check that "unknown" (lowercase) is treated as a valid value
-        assert_eq!(info.os.distribution, Some("Ubuntu".to_string()));
-        assert_eq!(info.os.family, Some("unknown".to_string())); // lowercase "unknown" is kept
+        // Check that values are parsed correctly
+        assert_eq!(info.os.name, Some("Ubuntu".to_string()));
+        assert_eq!(info.os.id, Some("ubuntu".to_string()));
         assert_eq!(info.os.kernel, Some("5.15.0-101-generic".to_string()));
 
         Ok(())
@@ -1107,9 +1196,13 @@ KERNEL=5.15.0-101-generic"#;
 
     #[test]
     fn test_parse_host_info_output_debian_system() -> anyhow::Result<()> {
-        let sample_output = r#"DISTRO=Debian GNU/Linux
-VERSION=11
-FAMILY=debian
+        let sample_output = r#"OS_NAME=Debian GNU/Linux
+OS_PRETTY_NAME=Debian GNU/Linux 11 (bullseye)
+OS_VERSION=11 (bullseye)
+OS_VERSION_ID=11
+OS_VERSION_CODENAME=bullseye
+OS_ID=debian
+OS_ID_LIKE=
 KERNEL=5.10.0-21-amd64
 HOSTNAME=debian-server
 CPU_MODEL=AMD EPYC 7763 64-Core Processor
@@ -1119,9 +1212,16 @@ MEM_AVAILABLE_KB=6291456"#;
 
         let info = parse_host_info_output(sample_output);
 
-        assert_eq!(info.os.distribution, Some("Debian GNU/Linux".to_string()));
-        assert_eq!(info.os.version, Some("11".to_string()));
-        assert_eq!(info.os.family, Some("debian".to_string()));
+        assert_eq!(info.os.name, Some("Debian GNU/Linux".to_string()));
+        assert_eq!(
+            info.os.pretty_name,
+            Some("Debian GNU/Linux 11 (bullseye)".to_string())
+        );
+        assert_eq!(info.os.version, Some("11 (bullseye)".to_string()));
+        assert_eq!(info.os.version_id, Some("11".to_string()));
+        assert_eq!(info.os.version_codename, Some("bullseye".to_string()));
+        assert_eq!(info.os.id, Some("debian".to_string()));
+        assert_eq!(info.os.id_like, None); // Empty value should be None
         assert_eq!(info.os.kernel, Some("5.10.0-21-amd64".to_string()));
         assert_eq!(info.os.hostname, Some("debian-server".to_string()));
         assert_eq!(
@@ -1137,9 +1237,13 @@ MEM_AVAILABLE_KB=6291456"#;
 
     #[test]
     fn test_parse_host_info_output_rhel_system() -> anyhow::Result<()> {
-        let sample_output = r#"DISTRO=Red Hat Enterprise Linux
-VERSION=8.6
-FAMILY=rhel
+        let sample_output = r#"OS_NAME=Red Hat Enterprise Linux
+OS_PRETTY_NAME=Red Hat Enterprise Linux 8.6 (Ootpa)
+OS_VERSION=8.6 (Ootpa)
+OS_VERSION_ID=8.6
+OS_VERSION_CODENAME=
+OS_ID=rhel
+OS_ID_LIKE=fedora
 KERNEL=4.18.0-372.9.1.el8.x86_64
 HOSTNAME=rhel-production
 CPU_MODEL=Intel(R) Xeon(R) Gold 6248 CPU @ 2.50GHz
@@ -1149,12 +1253,16 @@ MEM_AVAILABLE_KB=12582912"#;
 
         let info = parse_host_info_output(sample_output);
 
+        assert_eq!(info.os.name, Some("Red Hat Enterprise Linux".to_string()));
         assert_eq!(
-            info.os.distribution,
-            Some("Red Hat Enterprise Linux".to_string())
+            info.os.pretty_name,
+            Some("Red Hat Enterprise Linux 8.6 (Ootpa)".to_string())
         );
-        assert_eq!(info.os.version, Some("8.6".to_string()));
-        assert_eq!(info.os.family, Some("rhel".to_string()));
+        assert_eq!(info.os.version, Some("8.6 (Ootpa)".to_string()));
+        assert_eq!(info.os.version_id, Some("8.6".to_string()));
+        assert_eq!(info.os.version_codename, None); // Empty value should be None
+        assert_eq!(info.os.id, Some("rhel".to_string()));
+        assert_eq!(info.os.id_like, Some(vec!["fedora".to_string()]));
         assert_eq!(
             info.os.kernel,
             Some("4.18.0-372.9.1.el8.x86_64".to_string())
@@ -1173,10 +1281,10 @@ MEM_AVAILABLE_KB=12582912"#;
 
     #[test]
     fn test_parse_host_info_output_malformed_lines() -> anyhow::Result<()> {
-        let sample_output = r#"DISTRO=Ubuntu
-VERSION=22.04
+        let sample_output = r#"OS_NAME=Ubuntu
+OS_VERSION_ID=22.04
 INVALID_LINE_WITHOUT_EQUALS
-FAMILY=ubuntu
+OS_ID=ubuntu
 =EMPTY_KEY
 KERNEL=
 CPU_CORES=not_a_number
@@ -1185,9 +1293,9 @@ MEM_TOTAL_KB=abc123"#;
         let info = parse_host_info_output(sample_output);
 
         // Valid lines should be parsed correctly
-        assert_eq!(info.os.distribution, Some("Ubuntu".to_string()));
-        assert_eq!(info.os.version, Some("22.04".to_string()));
-        assert_eq!(info.os.family, Some("ubuntu".to_string()));
+        assert_eq!(info.os.name, Some("Ubuntu".to_string()));
+        assert_eq!(info.os.version_id, Some("22.04".to_string()));
+        assert_eq!(info.os.id, Some("ubuntu".to_string()));
 
         // Empty values should be treated as None
         assert_eq!(info.os.kernel, None);
@@ -1205,9 +1313,13 @@ MEM_TOTAL_KB=abc123"#;
         let info = parse_host_info_output(sample_output);
 
         // All fields should be None for empty input
-        assert_eq!(info.os.distribution, None);
+        assert_eq!(info.os.name, None);
+        assert_eq!(info.os.pretty_name, None);
         assert_eq!(info.os.version, None);
-        assert_eq!(info.os.family, None);
+        assert_eq!(info.os.version_id, None);
+        assert_eq!(info.os.version_codename, None);
+        assert_eq!(info.os.id, None);
+        assert_eq!(info.os.id_like, None);
         assert_eq!(info.os.kernel, None);
         assert_eq!(info.os.hostname, None);
         assert_eq!(info.cpu.model, None);
@@ -1220,9 +1332,9 @@ MEM_TOTAL_KB=abc123"#;
 
     #[test]
     fn test_parse_host_info_output_whitespace_values() -> anyhow::Result<()> {
-        let sample_output = r#"DISTRO=   Ubuntu
-VERSION=  22.04
-FAMILY=ubuntu
+        let sample_output = r#"OS_NAME=   Ubuntu
+OS_VERSION_ID=  22.04
+OS_ID=ubuntu
 KERNEL=
 HOSTNAME=    test-host
 CPU_MODEL=  Intel CPU
@@ -1233,9 +1345,9 @@ MEM_TOTAL_KB=1048576"#;
 
         // Values with leading/trailing whitespace should be preserved as-is
         // Note: The parsing logic processes lines as they are
-        assert_eq!(info.os.distribution, Some("   Ubuntu".to_string()));
-        assert_eq!(info.os.version, Some("  22.04".to_string()));
-        assert_eq!(info.os.family, Some("ubuntu".to_string()));
+        assert_eq!(info.os.name, Some("   Ubuntu".to_string()));
+        assert_eq!(info.os.version_id, Some("  22.04".to_string()));
+        assert_eq!(info.os.id, Some("ubuntu".to_string()));
         assert_eq!(info.os.kernel, None); // Empty after trimming
         assert_eq!(info.os.hostname, Some("    test-host".to_string()));
         assert_eq!(info.cpu.model, Some("  Intel CPU".to_string()));
@@ -1254,9 +1366,13 @@ MEM_TOTAL_KB=1048576"#;
         let lua = create_lua()?;
         let info = HostInfo {
             os: OSInfo {
-                distribution: Some("Ubuntu".to_string()),
-                version: Some("22.04".to_string()),
-                family: Some("ubuntu".to_string()),
+                name: Some("Ubuntu".to_string()),
+                pretty_name: Some("Ubuntu 22.04.3 LTS".to_string()),
+                version: Some("22.04.3 LTS (Jammy Jellyfish)".to_string()),
+                version_id: Some("22.04".to_string()),
+                version_codename: Some("jammy".to_string()),
+                id: Some("ubuntu".to_string()),
+                id_like: Some(vec!["debian".to_string()]),
                 kernel: Some("5.15.0-101-generic".to_string()),
                 hostname: Some("test-host".to_string()),
             },
@@ -1274,9 +1390,17 @@ MEM_TOTAL_KB=1048576"#;
 
         // Check OS section
         let os_table = table.get::<Table>("os")?;
-        assert_eq!(os_table.get::<String>("distribution")?, "Ubuntu");
-        assert_eq!(os_table.get::<String>("version")?, "22.04");
-        assert_eq!(os_table.get::<String>("family")?, "ubuntu");
+        assert_eq!(os_table.get::<String>("name")?, "Ubuntu");
+        assert_eq!(os_table.get::<String>("pretty_name")?, "Ubuntu 22.04.3 LTS");
+        assert_eq!(
+            os_table.get::<String>("version")?,
+            "22.04.3 LTS (Jammy Jellyfish)"
+        );
+        assert_eq!(os_table.get::<String>("version_id")?, "22.04");
+        assert_eq!(os_table.get::<String>("version_codename")?, "jammy");
+        assert_eq!(os_table.get::<String>("id")?, "ubuntu");
+        let id_like_table = os_table.get::<Table>("id_like")?;
+        assert_eq!(id_like_table.get::<String>(1)?, "debian");
         assert_eq!(os_table.get::<String>("kernel")?, "5.15.0-101-generic");
         assert_eq!(os_table.get::<String>("hostname")?, "test-host");
 
@@ -1298,9 +1422,13 @@ MEM_TOTAL_KB=1048576"#;
         let lua = create_lua()?;
         let info = HostInfo {
             os: OSInfo {
-                distribution: Some("CentOS".to_string()),
-                version: None, // Missing version
-                family: Some("rhel".to_string()),
+                name: Some("CentOS Linux".to_string()),
+                pretty_name: None, // Missing pretty_name
+                version: None,     // Missing version
+                version_id: Some("8.5".to_string()),
+                version_codename: None, // Missing version_codename
+                id: Some("centos".to_string()),
+                id_like: Some(vec!["rhel".to_string(), "fedora".to_string()]),
                 kernel: None, // Missing kernel
                 hostname: Some("centos-server".to_string()),
             },
@@ -1316,23 +1444,29 @@ MEM_TOTAL_KB=1048576"#;
 
         let table = create_info_table(&lua, info)?;
 
-        // Check OS section - only present fields should exist
+        // Check OS section - all fields should now exist, with "Unknown" for missing ones
         let os_table = table.get::<Table>("os")?;
-        assert_eq!(os_table.get::<String>("distribution")?, "CentOS");
-        assert!(os_table.get::<String>("version").is_err()); // Should not exist
-        assert_eq!(os_table.get::<String>("family")?, "rhel");
-        assert!(os_table.get::<String>("kernel").is_err()); // Should not exist
+        assert_eq!(os_table.get::<String>("name")?, "CentOS Linux");
+        assert_eq!(os_table.get::<String>("pretty_name")?, "Unknown"); // Now defaults to "Unknown"
+        assert_eq!(os_table.get::<String>("version")?, "Unknown"); // Now defaults to "Unknown"
+        assert_eq!(os_table.get::<String>("version_id")?, "8.5");
+        assert_eq!(os_table.get::<String>("version_codename")?, "Unknown"); // Now defaults to "Unknown"
+        assert_eq!(os_table.get::<String>("id")?, "centos");
+        let id_like_table = os_table.get::<Table>("id_like")?;
+        assert_eq!(id_like_table.get::<String>(1)?, "rhel");
+        assert_eq!(id_like_table.get::<String>(2)?, "fedora");
+        assert_eq!(os_table.get::<String>("kernel")?, "Unknown"); // Now defaults to "Unknown"
         assert_eq!(os_table.get::<String>("hostname")?, "centos-server");
 
-        // Check CPU section
+        // Check CPU section - all fields should now exist
         let cpu_table = table.get::<Table>("cpu")?;
-        assert!(cpu_table.get::<String>("model").is_err()); // Should not exist
+        assert_eq!(cpu_table.get::<String>("model")?, "Unknown"); // Now defaults to "Unknown"
         assert_eq!(cpu_table.get::<u32>("cores")?, 2);
 
-        // Check memory section
+        // Check memory section - all fields should now exist
         let memory_table = table.get::<Table>("memory")?;
         assert_eq!(memory_table.get::<u64>("total_mb")?, 4096);
-        assert!(memory_table.get::<u64>("free_mb").is_err()); // Should not exist
+        assert_eq!(memory_table.get::<u64>("free_mb")?, 0); // Now defaults to 0
 
         Ok(())
     }
@@ -1344,36 +1478,83 @@ MEM_TOTAL_KB=1048576"#;
 
         let table = create_info_table(&lua, info)?;
 
-        // All sections should exist but be empty
+        // All sections should exist and all fields should have default values
         let os_table = table.get::<Table>("os")?;
-        assert!(os_table.get::<String>("distribution").is_err());
-        assert!(os_table.get::<String>("version").is_err());
-        assert!(os_table.get::<String>("family").is_err());
-        assert!(os_table.get::<String>("kernel").is_err());
-        assert!(os_table.get::<String>("hostname").is_err());
+        assert_eq!(os_table.get::<String>("name")?, "Unknown");
+        assert_eq!(os_table.get::<String>("pretty_name")?, "Unknown");
+        assert_eq!(os_table.get::<String>("version")?, "Unknown");
+        assert_eq!(os_table.get::<String>("version_id")?, "Unknown");
+        assert_eq!(os_table.get::<String>("version_codename")?, "Unknown");
+        assert_eq!(os_table.get::<String>("id")?, "Unknown");
+        let id_like_table = os_table.get::<Table>("id_like")?;
+        assert_eq!(id_like_table.get::<String>(1)?, "Unknown"); // Default array with "Unknown"
+        assert_eq!(os_table.get::<String>("kernel")?, "Unknown");
+        assert_eq!(os_table.get::<String>("hostname")?, "Unknown");
 
         let cpu_table = table.get::<Table>("cpu")?;
-        assert!(cpu_table.get::<String>("model").is_err());
-        assert!(cpu_table.get::<u32>("cores").is_err());
+        assert_eq!(cpu_table.get::<String>("model")?, "Unknown");
+        assert_eq!(cpu_table.get::<u32>("cores")?, 0);
 
         let memory_table = table.get::<Table>("memory")?;
-        assert!(memory_table.get::<u64>("total_mb").is_err());
-        assert!(memory_table.get::<u64>("free_mb").is_err());
+        assert_eq!(memory_table.get::<u64>("total_mb")?, 0);
+        assert_eq!(memory_table.get::<u64>("free_mb")?, 0);
 
         Ok(())
     }
 
-    // Tests for error scenarios and edge cases
+    #[test]
+    fn test_parse_host_info_output_multiple_id_like() -> anyhow::Result<()> {
+        let sample_output = r#"OS_NAME=Ubuntu
+OS_PRETTY_NAME=Ubuntu 22.04.3 LTS
+OS_VERSION=22.04.3 LTS (Jammy Jellyfish)
+OS_VERSION_ID=22.04
+OS_VERSION_CODENAME=jammy
+OS_ID=ubuntu
+OS_ID_LIKE=debian gnu
+KERNEL=5.15.0-101-generic
+HOSTNAME=test-host
+CPU_MODEL=Intel CPU
+CPU_CORES=4
+MEM_TOTAL_KB=4026368
+MEM_AVAILABLE_KB=461824"#;
+
+        let info = parse_host_info_output(sample_output);
+
+        // Check that ID_LIKE with multiple space-separated values is parsed correctly
+        assert_eq!(
+            info.os.id_like,
+            Some(vec!["debian".to_string(), "gnu".to_string()])
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_host_info_output_empty_id_like() -> anyhow::Result<()> {
+        let sample_output = r#"OS_NAME=Ubuntu
+OS_ID=ubuntu
+OS_ID_LIKE=
+KERNEL=5.15.0-101-generic"#;
+
+        let info = parse_host_info_output(sample_output);
+
+        // Check that empty ID_LIKE is treated as None
+        assert_eq!(info.os.id_like, None);
+
+        Ok(())
+    }
 
     #[test]
     fn test_host_info_nil_input() -> mlua::Result<()> {
         let lua = create_lua()?;
         let result = host_info(&lua, Value::Nil);
-        assert!(result.is_err());
+        assert!(result.is_ok());
 
-        if let Err(e) = result {
-            assert!(e.to_string().contains("Host validation failed"));
-        }
+        // Should return host info for localhost when host is nil
+        let info_table = result?;
+        assert!(info_table.contains_key("os")?);
+        assert!(info_table.contains_key("cpu")?);
+        assert!(info_table.contains_key("memory")?);
 
         Ok(())
     }
@@ -1413,9 +1594,9 @@ MEM_TOTAL_KB=1048576"#;
 
         // Check that OS fields contain "Unknown" values due to connection failure
         let os_table = result.get::<Table>("os")?;
-        if let Ok(distribution) = os_table.get::<String>("distribution") {
-            assert_eq!(distribution, "Unknown");
-        }
+        assert_eq!(os_table.get::<String>("name")?, "Unknown");
+        assert_eq!(os_table.get::<String>("version_id")?, "Unknown");
+        assert_eq!(os_table.get::<String>("id")?, "Unknown");
 
         Ok(())
     }
