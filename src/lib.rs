@@ -1,4 +1,5 @@
 pub mod args;
+mod checks;
 pub mod connection;
 pub mod defaults;
 pub mod executor;
@@ -14,6 +15,7 @@ mod validator;
 
 use anyhow::Result;
 use args::Args;
+use checks::collect_check_functions;
 use clap::Parser;
 use defaults::Defaults;
 use komando::{komando, komando_parallel_hosts, komando_parallel_tasks};
@@ -115,6 +117,9 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     // Add core modules
     komandan.set("modules", collect_core_modules(lua)?)?;
 
+    // Add check functions
+    komandan.set("check", collect_check_functions(lua)?)?;
+
     lua.globals().set("komandan", &komandan)?;
 
     // Create alias 'k' for 'komandan'
@@ -124,6 +129,10 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     let k_table = lua.globals().get::<mlua::Table>("k")?;
     let modules_table = komandan.get::<mlua::Table>("modules")?;
     k_table.set("mods", modules_table)?;
+
+    // Create alias 'k.check' for 'komandan.check'
+    let check_table = komandan.get::<mlua::Table>("check")?;
+    k_table.set("check", check_table)?;
 
     Ok(())
 }
@@ -262,15 +271,27 @@ mod tests {
         assert!(modules_table.contains_key("upload")?);
         assert!(modules_table.contains_key("download")?);
 
+        // Test check namespace
+        let check_table = komandan_table.get::<Table>("check")?;
+        assert!(check_table.contains_key("file")?);
+        assert!(check_table.contains_key("service")?);
+        assert!(check_table.contains_key("package")?);
+
         // Test aliases
         let k_table = lua.globals().get::<Table>("k")?;
         assert!(k_table.contains_key("defaults")?);
         assert!(k_table.contains_key("komando")?);
         assert!(k_table.contains_key("modules")?);
+        assert!(k_table.contains_key("check")?);
 
         let k_mods_table = k_table.get::<Table>("mods")?;
         assert!(k_mods_table.contains_key("apt")?);
         assert!(k_mods_table.contains_key("cmd")?);
+
+        let k_check_table = k_table.get::<Table>("check")?;
+        assert!(k_check_table.contains_key("file")?);
+        assert!(k_check_table.contains_key("service")?);
+        assert!(k_check_table.contains_key("package")?);
 
         Ok(())
     }

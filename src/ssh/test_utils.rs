@@ -3,17 +3,27 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+/// Type alias for command response tuple (stdout, stderr, `exit_code`)
+type CommandResponse = (String, String, i32);
+
+/// Type alias for connection parameters tuple
+type ConnectionParams = (String, u16, String, SSHAuthMethod);
+
 /// Test utilities for SSH module testing
 pub struct SSHTestUtils;
 
 impl SSHTestUtils {
     /// Create a test SSH session that doesn't require actual network connection
     /// This is useful for testing SSH session logic without network dependencies
+    ///
+    /// # Errors
+    /// Returns an error if the SSH session cannot be created
     pub fn create_test_ssh_session() -> Result<SSHSession> {
         SSHSession::new()
     }
 
     /// Create test authentication methods for various scenarios
+    #[must_use]
     pub fn create_test_auth_methods() -> Vec<(&'static str, SSHAuthMethod)> {
         vec![
             ("password", SSHAuthMethod::Password("testpass".to_string())),
@@ -35,6 +45,7 @@ impl SSHTestUtils {
     }
 
     /// Create test elevation configurations
+    #[must_use]
     pub fn create_test_elevations() -> Vec<(&'static str, Elevation)> {
         vec![
             (
@@ -76,6 +87,9 @@ impl SSHTestUtils {
     }
 
     /// Create a test SSH session with specific elevation settings
+    ///
+    /// # Errors
+    /// Returns an error if the SSH session cannot be created
     pub fn create_ssh_session_with_elevation(elevation: Elevation) -> Result<SSHSession> {
         let mut session = SSHSession::new()?;
         session.elevation = elevation;
@@ -83,6 +97,7 @@ impl SSHTestUtils {
     }
 
     /// Create test connection parameters for various scenarios
+    #[must_use]
     pub fn create_test_connection_params() -> Vec<(&'static str, &'static str, u16, &'static str)> {
         vec![
             ("localhost", "localhost", 22, "testuser"),
@@ -94,6 +109,7 @@ impl SSHTestUtils {
     }
 
     /// Simulate common SSH command outputs for testing
+    #[must_use]
     pub fn get_common_command_outputs() -> HashMap<&'static str, (&'static str, &'static str, i32)>
     {
         let mut outputs = HashMap::new();
@@ -162,6 +178,7 @@ impl SSHTestUtils {
     }
 
     /// Create test environment variables
+    #[must_use]
     pub fn create_test_environment() -> HashMap<String, String> {
         let mut env = HashMap::new();
         env.insert("HOME".to_string(), "/home/testuser".to_string());
@@ -179,6 +196,9 @@ impl SSHTestUtils {
     }
 
     /// Validate SSH authentication method for testing
+    ///
+    /// # Errors
+    /// Returns an error if the authentication method is invalid
     pub fn validate_auth_method(auth: &SSHAuthMethod) -> Result<()> {
         match auth {
             SSHAuthMethod::Password(pass) => {
@@ -199,6 +219,7 @@ impl SSHTestUtils {
     }
 
     /// Create test scenarios for SSH connection testing
+    #[must_use]
     pub fn create_connection_test_scenarios() -> Vec<ConnectionTestScenario> {
         vec![
             ConnectionTestScenario {
@@ -269,15 +290,16 @@ pub struct ConnectionTestScenario {
 /// This provides a way to test SSH functionality without actual network connections
 pub struct MockSSHIntegration {
     /// Simulated command responses
-    command_responses: Arc<Mutex<HashMap<String, (String, String, i32)>>>,
+    command_responses: Arc<Mutex<HashMap<String, CommandResponse>>>,
     /// Whether connection should succeed
     connection_success: Arc<Mutex<bool>>,
     /// Simulated connection parameters
-    connection_params: Arc<Mutex<Option<(String, u16, String, SSHAuthMethod)>>>,
+    connection_params: Arc<Mutex<Option<ConnectionParams>>>,
 }
 
 impl MockSSHIntegration {
     /// Create a new mock SSH integration
+    #[must_use]
     pub fn new() -> Self {
         Self {
             command_responses: Arc::new(Mutex::new(HashMap::new())),
@@ -287,36 +309,73 @@ impl MockSSHIntegration {
     }
 
     /// Set whether connections should succeed
-    pub fn set_connection_success(&self, success: bool) {
-        *self.connection_success.lock().unwrap() = success;
+    ///
+    /// # Errors
+    /// Returns an error if the internal mutex is poisoned
+    pub fn set_connection_success(&self, success: bool) -> Result<()> {
+        *self
+            .connection_success
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))? = success;
+        Ok(())
     }
 
     /// Add a command response
-    pub fn add_command_response(&self, command: &str, stdout: &str, stderr: &str, exit_code: i32) {
-        let mut responses = self.command_responses.lock().unwrap();
-        responses.insert(
-            command.to_string(),
-            (stdout.to_string(), stderr.to_string(), exit_code),
-        );
+    ///
+    /// # Errors
+    /// Returns an error if the internal mutex is poisoned
+    pub fn add_command_response(
+        &self,
+        command: &str,
+        stdout: &str,
+        stderr: &str,
+        exit_code: i32,
+    ) -> Result<()> {
+        self.command_responses
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?
+            .insert(
+                command.to_string(),
+                (stdout.to_string(), stderr.to_string(), exit_code),
+            );
+        Ok(())
     }
 
     /// Add multiple command responses
-    pub fn add_command_responses(&self, responses: &[(&str, &str, &str, i32)]) {
-        let mut response_map = self.command_responses.lock().unwrap();
+    ///
+    /// # Errors
+    /// Returns an error if the internal mutex is poisoned
+    pub fn add_command_responses(&self, responses: &[(&str, &str, &str, i32)]) -> Result<()> {
+        let mut response_map = self
+            .command_responses
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         for (cmd, stdout, stderr, exit_code) in responses {
             response_map.insert(
                 cmd.to_string(),
                 (stdout.to_string(), stderr.to_string(), *exit_code),
             );
         }
+        drop(response_map);
+        Ok(())
     }
 
     /// Get stored connection parameters
-    pub fn get_connection_params(&self) -> Option<(String, u16, String, SSHAuthMethod)> {
-        self.connection_params.lock().unwrap().clone()
+    ///
+    /// # Errors
+    /// Returns an error if the internal mutex is poisoned
+    pub fn get_connection_params(&self) -> Result<Option<ConnectionParams>> {
+        Ok(self
+            .connection_params
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?
+            .clone())
     }
 
     /// Simulate SSH connection for testing
+    ///
+    /// # Errors
+    /// Returns an error if the connection should fail or if mutex is poisoned
     pub fn simulate_connection(
         &self,
         address: &str,
@@ -326,12 +385,18 @@ impl MockSSHIntegration {
     ) -> Result<()> {
         // Store connection parameters
         {
-            let mut params = self.connection_params.lock().unwrap();
+            let mut params = self
+                .connection_params
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
             *params = Some((address.to_string(), port, username.to_string(), auth_method));
         }
 
         // Check if connection should succeed
-        let success = *self.connection_success.lock().unwrap();
+        let success = *self
+            .connection_success
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         if !success {
             return Err(anyhow::anyhow!("Simulated connection failure"));
         }
@@ -340,8 +405,14 @@ impl MockSSHIntegration {
     }
 
     /// Simulate command execution
-    pub fn simulate_command(&self, command: &str) -> Result<(String, String, i32)> {
-        let responses = self.command_responses.lock().unwrap();
+    ///
+    /// # Errors
+    /// Returns an error if the internal mutex is poisoned
+    pub fn simulate_command(&self, command: &str) -> Result<CommandResponse> {
+        let responses = self
+            .command_responses
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
 
         // Try exact match first
         if let Some((stdout, stderr, exit_code)) = responses.get(command) {
@@ -354,9 +425,10 @@ impl MockSSHIntegration {
                 return Ok((stdout.clone(), stderr.clone(), *exit_code));
             }
         }
+        drop(responses);
 
         // Default response
-        Ok(("".to_string(), "".to_string(), 0))
+        Ok((String::new(), String::new(), 0))
     }
 }
 
@@ -411,7 +483,7 @@ mod tests {
             as_user: Some("admin".to_string()),
         };
 
-        let session = SSHTestUtils::create_ssh_session_with_elevation(elevation.clone())?;
+        let session = SSHTestUtils::create_ssh_session_with_elevation(elevation)?;
         assert_eq!(session.elevation.method, ElevationMethod::Sudo);
         assert_eq!(session.elevation.as_user, Some("admin".to_string()));
 
@@ -425,7 +497,7 @@ mod tests {
         assert!(SSHTestUtils::validate_auth_method(&password_auth).is_ok());
 
         // Test invalid password auth
-        let empty_password_auth = SSHAuthMethod::Password("".to_string());
+        let empty_password_auth = SSHAuthMethod::Password(String::new());
         assert!(SSHTestUtils::validate_auth_method(&empty_password_auth).is_err());
 
         // Test valid key auth
@@ -437,7 +509,7 @@ mod tests {
 
         // Test invalid key auth (empty path)
         let empty_key_auth = SSHAuthMethod::PublicKey {
-            private_key: "".to_string(),
+            private_key: String::new(),
             passphrase: None,
         };
         assert!(SSHTestUtils::validate_auth_method(&empty_key_auth).is_err());
@@ -508,7 +580,7 @@ mod tests {
         let mock = MockSSHIntegration::new();
 
         // Test command responses
-        mock.add_command_response("echo test", "test", "", 0);
+        mock.add_command_response("echo test", "test", "", 0)?;
         let (stdout, stderr, exit_code) = mock.simulate_command("echo test")?;
         assert_eq!(stdout, "test");
         assert_eq!(stderr, "");
@@ -524,7 +596,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Test connection failure
-        mock.set_connection_success(false);
+        mock.set_connection_success(false)?;
         let result = mock.simulate_connection(
             "test.com",
             22,
@@ -546,7 +618,7 @@ mod tests {
             ("false", "", "", 1),
         ];
 
-        mock.add_command_responses(&responses);
+        mock.add_command_responses(&responses)?;
 
         // Test each response
         for (cmd, expected_stdout, expected_stderr, expected_exit_code) in &responses {

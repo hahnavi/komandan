@@ -550,6 +550,7 @@ mod tests {
         let lua = create_lua()?;
         let value = Value::String(lua.create_string("Test verbose print")?);
         assert!(dprint(&lua, value).is_ok());
+
         Ok(())
     }
 
@@ -702,6 +703,7 @@ mod tests {
         let pattern = Value::Table(lua.create_sequence_from(vec!["~^tag.*$"])?);
         let result = filter_hosts(&lua, (Value::Table(hosts), pattern))?;
         assert!(result.contains_key(1)?);
+
         Ok(())
     }
 
@@ -892,6 +894,7 @@ mod tests {
         let host = lua.create_table()?;
         host.set("address", "10.0.0.1")?;
         assert_eq!(host_display(&host), "10.0.0.1");
+
         Ok(())
     }
 
@@ -1064,8 +1067,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_host_info_output() -> anyhow::Result<()> {
-        let sample_output = r#"OS_NAME=Ubuntu
+    fn test_parse_host_info_output() {
+        let sample_output = r"OS_NAME=Ubuntu
 OS_PRETTY_NAME=Ubuntu 22.04.3 LTS
 OS_VERSION=22.04.3 LTS (Jammy Jellyfish)
 OS_VERSION_ID=22.04
@@ -1077,7 +1080,7 @@ HOSTNAME=test-host
 CPU_MODEL=Intel(R) Xeon(R) CPU E5-2676 v3 @ 2.40GHz
 CPU_CORES=2
 MEM_TOTAL_KB=4026368
-MEM_AVAILABLE_KB=461824"#;
+MEM_AVAILABLE_KB=461824";
 
         let info = parse_host_info_output(sample_output);
 
@@ -1105,13 +1108,11 @@ MEM_AVAILABLE_KB=461824"#;
         // Check memory info (converted from KB to MB)
         assert_eq!(info.memory.total_mb, Some(3932)); // 4026368 / 1024
         assert_eq!(info.memory.free_mb, Some(451)); // 461824 / 1024
-
-        Ok(())
     }
 
     #[test]
-    fn test_parse_host_info_output_with_unknown_values() -> anyhow::Result<()> {
-        let sample_output = r#"OS_NAME=Unknown
+    fn test_parse_host_info_output_with_unknown_values() {
+        let sample_output = r"OS_NAME=Unknown
 OS_PRETTY_NAME=Unknown
 OS_VERSION=Unknown
 OS_VERSION_ID=Unknown
@@ -1123,7 +1124,7 @@ HOSTNAME=Unknown
 CPU_MODEL=Unknown
 CPU_CORES=0
 MEM_TOTAL_KB=0
-MEM_AVAILABLE_KB=0"#;
+MEM_AVAILABLE_KB=0";
 
         let info = parse_host_info_output(sample_output);
 
@@ -1143,16 +1144,14 @@ MEM_AVAILABLE_KB=0"#;
         assert_eq!(info.cpu.cores, Some(0));
         assert_eq!(info.memory.total_mb, Some(0));
         assert_eq!(info.memory.free_mb, Some(0));
-
-        Ok(())
     }
 
     #[test]
-    fn test_parse_host_info_output_partial_data() -> anyhow::Result<()> {
-        let sample_output = r#"OS_NAME=CentOS Linux
+    fn test_parse_host_info_output_partial_data() {
+        let sample_output = r"OS_NAME=CentOS Linux
 OS_VERSION_ID=8.5
 OS_ID=centos
-CPU_CORES=4"#;
+CPU_CORES=4";
 
         let info = parse_host_info_output(sample_output);
 
@@ -1172,15 +1171,13 @@ CPU_CORES=4"#;
         assert_eq!(info.cpu.model, None);
         assert_eq!(info.memory.total_mb, None);
         assert_eq!(info.memory.free_mb, None);
-
-        Ok(())
     }
 
     #[test]
-    fn test_parse_host_info_output_lowercase_unknown() -> anyhow::Result<()> {
-        let sample_output = r#"OS_NAME=Ubuntu
+    fn test_parse_host_info_output_lowercase_unknown() {
+        let sample_output = r"OS_NAME=Ubuntu
 OS_ID=ubuntu
-KERNEL=5.15.0-101-generic"#;
+KERNEL=5.15.0-101-generic";
 
         let info = parse_host_info_output(sample_output);
 
@@ -1188,15 +1185,13 @@ KERNEL=5.15.0-101-generic"#;
         assert_eq!(info.os.name, Some("Ubuntu".to_string()));
         assert_eq!(info.os.id, Some("ubuntu".to_string()));
         assert_eq!(info.os.kernel, Some("5.15.0-101-generic".to_string()));
-
-        Ok(())
     }
 
     // Additional comprehensive tests for shell script parsing with various mock outputs
 
     #[test]
-    fn test_parse_host_info_output_debian_system() -> anyhow::Result<()> {
-        let sample_output = r#"OS_NAME=Debian GNU/Linux
+    fn test_parse_host_info_output_debian_system() {
+        let sample_output = r"OS_NAME=Debian GNU/Linux
 OS_PRETTY_NAME=Debian GNU/Linux 11 (bullseye)
 OS_VERSION=11 (bullseye)
 OS_VERSION_ID=11
@@ -1208,7 +1203,7 @@ HOSTNAME=debian-server
 CPU_MODEL=AMD EPYC 7763 64-Core Processor
 CPU_CORES=8
 MEM_TOTAL_KB=8388608
-MEM_AVAILABLE_KB=6291456"#;
+MEM_AVAILABLE_KB=6291456";
 
         let info = parse_host_info_output(sample_output);
 
@@ -1231,13 +1226,11 @@ MEM_AVAILABLE_KB=6291456"#;
         assert_eq!(info.cpu.cores, Some(8));
         assert_eq!(info.memory.total_mb, Some(8192)); // 8388608 / 1024
         assert_eq!(info.memory.free_mb, Some(6144)); // 6291456 / 1024
-
-        Ok(())
     }
 
     #[test]
-    fn test_parse_host_info_output_rhel_system() -> anyhow::Result<()> {
-        let sample_output = r#"OS_NAME=Red Hat Enterprise Linux
+    fn test_parse_host_info_output_rhel_system() {
+        let sample_output = r"OS_NAME=Red Hat Enterprise Linux
 OS_PRETTY_NAME=Red Hat Enterprise Linux 8.6 (Ootpa)
 OS_VERSION=8.6 (Ootpa)
 OS_VERSION_ID=8.6
@@ -1249,7 +1242,7 @@ HOSTNAME=rhel-production
 CPU_MODEL=Intel(R) Xeon(R) Gold 6248 CPU @ 2.50GHz
 CPU_CORES=16
 MEM_TOTAL_KB=16777216
-MEM_AVAILABLE_KB=12582912"#;
+MEM_AVAILABLE_KB=12582912";
 
         let info = parse_host_info_output(sample_output);
 
@@ -1275,20 +1268,18 @@ MEM_AVAILABLE_KB=12582912"#;
         assert_eq!(info.cpu.cores, Some(16));
         assert_eq!(info.memory.total_mb, Some(16384)); // 16777216 / 1024
         assert_eq!(info.memory.free_mb, Some(12288)); // 12582912 / 1024
-
-        Ok(())
     }
 
     #[test]
-    fn test_parse_host_info_output_malformed_lines() -> anyhow::Result<()> {
-        let sample_output = r#"OS_NAME=Ubuntu
+    fn test_parse_host_info_output_malformed_lines() {
+        let sample_output = r"OS_NAME=Ubuntu
 OS_VERSION_ID=22.04
 INVALID_LINE_WITHOUT_EQUALS
 OS_ID=ubuntu
 =EMPTY_KEY
 KERNEL=
 CPU_CORES=not_a_number
-MEM_TOTAL_KB=abc123"#;
+MEM_TOTAL_KB=abc123";
 
         let info = parse_host_info_output(sample_output);
 
@@ -1303,12 +1294,10 @@ MEM_TOTAL_KB=abc123"#;
         // Invalid numeric values should be None
         assert_eq!(info.cpu.cores, None);
         assert_eq!(info.memory.total_mb, None);
-
-        Ok(())
     }
 
     #[test]
-    fn test_parse_host_info_output_empty_input() -> anyhow::Result<()> {
+    fn test_parse_host_info_output_empty_input() {
         let sample_output = "";
         let info = parse_host_info_output(sample_output);
 
@@ -1326,20 +1315,18 @@ MEM_TOTAL_KB=abc123"#;
         assert_eq!(info.cpu.cores, None);
         assert_eq!(info.memory.total_mb, None);
         assert_eq!(info.memory.free_mb, None);
-
-        Ok(())
     }
 
     #[test]
-    fn test_parse_host_info_output_whitespace_values() -> anyhow::Result<()> {
-        let sample_output = r#"OS_NAME=   Ubuntu
+    fn test_parse_host_info_output_whitespace_values() {
+        let sample_output = r"OS_NAME=   Ubuntu
 OS_VERSION_ID=  22.04
 OS_ID=ubuntu
 KERNEL=
 HOSTNAME=    test-host
 CPU_MODEL=  Intel CPU
 CPU_CORES=4
-MEM_TOTAL_KB=1048576"#;
+MEM_TOTAL_KB=1048576";
 
         let info = parse_host_info_output(sample_output);
 
@@ -1355,8 +1342,6 @@ MEM_TOTAL_KB=1048576"#;
         // For numeric values, clean values should parse correctly
         assert_eq!(info.cpu.cores, Some(4));
         assert_eq!(info.memory.total_mb, Some(1024)); // 1048576 / 1024
-
-        Ok(())
     }
 
     // Tests for create_info_table function
@@ -1503,8 +1488,8 @@ MEM_TOTAL_KB=1048576"#;
     }
 
     #[test]
-    fn test_parse_host_info_output_multiple_id_like() -> anyhow::Result<()> {
-        let sample_output = r#"OS_NAME=Ubuntu
+    fn test_parse_host_info_output_multiple_id_like() {
+        let sample_output = r"OS_NAME=Ubuntu
 OS_PRETTY_NAME=Ubuntu 22.04.3 LTS
 OS_VERSION=22.04.3 LTS (Jammy Jellyfish)
 OS_VERSION_ID=22.04
@@ -1516,7 +1501,7 @@ HOSTNAME=test-host
 CPU_MODEL=Intel CPU
 CPU_CORES=4
 MEM_TOTAL_KB=4026368
-MEM_AVAILABLE_KB=461824"#;
+MEM_AVAILABLE_KB=461824";
 
         let info = parse_host_info_output(sample_output);
 
@@ -1525,23 +1510,19 @@ MEM_AVAILABLE_KB=461824"#;
             info.os.id_like,
             Some(vec!["debian".to_string(), "gnu".to_string()])
         );
-
-        Ok(())
     }
 
     #[test]
-    fn test_parse_host_info_output_empty_id_like() -> anyhow::Result<()> {
-        let sample_output = r#"OS_NAME=Ubuntu
+    fn test_parse_host_info_output_empty_id_like() {
+        let sample_output = r"OS_NAME=Ubuntu
 OS_ID=ubuntu
 OS_ID_LIKE=
-KERNEL=5.15.0-101-generic"#;
+KERNEL=5.15.0-101-generic";
 
         let info = parse_host_info_output(sample_output);
 
         // Check that empty ID_LIKE is treated as None
         assert_eq!(info.os.id_like, None);
-
-        Ok(())
     }
 
     #[test]
@@ -1604,9 +1585,9 @@ KERNEL=5.15.0-101-generic"#;
     // Tests for hostname fallback mechanisms
 
     #[test]
-    fn test_parse_host_info_output_hostname_fallbacks() -> anyhow::Result<()> {
+    fn test_parse_host_info_output_hostname_fallbacks() {
         // Test that the parsing handles different hostname command outputs
-        let sample_output_primary = r#"DISTRO=Ubuntu
+        let sample_output_primary = r"DISTRO=Ubuntu
 VERSION=22.04
 FAMILY=ubuntu
 KERNEL=5.15.0-101-generic
@@ -1614,13 +1595,13 @@ HOSTNAME=primary-hostname
 CPU_MODEL=Intel CPU
 CPU_CORES=2
 MEM_TOTAL_KB=2097152
-MEM_AVAILABLE_KB=1048576"#;
+MEM_AVAILABLE_KB=1048576";
 
         let info = parse_host_info_output(sample_output_primary);
         assert_eq!(info.os.hostname, Some("primary-hostname".to_string()));
 
         // Test with hostname that might come from fallback commands
-        let sample_output_fallback = r#"DISTRO=Ubuntu
+        let sample_output_fallback = r"DISTRO=Ubuntu
 VERSION=22.04
 FAMILY=ubuntu
 KERNEL=5.15.0-101-generic
@@ -1628,22 +1609,20 @@ HOSTNAME=fallback-hostname.example.com
 CPU_MODEL=Intel CPU
 CPU_CORES=2
 MEM_TOTAL_KB=2097152
-MEM_AVAILABLE_KB=1048576"#;
+MEM_AVAILABLE_KB=1048576";
 
         let info = parse_host_info_output(sample_output_fallback);
         assert_eq!(
             info.os.hostname,
             Some("fallback-hostname.example.com".to_string())
         );
-
-        Ok(())
     }
 
     // Test memory conversion edge cases
 
     #[test]
-    fn test_parse_host_info_output_memory_edge_cases() -> anyhow::Result<()> {
-        let sample_output = r#"DISTRO=Ubuntu
+    fn test_parse_host_info_output_memory_edge_cases() {
+        let sample_output = r"DISTRO=Ubuntu
 VERSION=22.04
 FAMILY=ubuntu
 KERNEL=5.15.0-101-generic
@@ -1651,20 +1630,18 @@ HOSTNAME=test-host
 CPU_MODEL=Intel CPU
 CPU_CORES=2
 MEM_TOTAL_KB=1
-MEM_AVAILABLE_KB=1023"#;
+MEM_AVAILABLE_KB=1023";
 
         let info = parse_host_info_output(sample_output);
 
         // Test very small memory values
         assert_eq!(info.memory.total_mb, Some(0)); // 1 / 1024 = 0 (integer division)
         assert_eq!(info.memory.free_mb, Some(0)); // 1023 / 1024 = 0 (integer division)
-
-        Ok(())
     }
 
     #[test]
-    fn test_parse_host_info_output_large_memory_values() -> anyhow::Result<()> {
-        let sample_output = r#"DISTRO=Ubuntu
+    fn test_parse_host_info_output_large_memory_values() {
+        let sample_output = r"DISTRO=Ubuntu
 VERSION=22.04
 FAMILY=ubuntu
 KERNEL=5.15.0-101-generic
@@ -1672,22 +1649,20 @@ HOSTNAME=test-host
 CPU_MODEL=Intel CPU
 CPU_CORES=64
 MEM_TOTAL_KB=134217728
-MEM_AVAILABLE_KB=67108864"#;
+MEM_AVAILABLE_KB=67108864";
 
         let info = parse_host_info_output(sample_output);
 
         // Test large memory values (128GB total, 64GB available)
-        assert_eq!(info.memory.total_mb, Some(131072)); // 134217728 / 1024
+        assert_eq!(info.memory.total_mb, Some(131_072)); // 134217728 / 1024
         assert_eq!(info.memory.free_mb, Some(65536)); // 67108864 / 1024
-
-        Ok(())
     }
 
     // Test CPU core edge cases
 
     #[test]
-    fn test_parse_host_info_output_cpu_edge_cases() -> anyhow::Result<()> {
-        let sample_output = r#"DISTRO=Ubuntu
+    fn test_parse_host_info_output_cpu_edge_cases() {
+        let sample_output = r"DISTRO=Ubuntu
 VERSION=22.04
 FAMILY=ubuntu
 KERNEL=5.15.0-101-generic
@@ -1695,20 +1670,18 @@ HOSTNAME=test-host
 CPU_MODEL=Single Core Processor
 CPU_CORES=1
 MEM_TOTAL_KB=1048576
-MEM_AVAILABLE_KB=524288"#;
+MEM_AVAILABLE_KB=524288";
 
         let info = parse_host_info_output(sample_output);
 
         // Test single core system
         assert_eq!(info.cpu.cores, Some(1));
         assert_eq!(info.cpu.model, Some("Single Core Processor".to_string()));
-
-        Ok(())
     }
 
     #[test]
-    fn test_parse_host_info_output_many_cpu_cores() -> anyhow::Result<()> {
-        let sample_output = r#"DISTRO=Ubuntu
+    fn test_parse_host_info_output_many_cpu_cores() {
+        let sample_output = r"DISTRO=Ubuntu
 VERSION=22.04
 FAMILY=ubuntu
 KERNEL=5.15.0-101-generic
@@ -1716,7 +1689,7 @@ HOSTNAME=test-host
 CPU_MODEL=High-End Server Processor
 CPU_CORES=128
 MEM_TOTAL_KB=1048576
-MEM_AVAILABLE_KB=524288"#;
+MEM_AVAILABLE_KB=524288";
 
         let info = parse_host_info_output(sample_output);
 
@@ -1726,7 +1699,5 @@ MEM_AVAILABLE_KB=524288"#;
             info.cpu.model,
             Some("High-End Server Processor".to_string())
         );
-
-        Ok(())
     }
 }

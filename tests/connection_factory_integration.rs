@@ -285,8 +285,10 @@ fn test_connection_factory_error_handling_invalid_host() -> Result<()> {
     // Should return an error for invalid host configuration
     assert!(result.is_err());
 
-    let error_msg = result.unwrap_err().to_string();
-    assert!(error_msg.contains("Host validation failed") || error_msg.contains("address"));
+    if let Err(error) = result {
+        let error_msg = error.to_string();
+        assert!(error_msg.contains("Host validation failed") || error_msg.contains("address"));
+    }
 
     Ok(())
 }
@@ -369,7 +371,7 @@ fn test_connection_factory_connection_type_detection() -> Result<()> {
 }
 
 /// Integration test with real SSH server (requires SSH test environment)
-/// This test is skipped unless KOMANDAN_SSH_TEST environment variable is set
+/// This test is skipped unless `KOMANDAN_SSH_TEST` environment variable is set
 #[test]
 fn test_connection_factory_real_ssh_integration() -> Result<()> {
     // Skip if SSH test environment not available

@@ -7,11 +7,17 @@ use mlua::{Lua, Table, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// Mock SSH session for testing that implements the same interface as SSHSession
+/// Type alias for command response tuple (stdout, stderr, `exit_code`)
+type CommandResponse = (String, String, i32);
+
+/// Type alias for connection parameters tuple
+type ConnectionParams = (String, u16, String, SSHAuthMethod);
+
+/// Mock SSH session for testing that implements the same interface as `SSHSession`
 #[derive(Clone)]
 pub struct MockSSHSession {
-    /// Mock command responses - maps command patterns to (stdout, stderr, exit_code)
-    pub command_responses: Arc<Mutex<HashMap<String, (String, String, i32)>>>,
+    /// Mock command responses - maps command patterns to (stdout, stderr, `exit_code`)
+    pub command_responses: Arc<Mutex<HashMap<String, CommandResponse>>>,
     /// Environment variables set on the session
     pub env: HashMap<String, String>,
     /// Elevation configuration
@@ -19,7 +25,7 @@ pub struct MockSSHSession {
     /// Known hosts file setting
     pub known_hosts_file: Option<String>,
     /// Connection parameters for verification
-    pub connection_params: Arc<Mutex<Option<(String, u16, String, SSHAuthMethod)>>>,
+    pub connection_params: Arc<Mutex<Option<ConnectionParams>>>,
     /// Whether the session should simulate being connected
     pub connected: Arc<Mutex<bool>>,
     /// Commands that have been executed (for verification)
@@ -33,6 +39,9 @@ pub struct MockSSHSession {
 
 impl MockSSHSession {
     /// Create a new mock SSH session
+    ///
+    /// # Errors
+    /// Returns an error if the mock session cannot be initialized
     pub fn new() -> Result<Self> {
         Ok(Self {
             command_responses: Arc::new(Mutex::new(HashMap::new())),
@@ -53,33 +62,66 @@ impl MockSSHSession {
     }
 
     /// Set a mock response for a specific command pattern
-    pub fn set_command_response(&self, pattern: &str, stdout: &str, stderr: &str, exit_code: i32) {
-        let mut responses = self.command_responses.lock().unwrap();
-        responses.insert(
-            pattern.to_string(),
-            (stdout.to_string(), stderr.to_string(), exit_code),
-        );
+    ///
+    /// # Errors
+    /// Returns an error if the internal mutex is poisoned
+    pub fn set_command_response(
+        &self,
+        pattern: &str,
+        stdout: &str,
+        stderr: &str,
+        exit_code: i32,
+    ) -> Result<()> {
+        self.command_responses
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?
+            .insert(
+                pattern.to_string(),
+                (stdout.to_string(), stderr.to_string(), exit_code),
+            );
+        Ok(())
     }
 
     /// Set multiple command responses at once
-    pub fn set_command_responses(&self, responses: Vec<(&str, &str, &str, i32)>) {
-        let mut response_map = self.command_responses.lock().unwrap();
+    ///
+    /// # Errors
+    /// Returns an error if the internal mutex is poisoned
+    pub fn set_command_responses(&self, responses: Vec<(&str, &str, &str, i32)>) -> Result<()> {
+        let mut response_map = self
+            .command_responses
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         for (pattern, stdout, stderr, exit_code) in responses {
             response_map.insert(
                 pattern.to_string(),
                 (stdout.to_string(), stderr.to_string(), exit_code),
             );
         }
+        drop(response_map);
+        Ok(())
     }
 
     /// Simulate connection success
-    pub fn simulate_connection_success(&self) {
-        *self.connected.lock().unwrap() = true;
+    ///
+    /// # Errors
+    /// Returns an error if the internal mutex is poisoned
+    pub fn simulate_connection_success(&self) -> Result<()> {
+        *self
+            .connected
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))? = true;
+        Ok(())
     }
 
     /// Simulate connection failure with specific error
-    pub fn simulate_connection_failure(&self, error_type: MockConnectionError) -> Result<()> {
-        *self.connected.lock().unwrap() = false;
+    ///
+    /// # Errors
+    /// Returns an error based on the specified error type or if mutex is poisoned
+    pub fn simulate_connection_failure(&self, error_type: &MockConnectionError) -> Result<()> {
+        *self
+            .connected
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))? = false;
         match error_type {
             MockConnectionError::Authentication => {
                 Err(anyhow::anyhow!("SSH authentication failed"))
@@ -94,21 +136,44 @@ impl MockSSHSession {
     }
 
     /// Get the commands that have been executed
-    pub fn get_executed_commands(&self) -> Vec<String> {
-        self.executed_commands.lock().unwrap().clone()
+    ///
+    /// # Errors
+    /// Returns an error if the internal mutex is poisoned
+    pub fn get_executed_commands(&self) -> Result<Vec<String>> {
+        Ok(self
+            .executed_commands
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?
+            .clone())
     }
 
     /// Get the connection parameters that were used
-    pub fn get_connection_params(&self) -> Option<(String, u16, String, SSHAuthMethod)> {
-        self.connection_params.lock().unwrap().clone()
+    ///
+    /// # Errors
+    /// Returns an error if the internal mutex is poisoned
+    pub fn get_connection_params(&self) -> Result<Option<ConnectionParams>> {
+        Ok(self
+            .connection_params
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?
+            .clone())
     }
 
     /// Check if the session is connected
-    pub fn is_connected(&self) -> bool {
-        *self.connected.lock().unwrap()
+    ///
+    /// # Errors
+    /// Returns an error if the internal mutex is poisoned
+    pub fn is_connected(&self) -> Result<bool> {
+        Ok(*self
+            .connected
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?)
     }
 
     /// Connect to an SSH server (mock implementation)
+    ///
+    /// # Errors
+    /// Returns an error if the mock connection is configured to fail or if mutex is poisoned
     pub fn connect(
         &mut self,
         address: &str,
@@ -118,12 +183,19 @@ impl MockSSHSession {
     ) -> Result<()> {
         // Store connection parameters for verification
         {
-            let mut params = self.connection_params.lock().unwrap();
+            let mut params = self
+                .connection_params
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
             *params = Some((address.to_string(), port, username.to_string(), auth_method));
         }
 
         // Check if we should simulate connection failure
-        if !*self.connected.lock().unwrap() {
+        if !*self
+            .connected
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?
+        {
             return Err(anyhow::anyhow!("Mock connection failure"));
         }
 
@@ -131,23 +203,30 @@ impl MockSSHSession {
     }
 
     /// Find matching command response
-    fn find_command_response(&self, command: &str) -> Option<(String, String, i32)> {
-        let responses = self.command_responses.lock().unwrap();
+    ///
+    /// # Errors
+    /// Returns an error if the internal mutex is poisoned
+    fn find_command_response(&self, command: &str) -> Result<CommandResponse> {
+        let responses = self
+            .command_responses
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
 
         // First try exact match
         if let Some(response) = responses.get(command) {
-            return Some(response.clone());
+            return Ok(response.clone());
         }
 
         // Then try pattern matching
         for (pattern, response) in responses.iter() {
             if command.contains(pattern) {
-                return Some(response.clone());
+                return Ok(response.clone());
             }
         }
+        drop(responses);
 
         // Default response if no match found
-        Some(("".to_string(), "".to_string(), 0))
+        Ok((String::new(), String::new(), 0))
     }
 }
 
@@ -155,14 +234,15 @@ impl CommandExecutor for MockSSHSession {
     fn cmd(&mut self, command: &str) -> Result<(String, String, i32)> {
         // Record the command
         {
-            let mut commands = self.executed_commands.lock().unwrap();
+            let mut commands = self
+                .executed_commands
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
             commands.push(command.to_string());
         }
 
         // Find response
-        let (stdout, stderr, exit_code) = self
-            .find_command_response(command)
-            .unwrap_or_else(|| ("".to_string(), "".to_string(), 0));
+        let (stdout, stderr, exit_code) = self.find_command_response(command)?;
 
         // Update session state
         if let Some(stdout_buf) = self.stdout.as_mut() {
@@ -179,14 +259,15 @@ impl CommandExecutor for MockSSHSession {
     fn cmdq(&self, command: &str) -> Result<(String, String, i32)> {
         // Record the command
         {
-            let mut commands = self.executed_commands.lock().unwrap();
+            let mut commands = self
+                .executed_commands
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
             commands.push(command.to_string());
         }
 
         // Find response
-        let (stdout, stderr, exit_code) = self
-            .find_command_response(command)
-            .unwrap_or_else(|| ("".to_string(), "".to_string(), 0));
+        let (stdout, stderr, exit_code) = self.find_command_response(command)?;
 
         Ok((stdout, stderr, exit_code))
     }
@@ -256,7 +337,7 @@ impl CommandExecutor for MockSSHSession {
 }
 
 /// Types of connection errors that can be simulated
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum MockConnectionError {
     Authentication,
     HostKeyVerification,
@@ -282,6 +363,7 @@ pub struct MockConnectionResponse {
 
 impl MockConnectionFactory {
     /// Create a new mock connection factory
+    #[must_use]
     pub fn new() -> Self {
         Self {
             host_responses: Arc::new(Mutex::new(HashMap::new())),
@@ -289,36 +371,47 @@ impl MockConnectionFactory {
     }
 
     /// Set mock response for a specific host address
-    pub fn set_host_response(&self, address: &str, response: MockConnectionResponse) {
-        let mut responses = self.host_responses.lock().unwrap();
-        responses.insert(address.to_string(), response);
+    ///
+    /// # Errors
+    /// Returns an error if the internal mutex is poisoned
+    pub fn set_host_response(&self, address: &str, response: MockConnectionResponse) -> Result<()> {
+        self.host_responses
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?
+            .insert(address.to_string(), response);
+        Ok(())
     }
 
     /// Create a mock connection based on host configuration
+    ///
+    /// # Errors
+    /// Returns an error if the host configuration is invalid or connection fails
     pub fn create_mock_connection(&self, _lua: &Lua, host: Value) -> mlua::Result<Connection> {
-        let host_table = match host {
-            Value::Table(table) => table,
-            _ => {
-                return Err(mlua::Error::RuntimeError(
-                    "Host must be a table".to_string(),
-                ));
-            }
+        let Value::Table(host_table) = host else {
+            return Err(mlua::Error::RuntimeError(
+                "Host must be a table".to_string(),
+            ));
         };
 
         let address = host_table
             .get::<String>("address")
             .map_err(|_| mlua::Error::RuntimeError("Host address is required".to_string()))?;
 
-        let responses = self.host_responses.lock().unwrap();
-        let response = responses
-            .get(&address)
-            .cloned()
-            .unwrap_or_else(|| MockConnectionResponse {
-                connection_type: crate::models::ConnectionType::Local,
-                should_fail: false,
-                failure_error: None,
-                ssh_session: None,
-            });
+        let response = {
+            let responses = self
+                .host_responses
+                .lock()
+                .map_err(|_| mlua::Error::RuntimeError("Mutex poisoned".to_string()))?;
+            responses
+                .get(&address)
+                .cloned()
+                .unwrap_or(MockConnectionResponse {
+                    connection_type: crate::models::ConnectionType::Local,
+                    should_fail: false,
+                    failure_error: None,
+                    ssh_session: None,
+                })
+        };
 
         if response.should_fail {
             let error_msg = match response.failure_error {
@@ -344,12 +437,12 @@ impl MockConnectionFactory {
                     // Convert MockSSHSession to SSHSession for the Connection enum
                     // For testing purposes, we'll create a real SSHSession but not connect it
                     let ssh = SSHSession::new().map_err(|e| {
-                        mlua::Error::RuntimeError(format!("Failed to create SSH session: {}", e))
+                        mlua::Error::RuntimeError(format!("Failed to create SSH session: {e}"))
                     })?;
                     Ok(Connection::SSH(ssh))
                 } else {
                     let ssh = SSHSession::new().map_err(|e| {
-                        mlua::Error::RuntimeError(format!("Failed to create SSH session: {}", e))
+                        mlua::Error::RuntimeError(format!("Failed to create SSH session: {e}"))
                     })?;
                     Ok(Connection::SSH(ssh))
                 }
@@ -369,8 +462,11 @@ pub struct TestUtils;
 
 impl TestUtils {
     /// Create a mock SSH session with common command responses
-    pub fn create_mock_ssh_session() -> MockSSHSession {
-        let mock = MockSSHSession::new().expect("Failed to create mock SSH session");
+    ///
+    /// # Errors
+    /// Returns an error if the mock session cannot be created
+    pub fn create_mock_ssh_session() -> Result<MockSSHSession> {
+        let mock = MockSSHSession::new()?;
 
         // Set up common command responses
         mock.set_command_responses(vec![
@@ -387,30 +483,38 @@ impl TestUtils {
                 "",
                 0,
             ),
-        ]);
+        ])?;
 
-        mock.simulate_connection_success();
-        mock
+        mock.simulate_connection_success()?;
+        Ok(mock)
     }
 
     /// Create a mock SSH session that simulates authentication failure
-    pub fn create_failing_auth_ssh_session() -> MockSSHSession {
-        let mock = MockSSHSession::new().expect("Failed to create mock SSH session");
+    ///
+    /// # Errors
+    /// Returns an error if the mock session cannot be created
+    pub fn create_failing_auth_ssh_session() -> Result<MockSSHSession> {
         // Don't call simulate_connection_success() to keep it in failed state
-        mock
+        MockSSHSession::new()
     }
 
     /// Create a mock SSH session with custom command responses
+    ///
+    /// # Errors
+    /// Returns an error if the mock session cannot be created
     pub fn create_custom_mock_ssh_session(
         responses: Vec<(&str, &str, &str, i32)>,
-    ) -> MockSSHSession {
-        let mock = MockSSHSession::new().expect("Failed to create mock SSH session");
-        mock.set_command_responses(responses);
-        mock.simulate_connection_success();
-        mock
+    ) -> Result<MockSSHSession> {
+        let mock = MockSSHSession::new()?;
+        mock.set_command_responses(responses)?;
+        mock.simulate_connection_success()?;
+        Ok(mock)
     }
 
     /// Create a test host configuration for SSH
+    ///
+    /// # Errors
+    /// Returns an error if the Lua table cannot be created or configured
     pub fn create_test_ssh_host(lua: &Lua) -> mlua::Result<Table> {
         let host = lua.create_table()?;
         host.set("name", "test-host")?;
@@ -422,6 +526,9 @@ impl TestUtils {
     }
 
     /// Create a test host configuration for local connection
+    ///
+    /// # Errors
+    /// Returns an error if the Lua table cannot be created or configured
     pub fn create_test_local_host(lua: &Lua) -> mlua::Result<Table> {
         let host = lua.create_table()?;
         host.set("name", "local-host")?;
@@ -430,6 +537,9 @@ impl TestUtils {
     }
 
     /// Create a test host configuration with SSH key authentication
+    ///
+    /// # Errors
+    /// Returns an error if the Lua table cannot be created or configured
     pub fn create_test_ssh_key_host(lua: &Lua) -> mlua::Result<Table> {
         let host = lua.create_table()?;
         host.set("name", "key-host")?;
@@ -441,11 +551,17 @@ impl TestUtils {
     }
 
     /// Create a dummy task for testing
+    ///
+    /// # Errors
+    /// Returns an error if the Lua table cannot be created
     pub fn create_dummy_task(lua: &Lua) -> mlua::Result<Table> {
         lua.create_table()
     }
 
     /// Create a test task with command module
+    ///
+    /// # Errors
+    /// Returns an error if the Lua table cannot be created or configured
     pub fn create_test_cmd_task(lua: &Lua, command: &str) -> mlua::Result<Table> {
         let task = lua.create_table()?;
         task.set("name", "Test command")?;
@@ -465,7 +581,10 @@ impl TestUtils {
     }
 
     /// Create a mock connection factory with common test scenarios
-    pub fn create_test_connection_factory() -> MockConnectionFactory {
+    ///
+    /// # Errors
+    /// Returns an error if the factory cannot be configured
+    pub fn create_test_connection_factory() -> Result<MockConnectionFactory> {
         let factory = MockConnectionFactory::new();
 
         // Set up localhost to use local connection
@@ -477,7 +596,7 @@ impl TestUtils {
                 failure_error: None,
                 ssh_session: None,
             },
-        );
+        )?;
 
         // Set up a working SSH host
         factory.set_host_response(
@@ -486,9 +605,9 @@ impl TestUtils {
                 connection_type: crate::models::ConnectionType::SSH,
                 should_fail: false,
                 failure_error: None,
-                ssh_session: Some(TestUtils::create_mock_ssh_session()),
+                ssh_session: Some(Self::create_mock_ssh_session()?),
             },
-        );
+        )?;
 
         // Set up a failing SSH host
         factory.set_host_response(
@@ -499,9 +618,9 @@ impl TestUtils {
                 failure_error: Some(MockConnectionError::Authentication),
                 ssh_session: None,
             },
-        );
+        )?;
 
-        factory
+        Ok(factory)
     }
 }
 
@@ -513,22 +632,22 @@ mod tests {
     #[test]
     fn test_mock_ssh_session_creation() -> Result<()> {
         let mock = MockSSHSession::new()?;
-        assert!(!mock.is_connected());
-        assert_eq!(mock.get_executed_commands().len(), 0);
+        assert!(!mock.is_connected()?);
+        assert_eq!(mock.get_executed_commands()?.len(), 0);
         Ok(())
     }
 
     #[test]
     fn test_mock_ssh_session_command_responses() -> Result<()> {
         let mut mock = MockSSHSession::new()?;
-        mock.set_command_response("echo test", "test output", "", 0);
+        mock.set_command_response("echo test", "test output", "", 0)?;
 
         let (stdout, stderr, exit_code) = mock.cmd("echo test")?;
         assert_eq!(stdout, "test output");
         assert_eq!(stderr, "");
         assert_eq!(exit_code, 0);
 
-        let commands = mock.get_executed_commands();
+        let commands = mock.get_executed_commands()?;
         assert_eq!(commands.len(), 1);
         assert_eq!(commands[0], "echo test");
 
@@ -540,7 +659,7 @@ mod tests {
         let mut mock = MockSSHSession::new()?;
 
         // Test connection failure
-        assert!(!mock.is_connected());
+        assert!(!mock.is_connected()?);
         let result = mock.connect(
             "test.com",
             22,
@@ -550,8 +669,8 @@ mod tests {
         assert!(result.is_err());
 
         // Test connection success
-        mock.simulate_connection_success();
-        assert!(mock.is_connected());
+        mock.simulate_connection_success()?;
+        assert!(mock.is_connected()?);
         let result = mock.connect(
             "test.com",
             22,
@@ -561,7 +680,9 @@ mod tests {
         assert!(result.is_ok());
 
         // Verify connection parameters
-        let params = mock.get_connection_params().unwrap();
+        let params = mock
+            .get_connection_params()?
+            .ok_or_else(|| anyhow::anyhow!("Connection params should be set"))?;
         assert_eq!(params.0, "test.com");
         assert_eq!(params.1, 22);
         assert_eq!(params.2, "user");
@@ -575,22 +696,24 @@ mod tests {
         let factory = MockConnectionFactory::new();
 
         // Set up a local host response
-        factory.set_host_response(
-            "localhost",
-            MockConnectionResponse {
-                connection_type: crate::models::ConnectionType::Local,
-                should_fail: false,
-                failure_error: None,
-                ssh_session: None,
-            },
-        );
+        factory
+            .set_host_response(
+                "localhost",
+                MockConnectionResponse {
+                    connection_type: crate::models::ConnectionType::Local,
+                    should_fail: false,
+                    failure_error: None,
+                    ssh_session: None,
+                },
+            )
+            .map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
 
         let host = lua.create_table()?;
         host.set("address", "localhost")?;
 
         let connection = factory.create_mock_connection(&lua, Value::Table(host))?;
         match connection {
-            Connection::Local(_) => assert!(true),
+            Connection::Local(_) => {}
             Connection::SSH(_) => panic!("Expected local connection"),
         }
 
@@ -639,13 +762,13 @@ mod tests {
         assert_eq!(cmd, "ls -la");
 
         // Test sudo elevation
-        let mut mock_sudo = mock.clone();
+        let mut mock_sudo = mock;
         mock_sudo.elevation.method = ElevationMethod::Sudo;
         let cmd = mock_sudo.prepare_command("ls -la");
         assert_eq!(cmd, "sudo -E ls -la");
 
         // Test su elevation
-        let mut mock_su = mock.clone();
+        let mut mock_su = MockSSHSession::new()?;
         mock_su.elevation.method = ElevationMethod::Su;
         let cmd = mock_su.prepare_command("ls -la");
         assert_eq!(cmd, "su -c 'ls -la'");

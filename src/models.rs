@@ -33,7 +33,7 @@ impl ConnectionType {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Host {
     name: Option<String>,
     address: String,

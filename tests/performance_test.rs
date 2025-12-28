@@ -33,16 +33,14 @@ fn test_local_connection_creation_performance() -> Result<()> {
     let avg_duration = duration / iterations;
 
     println!(
-        "Local connection creation: {} iterations in {:?} (avg: {:?})",
-        iterations, duration, avg_duration
+        "Local connection creation: {iterations} iterations in {duration:?} (avg: {avg_duration:?})"
     );
 
     // Performance assertion - should be very fast for local connections
     // Allow up to 1ms per connection creation (very generous)
     assert!(
         avg_duration.as_millis() < 1,
-        "Local connection creation too slow: {:?}",
-        avg_duration
+        "Local connection creation too slow: {avg_duration:?}"
     );
 
     Ok(())
@@ -67,19 +65,17 @@ fn test_connection_type_detection_performance() -> Result<()> {
     }
 
     let duration = start.elapsed();
-    let total_operations = iterations * test_addresses.len() as u32;
+    let total_operations = iterations * u32::try_from(test_addresses.len()).unwrap_or(0);
     let avg_duration = duration / total_operations;
 
     println!(
-        "Connection type detection: {} operations in {:?} (avg: {:?})",
-        total_operations, duration, avg_duration
+        "Connection type detection: {total_operations} operations in {duration:?} (avg: {avg_duration:?})"
     );
 
     // Performance assertion - connection type detection should be very fast
     assert!(
         avg_duration.as_micros() < 500,
-        "Connection type detection too slow: {:?}",
-        avg_duration
+        "Connection type detection too slow: {avg_duration:?}"
     );
 
     Ok(())
@@ -100,14 +96,11 @@ fn test_memory_usage_stability() -> Result<()> {
 
         // Periodically print progress
         if i % 1000 == 0 {
-            println!("Memory test progress: {}/{}", i, iterations);
+            println!("Memory test progress: {i}/{iterations}");
         }
     }
 
-    println!(
-        "Memory stability test completed: {} connections created",
-        iterations
-    );
+    println!("Memory stability test completed: {iterations} connections created");
 
     // If we get here without running out of memory, the test passes
     Ok(())
@@ -127,7 +120,7 @@ fn test_sequential_bulk_connection_creation() -> Result<()> {
         let _connection = create_connection(&lua, &Value::Table(host_table))?;
 
         if i % 100 == 0 {
-            println!("Bulk creation progress: {}/{}", i, total_connections);
+            println!("Bulk creation progress: {i}/{total_connections}");
         }
     }
 
@@ -135,15 +128,13 @@ fn test_sequential_bulk_connection_creation() -> Result<()> {
     let avg_duration = duration / total_connections;
 
     println!(
-        "Sequential bulk connection creation: {} connections in {:?} (avg: {:?})",
-        total_connections, duration, avg_duration
+        "Sequential bulk connection creation: {total_connections} connections in {duration:?} (avg: {avg_duration:?})"
     );
 
     // Performance assertion - bulk creation should be efficient
     assert!(
         avg_duration.as_millis() < 2,
-        "Sequential bulk connection creation too slow: {:?}",
-        avg_duration
+        "Sequential bulk connection creation too slow: {avg_duration:?}"
     );
 
     Ok(())

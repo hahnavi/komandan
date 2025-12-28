@@ -1154,7 +1154,7 @@ mod tests {
         let connection = create_connection(&lua, &Value::Table(host_table))?;
 
         match connection {
-            Connection::Local(_) => assert!(true),
+            Connection::Local(_) => {}
             Connection::SSH(_) => panic!("Expected local connection for localhost"),
         }
 
@@ -1198,7 +1198,7 @@ mod tests {
         let connection = create_connection(&lua, &Value::Table(host_table))?;
 
         match connection {
-            Connection::Local(_) => assert!(true),
+            Connection::Local(_) => {}
             Connection::SSH(_) => panic!("Expected local connection when explicitly set"),
         }
 
@@ -1234,7 +1234,7 @@ mod tests {
         let connection = create_connection(&lua, &Value::Table(host_table))?;
 
         match connection {
-            Connection::Local(_) => assert!(true),
+            Connection::Local(_) => {}
             Connection::SSH(_) => panic!("Expected local connection for localhost"),
         }
 
