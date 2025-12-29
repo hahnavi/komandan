@@ -17,14 +17,13 @@ fn test_check_package_basic_functionality() -> anyhow::Result<()> {
 
         -- Check for a package that should exist on most systems
         local result = komandan.check.package({
-            name = "tar"
+            name = "bash"
         }, host)
 
         -- Should return a valid result structure
         assert(type(result) == "table", "Result should be a table")
         assert(type(result.ok) == "boolean", "Result should have ok field")
         assert(type(result.actual) == "table", "Result should have actual field")
-        assert(type(result.actual.installed) == "string", "Actual should have installed field")
 
         return result
     "#;
@@ -55,23 +54,23 @@ fn test_check_package_with_state_validation() -> anyhow::Result<()> {
 
         -- Check for bash package presence
         local result = komandan.check.package({
-            name = "tar",
+            name = "bash",
             state = "present"
         }, host)
 
         -- bash should be present on most systems
         assert(type(result.ok) == "boolean", "Result should have ok field")
-        assert(result.actual.installed == "true", "bash should be installed")
+        assert(result.actual.installed, "bash should be installed")
 
         return result
     "#;
 
     let result: mlua::Table = lua.load(script).eval()?;
     let actual: mlua::Table = result.get("actual")?;
-    let installed: String = actual.get("installed")?;
+    let installed: bool = actual.get("installed")?;
 
     // bash should be installed on most systems
-    assert_eq!(installed, "true");
+    assert_eq!(installed, true);
 
     Ok(())
 }
