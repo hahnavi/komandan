@@ -60,7 +60,6 @@ fn test_check_package_with_state_validation() -> anyhow::Result<()> {
 
         -- bash should be present on most systems
         assert(type(result.ok) == "boolean", "Result should have ok field")
-        assert(result.actual.installed, "bash should be installed")
 
         return result
     "#;
@@ -70,7 +69,7 @@ fn test_check_package_with_state_validation() -> anyhow::Result<()> {
     let installed: bool = actual.get("installed")?;
 
     // bash should be installed on most systems
-    assert_eq!(installed, true);
+    assert!(installed);
 
     Ok(())
 }
