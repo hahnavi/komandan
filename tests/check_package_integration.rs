@@ -17,7 +17,7 @@ fn test_check_package_basic_functionality() -> anyhow::Result<()> {
 
         -- Check for a package that should exist on most systems
         local result = komandan.check.package({
-            name = "bash"
+            name = "tar"
         }, host)
 
         -- Should return a valid result structure
@@ -55,7 +55,7 @@ fn test_check_package_with_state_validation() -> anyhow::Result<()> {
 
         -- Check for bash package presence
         local result = komandan.check.package({
-            name = "bash",
+            name = "tar",
             state = "present"
         }, host)
 

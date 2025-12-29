@@ -7,6 +7,7 @@ mod komando;
 mod local;
 pub mod models;
 mod modules;
+pub mod parallel_executor;
 pub mod project;
 mod report;
 pub mod ssh;
@@ -21,6 +22,7 @@ use defaults::Defaults;
 use komando::{komando, komando_parallel_hosts, komando_parallel_tasks};
 use mlua::{Lua, MultiValue, chunk};
 use modules::{base_module, collect_core_modules};
+use parallel_executor::{create_global_executor_interface, parallel_executor_constructor};
 use report::generate_report;
 use rustyline::DefaultEditor;
 use std::{env, fs, path::Path};
@@ -120,10 +122,44 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     // Add check functions
     komandan.set("check", collect_check_functions(lua)?)?;
 
+    // Add parallel executor constructor
+    komandan.set("parallel_executor", parallel_executor_constructor(lua)?)?;
+
     lua.globals().set("komandan", &komandan)?;
 
-    // Create alias 'k' for 'komandan'
-    lua.globals().set("k", &komandan)?;
+    // Create separate 'k' table (not an alias)
+    let k_table = lua.create_table()?;
+
+    // Copy core functionality to k
+    k_table.set("defaults", komandan.get::<mlua::Value>("defaults")?)?;
+    k_table.set("komando", komandan.get::<mlua::Value>("komando")?)?;
+    k_table.set(
+        "komando_parallel_hosts",
+        komandan.get::<mlua::Value>("komando_parallel_hosts")?,
+    )?;
+    k_table.set(
+        "komando_parallel_tasks",
+        komandan.get::<mlua::Value>("komando_parallel_tasks")?,
+    )?;
+
+    // Copy utility functions
+    k_table.set(
+        "regex_is_match",
+        komandan.get::<mlua::Value>("regex_is_match")?,
+    )?;
+    k_table.set("filter_hosts", komandan.get::<mlua::Value>("filter_hosts")?)?;
+    k_table.set(
+        "parse_hosts_json_file",
+        komandan.get::<mlua::Value>("parse_hosts_json_file")?,
+    )?;
+    k_table.set(
+        "parse_hosts_json_url",
+        komandan.get::<mlua::Value>("parse_hosts_json_url")?,
+    )?;
+    k_table.set("dprint", komandan.get::<mlua::Value>("dprint")?)?;
+    k_table.set("host_info", komandan.get::<mlua::Value>("host_info")?)?;
+
+    lua.globals().set("k", k_table)?;
 
     // Create alias 'k.mods' for 'komandan.modules'
     let k_table = lua.globals().get::<mlua::Table>("k")?;
@@ -133,6 +169,9 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     // Create alias 'k.check' for 'komandan.check'
     let check_table = komandan.get::<mlua::Table>("check")?;
     k_table.set("check", check_table)?;
+
+    // Add global parallel executor interface to k
+    k_table.set("parallel_executor", create_global_executor_interface(lua)?)?;
 
     Ok(())
 }
@@ -271,6 +310,9 @@ mod tests {
         assert!(modules_table.contains_key("upload")?);
         assert!(modules_table.contains_key("download")?);
 
+        // Test parallel executor constructor
+        assert!(komandan_table.contains_key("parallel_executor")?);
+
         // Test check namespace
         let check_table = komandan_table.get::<Table>("check")?;
         assert!(check_table.contains_key("file")?);
@@ -281,8 +323,9 @@ mod tests {
         let k_table = lua.globals().get::<Table>("k")?;
         assert!(k_table.contains_key("defaults")?);
         assert!(k_table.contains_key("komando")?);
-        assert!(k_table.contains_key("modules")?);
+        assert!(k_table.contains_key("mods")?);
         assert!(k_table.contains_key("check")?);
+        assert!(k_table.contains_key("parallel_executor")?);
 
         let k_mods_table = k_table.get::<Table>("mods")?;
         assert!(k_mods_table.contains_key("apt")?);
@@ -292,6 +335,11 @@ mod tests {
         assert!(k_check_table.contains_key("file")?);
         assert!(k_check_table.contains_key("service")?);
         assert!(k_check_table.contains_key("package")?);
+
+        // Test global parallel executor interface
+        let k_parallel_executor = k_table.get::<Table>("parallel_executor")?;
+        assert!(k_parallel_executor.contains_key("map")?);
+        assert!(k_parallel_executor.contains_key("configure")?);
 
         Ok(())
     }

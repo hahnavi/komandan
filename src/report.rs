@@ -22,6 +22,15 @@ pub fn insert_record(task: String, host: String, status: TaskStatus) {
         .push(record);
 }
 
+#[cfg(test)]
+pub fn clear_report() {
+    let report = get_report();
+    report
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clear();
+}
+
 pub fn generate_report() {
     let report = get_report()
         .lock()
@@ -101,6 +110,9 @@ mod tests {
 
     #[test]
     fn test_insert_record() {
+        // Clear any existing report data from other tests
+        clear_report();
+
         insert_record("task1".to_string(), "host1".to_string(), TaskStatus::OK);
         insert_record(
             "task1".to_string(),
