@@ -275,6 +275,30 @@ impl Connection {
             Self::Local(_) => ConnectionType::Local,
         }
     }
+
+    /// Upload a file from local to remote/target
+    ///
+    /// # Errors
+    /// Returns an error if the upload fails
+    #[allow(dead_code)]
+    pub fn upload(&self, local_path: &str, remote_path: &str) -> Result<()> {
+        match self {
+            Self::SSH(ssh) => ssh.upload(Path::new(local_path), Path::new(remote_path)),
+            Self::Local(local) => local.upload(Path::new(local_path), Path::new(remote_path)),
+        }
+    }
+
+    /// Download a file from remote/target to local
+    ///
+    /// # Errors
+    /// Returns an error if the download fails
+    #[allow(dead_code)]
+    pub fn download(&self, remote_path: &str, local_path: &str) -> Result<()> {
+        match self {
+            Self::SSH(ssh) => ssh.download(Path::new(remote_path), Path::new(local_path)),
+            Self::Local(local) => local.download(Path::new(remote_path), Path::new(local_path)),
+        }
+    }
 }
 
 /// Create a connection (SSH or local) based on host configuration

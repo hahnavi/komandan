@@ -7,6 +7,7 @@ mod komando;
 mod local;
 pub mod models;
 mod modules;
+pub mod modulesv2;
 pub mod parallel_executor;
 pub mod project;
 mod report;
@@ -22,6 +23,7 @@ use defaults::Defaults;
 use komando::{komando, komando_parallel_hosts, komando_parallel_tasks};
 use mlua::{Lua, MultiValue, chunk};
 use modules::{base_module, collect_core_modules};
+use modulesv2::collect_modulesv2;
 use parallel_executor::{create_global_executor_interface, parallel_executor_constructor};
 use report::generate_report;
 use rustyline::DefaultEditor;
@@ -165,6 +167,9 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     let k_table = lua.globals().get::<mlua::Table>("k")?;
     let modules_table = komandan.get::<mlua::Table>("modules")?;
     k_table.set("mods", modules_table)?;
+
+    // Add ModulesV2 under 'k.mod' namespace
+    k_table.set("mod", collect_modulesv2(lua)?)?;
 
     // Create alias 'k.check' for 'komandan.check'
     let check_table = komandan.get::<mlua::Table>("check")?;
@@ -340,6 +345,17 @@ mod tests {
         let k_parallel_executor = k_table.get::<Table>("parallel_executor")?;
         assert!(k_parallel_executor.contains_key("map")?);
         assert!(k_parallel_executor.contains_key("configure")?);
+
+        // Test ModulesV2 namespace (k.mod)
+        let k_modulesv2_table = k_table.get::<Table>("mod")?;
+        assert!(k_modulesv2_table.contains_key("cmd")?);
+        assert!(k_modulesv2_table.contains_key("apt")?);
+        assert!(k_modulesv2_table.contains_key("file")?);
+
+        // Verify the modules are actually functions
+        let _cmd_module: mlua::Function = k_modulesv2_table.get("cmd")?;
+        let _apt_module: mlua::Function = k_modulesv2_table.get("apt")?;
+        let _file_module: mlua::Function = k_modulesv2_table.get("file")?;
 
         Ok(())
     }
