@@ -206,10 +206,35 @@ fn execute_template_operations(
 ) -> mlua::Result<ModuleResult> {
     let mut stdout_parts = Vec::new();
     let mut stderr_parts = Vec::new();
-    // let _changed = false; // Removed unused variable
+    let mut changed = false;
 
     // Read and render template
     let rendered_content = render_template(params.src_path, params.vars)?;
+
+    // Check if destination file exists and has different content
+    let needs_update = match connection.cmd(&format!("cat {}", params.dest_path)) {
+        Ok((existing_content, _, exit_code)) => {
+            if exit_code == 0 {
+                existing_content.trim() != rendered_content.trim()
+            } else {
+                true // File doesn't exist, so we need to create it
+            }
+        }
+        Err(_) => true, // Error reading file, assume we need to update
+    };
+
+    if !needs_update {
+        stdout_parts.push(format!(
+            "Template content unchanged, skipping: {}",
+            params.dest_path
+        ));
+        return Ok(ModuleResult::complete(
+            stdout_parts.join("\n"),
+            String::new(),
+            0,
+            false, // No change needed
+        ));
+    }
 
     // Generate a random temporary file name
     let random_suffix: String = rand::rng()
@@ -238,6 +263,7 @@ fn execute_template_operations(
                 stdout_parts.join("\n"),
                 stderr_parts.join("\n"),
                 backup_exit_code,
+                false, // Backup failed, no change
             ));
         }
     }
@@ -258,6 +284,7 @@ fn execute_template_operations(
             stdout_parts.join("\n"),
             stderr_parts.join("\n"),
             write_exit_code,
+            false, // Write failed, no change
         ));
     }
 
@@ -276,10 +303,11 @@ fn execute_template_operations(
             stdout_parts.join("\n"),
             stderr_parts.join("\n"),
             move_exit_code,
+            false, // Move failed, no change
         ));
     }
 
-    // changed = true; // Commented out as it's never read
+    changed = true; // Template was successfully rendered and moved
 
     // Set file permissions if specified
     if let Some(mode) = params.mode {
@@ -297,6 +325,7 @@ fn execute_template_operations(
                 stdout_parts.join("\n"),
                 stderr_parts.join("\n"),
                 chmod_exit_code,
+                true, // Template was rendered successfully, but chmod failed
             ));
         }
     }
@@ -317,6 +346,7 @@ fn execute_template_operations(
                 stdout_parts.join("\n"),
                 stderr_parts.join("\n"),
                 chown_exit_code,
+                true, // Template was rendered successfully, but chown failed
             ));
         }
     } else if let Some(owner) = params.owner {
@@ -334,6 +364,7 @@ fn execute_template_operations(
                 stdout_parts.join("\n"),
                 stderr_parts.join("\n"),
                 chown_exit_code,
+                true, // Template was rendered successfully, but chown failed
             ));
         }
     }
@@ -347,7 +378,8 @@ fn execute_template_operations(
     Ok(ModuleResult::complete(
         stdout_parts.join("\n"),
         stderr_parts.join("\n"),
-        0, // Always return 0 for successful operations
+        0,       // Always return 0 for successful operations
+        changed, // Template was successfully rendered
     ))
 }
 

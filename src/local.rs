@@ -67,7 +67,9 @@ impl LocalSession {
             }
         }
 
-        full_command.push_str(command);
+        // Apply elevation to the command
+        let elevated_command = self.prepare_command(command);
+        full_command.push_str(&elevated_command);
 
         // Execute via shell
         let output = Command::new("sh")

@@ -188,6 +188,7 @@ fn execute_apt_operations(
                 stdout_parts.join("\n"),
                 stderr_parts.join("\n"),
                 cache_exit_code,
+                false, // Cache update failure doesn't change system state
             ));
         }
 
@@ -215,6 +216,7 @@ fn execute_apt_operations(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    false, // Installation failure doesn't change system state
                 ));
             }
         }
@@ -234,6 +236,7 @@ fn execute_apt_operations(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    false, // Removal failure doesn't change system state
                 ));
             }
         }
@@ -253,6 +256,7 @@ fn execute_apt_operations(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    false, // Upgrade failure doesn't change system state
                 ));
             }
         }
@@ -262,7 +266,8 @@ fn execute_apt_operations(
     Ok(ModuleResult::complete(
         stdout_parts.join("\n"),
         stderr_parts.join("\n"),
-        0, // Always return 0 for successful operations
+        0,        // Always return 0 for successful operations
+        _changed, // Use the tracked changed status
     ))
 }
 
@@ -275,16 +280,22 @@ fn install_packages(
 
     // First check if packages are already installed
     if is_packages_installed(connection, package_spec)? {
-        return Ok(ModuleResult::success(format!(
-            "Package(s) {packages_str} already installed"
-        )));
+        return Ok(ModuleResult::success_with_changed(
+            format!("Package(s) {packages_str} already installed"),
+            false, // No change if already installed
+        ));
     }
 
     let (stdout, stderr, exit_code) = connection
         .cmd(&format!("apt install -y {packages_str}"))
         .map_err(|e| mlua::Error::RuntimeError(format!("Package installation failed: {e}")))?;
 
-    Ok(ModuleResult::complete(stdout, stderr, exit_code))
+    Ok(ModuleResult::complete(
+        stdout,
+        stderr,
+        exit_code,
+        exit_code == 0, // Changed if successful
+    ))
 }
 
 /// Remove packages
@@ -296,16 +307,22 @@ fn remove_packages(
 
     // First check if any packages are installed
     if !is_packages_installed(connection, package_spec)? {
-        return Ok(ModuleResult::success(format!(
-            "Package(s) {packages_str} already removed"
-        )));
+        return Ok(ModuleResult::success_with_changed(
+            format!("Package(s) {packages_str} already removed"),
+            false, // No change if already removed
+        ));
     }
 
     let (stdout, stderr, exit_code) = connection
         .cmd(&format!("apt remove -y {packages_str}"))
         .map_err(|e| mlua::Error::RuntimeError(format!("Package removal failed: {e}")))?;
 
-    Ok(ModuleResult::complete(stdout, stderr, exit_code))
+    Ok(ModuleResult::complete(
+        stdout,
+        stderr,
+        exit_code,
+        exit_code == 0, // Changed if successful
+    ))
 }
 
 /// Upgrade packages to latest version
@@ -319,7 +336,12 @@ fn upgrade_packages(
         .cmd(&format!("apt install -y --only-upgrade {packages_str}"))
         .map_err(|e| mlua::Error::RuntimeError(format!("Package upgrade failed: {e}")))?;
 
-    Ok(ModuleResult::complete(stdout, stderr, exit_code))
+    Ok(ModuleResult::complete(
+        stdout,
+        stderr,
+        exit_code,
+        exit_code == 0, // Changed if successful
+    ))
 }
 
 /// Check if packages are installed

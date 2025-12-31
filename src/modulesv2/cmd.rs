@@ -30,6 +30,30 @@ use super::execution::{ExecutionEngine, ModuleResult};
 use super::factory::create_modulev2_function;
 use mlua::Lua;
 
+/// Check if a command is read-only (unlikely to change system state)
+///
+/// This is a heuristic to determine if a command would likely change system state.
+/// Read-only commands are less likely to change the system.
+///
+/// # Arguments
+/// * `command` - The command string to analyze
+///
+/// # Returns
+/// * `bool` - true if the command appears to be read-only
+fn is_readonly_command(command: &str) -> bool {
+    let readonly_patterns = [
+        "echo", "cat", "ls", "pwd", "whoami", "id", "date", "uptime", "ps", "top", "df", "du",
+        "free", "uname", "hostname", "which", "whereis", "find", "grep", "awk", "sed -n", "head",
+        "tail", "wc", "sort", "uniq", "cut", "tr", "test", "[", "[[",
+    ];
+
+    let command_lower = command.to_lowercase();
+    readonly_patterns.iter().any(|&pattern| {
+        // Check if command starts with pattern followed by space or is exactly the pattern
+        command_lower == pattern || command_lower.starts_with(&format!("{pattern} "))
+    })
+}
+
 /// Create the `cmd_v2` function for `ModulesV2`
 ///
 /// This function creates a ModulesV2-compatible command execution module that supports
@@ -66,7 +90,15 @@ pub fn cmd_v2(lua: &Lua) -> mlua::Result<mlua::Function> {
                 .cmd(&command)
                 .map_err(|e| mlua::Error::RuntimeError(format!("Command execution failed: {e}")))?;
 
-            Ok(ModuleResult::complete(stdout, stderr, exit_code))
+            // For cmd module, we assume successful commands make changes
+            // unless they are clearly read-only operations
+            let changed = if exit_code == 0 {
+                !is_readonly_command(&command)
+            } else {
+                false // Failed commands don't change system state
+            };
+
+            Ok(ModuleResult::complete(stdout, stderr, exit_code, changed))
         })
     })
 }
@@ -90,7 +122,7 @@ mod tests {
 
         assert_eq!(result.get::<i32>("exit_code")?, 0);
         assert!(result.get::<String>("stdout")?.contains("test output"));
-        assert!(result.get::<bool>("changed")?);
+        assert!(!result.get::<bool>("changed")?); // echo is read-only
 
         Ok(())
     }
@@ -112,7 +144,7 @@ mod tests {
 
         assert_eq!(result.get::<i32>("exit_code")?, 0);
         assert!(result.get::<String>("stdout")?.contains("remote test"));
-        assert!(result.get::<bool>("changed")?);
+        assert!(!result.get::<bool>("changed")?); // echo is read-only
 
         Ok(())
     }
@@ -222,6 +254,41 @@ mod tests {
     }
 
     #[test]
+    fn test_cmd_v2_readonly_command() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let cmd_fn = cmd_v2(&lua)?;
+
+        // Test with a read-only command
+        let params = lua.create_table()?;
+        params.set("cmd", "echo 'test output'")?;
+
+        let result: Table = cmd_fn.call(params)?;
+
+        assert_eq!(result.get::<i32>("exit_code")?, 0);
+        assert!(result.get::<String>("stdout")?.contains("test output"));
+        assert!(!result.get::<bool>("changed")?); // Should be false for read-only command
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_cmd_v2_write_command() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let cmd_fn = cmd_v2(&lua)?;
+
+        // Test with a write command
+        let params = lua.create_table()?;
+        params.set("cmd", "touch /tmp/test_file")?;
+
+        let result: Table = cmd_fn.call(params)?;
+
+        assert_eq!(result.get::<i32>("exit_code")?, 0);
+        assert!(result.get::<bool>("changed")?); // Should be true for write command
+
+        Ok(())
+    }
+
+    #[test]
     fn test_cmd_v2_command_with_output_and_error() -> mlua::Result<()> {
         let lua = create_lua()?;
         let cmd_fn = cmd_v2(&lua)?;
@@ -235,7 +302,7 @@ mod tests {
         assert_eq!(result.get::<i32>("exit_code")?, 0);
         assert!(result.get::<String>("stdout")?.contains("stdout message"));
         assert!(result.get::<String>("stderr")?.contains("stderr message"));
-        assert!(result.get::<bool>("changed")?);
+        assert!(!result.get::<bool>("changed")?); // echo is read-only
 
         Ok(())
     }

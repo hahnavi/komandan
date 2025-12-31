@@ -18,7 +18,10 @@
 //! - `ExecutionEngine`: Manages module execution and result processing
 //! - `ModuleResult`: Standardized result structure for module outputs
 
+use crate::args::Args;
 use crate::connection::{Connection, create_connection};
+use crate::util::dprint;
+use clap::Parser;
 use mlua::{Lua, Table, Value};
 
 /// Connection manager for `ModulesV2`
@@ -73,6 +76,8 @@ impl ExecutionEngine {
     /// - Module logic execution
     /// - Error handling and reporting
     /// - Result formatting and cleanup
+    /// - Logging and progress reporting
+    /// - Dry run mode detection and handling
     ///
     /// # Arguments
     /// * `lua` - The Lua context
@@ -99,6 +104,13 @@ impl ExecutionEngine {
     where
         F: FnOnce(&mut Connection, &Table) -> mlua::Result<ModuleResult>,
     {
+        // Generate display names for logging
+        let host_display = generate_host_display(&host);
+        let task_display = generate_task_display(module_name);
+
+        // Print start message
+        print_task_start(&task_display, &host_display);
+
         // Get connection using the connection manager
         let mut connection = ConnectionManager::get_connection(lua, host).map_err(|e| {
             mlua::Error::RuntimeError(format!(
@@ -106,10 +118,31 @@ impl ExecutionEngine {
             ))
         })?;
 
-        // Execute module logic
-        let result = module_logic(&mut connection, params).map_err(|e| {
-            mlua::Error::RuntimeError(format!("Module {module_name} execution failed: {e}"))
-        })?;
+        // Check dry run mode
+        let dry_run = Args::parse().flags.dry_run;
+
+        let result = if dry_run {
+            execute_dry_run_logic(
+                module_name,
+                params,
+                &mut connection,
+                &task_display,
+                &host_display,
+            )?
+        } else {
+            // Execute module logic
+            let result = module_logic(&mut connection, params).map_err(|e| {
+                mlua::Error::RuntimeError(format!("Module {module_name} execution failed: {e}"))
+            })?;
+
+            // Print debug output if enabled
+            print_debug_output(lua, &result.stdout);
+
+            result
+        };
+
+        // Print completion message
+        print_task_completion(&task_display, &host_display, &result);
 
         // Format result as Lua table compatible with ModulesV1
         Self::format_result(lua, result)
@@ -134,9 +167,339 @@ impl ExecutionEngine {
         result_table.set("stdout", result.stdout)?;
         result_table.set("stderr", result.stderr)?;
         result_table.set("exit_code", result.exit_code)?;
-        result_table.set("changed", result.exit_code == 0)?;
+        result_table.set("changed", result.changed)?;
         Ok(result_table)
     }
+}
+
+/// Generate a display name for the host
+///
+/// Creates a human-readable host identifier for logging purposes.
+/// Uses the host name if available, otherwise falls back to the address.
+///
+/// # Arguments
+/// * `host` - Optional host configuration table
+///
+/// # Returns
+/// * `String` - Display name for the host
+fn generate_host_display(host: &Option<Table>) -> String {
+    if let Some(host_table) = host {
+        // Try to get the name first, then fall back to address
+        if let Ok(name) = host_table.get::<String>("name") {
+            if !name.is_empty() {
+                return name;
+            }
+        }
+
+        if let Ok(address) = host_table.get::<String>("address") {
+            return address;
+        }
+    }
+
+    "localhost".to_string()
+}
+
+/// Generate a display name for the task
+///
+/// Creates a human-readable task identifier for logging purposes.
+///
+/// # Arguments
+/// * `module_name` - Name of the module being executed
+///
+/// # Returns
+/// * `String` - Display name for the task
+fn generate_task_display(module_name: &str) -> String {
+    format!("{module_name} module")
+}
+
+/// Print task start message
+///
+/// Prints a message indicating that a task has started execution.
+/// Format matches komando's logging format.
+///
+/// # Arguments
+/// * `task_display` - Display name for the task
+/// * `host_display` - Display name for the host
+fn print_task_start(task_display: &str, host_display: &str) {
+    println!(">> Running task '{task_display}' on host '{host_display}' ...");
+}
+
+/// Print task completion message
+///
+/// Prints a message indicating task completion with success/failure status.
+/// Format matches komando's logging format.
+///
+/// # Arguments
+/// * `task_display` - Display name for the task
+/// * `host_display` - Display name for the host
+/// * `result` - The module execution result
+fn print_task_completion(task_display: &str, host_display: &str, result: &ModuleResult) {
+    if result.exit_code != 0 {
+        println!(
+            ">> Task '{task_display}' on host '{host_display}' failed with exit code {}: {}",
+            result.exit_code, result.stderr
+        );
+    } else {
+        let state = if result.changed { "[Changed]" } else { "[OK]" };
+        println!(">> Task '{task_display}' on host '{host_display}' succeeded. {state}");
+    }
+}
+
+/// Print debug output using komandan.dprint()
+///
+/// Prints stdout from module execution when debug mode is enabled.
+/// Uses the existing dprint utility function to respect verbose flag.
+///
+/// # Arguments
+/// * `lua` - The Lua context for dprint
+/// * `stdout` - The stdout content to print
+///
+/// # Errors
+/// Logs any errors from dprint but doesn't propagate them
+fn print_debug_output(lua: &Lua, stdout: &str) {
+    if !stdout.is_empty() {
+        if let Ok(stdout_value) = lua.create_string(stdout) {
+            if let Err(e) = dprint(lua, Value::String(stdout_value)) {
+                eprintln!("Warning: Failed to print debug output: {e}");
+            }
+        }
+    }
+}
+
+/// Execute dry run logic for modules
+///
+/// Handles dry run mode execution for ModulesV2 modules. Since most modules
+/// don't have specific dry run implementations, this function prints a warning
+/// message and returns a dry run result with appropriate changed flag based on
+/// the module type and parameters.
+///
+/// # Arguments
+/// * `module_name` - Name of the module being executed
+/// * `params` - Module parameters table
+/// * `connection` - Connection to the target host (unused in dry run)
+/// * `task_display` - Display name for the task (for logging)
+/// * `host_display` - Display name for the host (for logging)
+///
+/// # Returns
+/// * `mlua::Result<ModuleResult>` - Dry run result with appropriate messaging
+///
+/// # Errors
+/// Returns an error if result creation fails
+fn execute_dry_run_logic(
+    module_name: &str,
+    params: &Table,
+    _connection: &mut Connection,
+    task_display: &str,
+    host_display: &str,
+) -> mlua::Result<ModuleResult> {
+    // Generate module-specific dry run message and determine changed status
+    let (dry_run_message, would_change) = generate_dry_run_message(module_name, params)?;
+
+    // Print dry run warning message with module-specific information
+    println!(
+        "[[ Task '{task_display}' on host '{host_display}' does not support dry-run. Assuming 'changed' is {}. ]]",
+        would_change
+    );
+
+    // Print what would be executed
+    println!("   Would execute: {dry_run_message}");
+
+    // Return dry run result with module-specific information
+    Ok(ModuleResult::complete(
+        format!("Dry run: {dry_run_message}"),
+        String::new(),
+        0,
+        would_change,
+    ))
+}
+
+/// Generate module-specific dry run message and determine if changes would occur
+///
+/// Analyzes the module type and parameters to provide meaningful dry run output
+/// and make an educated guess about whether the operation would result in changes.
+///
+/// # Arguments
+/// * `module_name` - Name of the module being executed
+/// * `params` - Module parameters table
+///
+/// # Returns
+/// * `mlua::Result<(String, bool)>` - Tuple of (dry_run_message, would_change)
+///
+/// # Errors
+/// Returns an error if parameter extraction fails
+fn generate_dry_run_message(module_name: &str, params: &Table) -> mlua::Result<(String, bool)> {
+    match module_name {
+        "cmd" => {
+            let command = params
+                .get::<String>("cmd")
+                .unwrap_or_else(|_| "unknown command".to_string());
+            let message = format!("execute command: {command}");
+            // Commands typically change system state unless they're read-only
+            let would_change = !is_readonly_command(&command);
+            Ok((message, would_change))
+        }
+        "apt" => {
+            let package = extract_package_display(params);
+            let state = params
+                .get::<String>("state")
+                .unwrap_or_else(|_| "present".to_string());
+            let update_cache = params.get::<bool>("update_cache").unwrap_or(false);
+
+            let mut message_parts = Vec::new();
+            if update_cache {
+                message_parts.push("update package cache".to_string());
+            }
+            message_parts.push(format!("manage package(s) {package} (state: {state})"));
+
+            let message = message_parts.join(", ");
+            // Package operations typically change system state
+            let would_change = true;
+            Ok((message, would_change))
+        }
+        "dnf" => {
+            let package = extract_package_display(params);
+            let state = params
+                .get::<String>("state")
+                .unwrap_or_else(|_| "present".to_string());
+            let message = format!("manage package(s) {package} with DNF (state: {state})");
+            // Package operations typically change system state
+            let would_change = true;
+            Ok((message, would_change))
+        }
+        "file" => {
+            let path = params
+                .get::<String>("path")
+                .unwrap_or_else(|_| "unknown path".to_string());
+            let content = params.get::<Option<String>>("content").unwrap_or(None);
+            let state = params
+                .get::<String>("state")
+                .unwrap_or_else(|_| "present".to_string());
+
+            let message = if let Some(content) = content {
+                format!(
+                    "create/update file {path} with content ({} bytes)",
+                    content.len()
+                )
+            } else {
+                format!("manage file {path} (state: {state})")
+            };
+            // File operations typically change system state unless removing non-existent files
+            let would_change = state != "absent"; // Assume file exists for dry run
+            Ok((message, would_change))
+        }
+        "systemd_service" => {
+            let name = params
+                .get::<String>("name")
+                .unwrap_or_else(|_| "unknown service".to_string());
+            let action = params
+                .get::<String>("action")
+                .unwrap_or_else(|_| "start".to_string());
+            let message = format!("manage systemd service {name} (action: {action})");
+            // Service operations typically change system state
+            let would_change = true;
+            Ok((message, would_change))
+        }
+        "template" => {
+            let src = params
+                .get::<String>("src")
+                .unwrap_or_else(|_| "unknown template".to_string());
+            let dest = params
+                .get::<String>("dest")
+                .unwrap_or_else(|_| "unknown destination".to_string());
+            let message = format!("render template {src} to {dest}");
+            // Template rendering typically changes system state
+            let would_change = true;
+            Ok((message, would_change))
+        }
+        "upload" => {
+            let src = params
+                .get::<String>("src")
+                .unwrap_or_else(|_| "unknown source".to_string());
+            let dest = params
+                .get::<String>("dest")
+                .unwrap_or_else(|_| "unknown destination".to_string());
+            let message = format!("upload file from {src} to {dest}");
+            // File uploads typically change system state
+            let would_change = true;
+            Ok((message, would_change))
+        }
+        "download" => {
+            let url = params
+                .get::<String>("url")
+                .unwrap_or_else(|_| "unknown URL".to_string());
+            let dest = params
+                .get::<String>("dest")
+                .unwrap_or_else(|_| "unknown destination".to_string());
+            let message = format!("download from {url} to {dest}");
+            // Downloads typically change system state
+            let would_change = true;
+            Ok((message, would_change))
+        }
+        _ => {
+            // Generic fallback for unknown modules
+            let message = format!("execute {module_name} module with provided parameters");
+            // Unknown modules are assumed to change system state for safety
+            let would_change = true;
+            Ok((message, would_change))
+        }
+    }
+}
+
+/// Extract package display string from parameters
+///
+/// Handles both single package strings and arrays of packages.
+///
+/// # Arguments
+/// * `params` - Module parameters table
+///
+/// # Returns
+/// * `String` - Display string for package(s)
+fn extract_package_display(params: &Table) -> String {
+    match params.get::<mlua::Value>("package") {
+        Ok(mlua::Value::String(pkg)) => pkg
+            .to_str()
+            .map_or_else(|_| "unknown package".to_string(), |s| s.to_string()),
+        Ok(mlua::Value::Table(pkg_table)) => {
+            let mut packages = Vec::new();
+            for pair in pkg_table.pairs::<i32, String>() {
+                if let Ok((_, package)) = pair {
+                    packages.push(package);
+                }
+            }
+            if packages.is_empty() {
+                "unknown packages".to_string()
+            } else if packages.len() == 1 {
+                packages[0].clone()
+            } else {
+                format!("[{}]", packages.join(", "))
+            }
+        }
+        _ => "unknown package".to_string(),
+    }
+}
+
+/// Check if a command is read-only (unlikely to change system state)
+///
+/// This is a heuristic to determine if a command would likely change system state.
+/// Read-only commands are less likely to change the system.
+///
+/// # Arguments
+/// * `command` - The command string to analyze
+///
+/// # Returns
+/// * `bool` - true if the command appears to be read-only
+fn is_readonly_command(command: &str) -> bool {
+    let readonly_patterns = [
+        "echo", "cat", "ls", "pwd", "whoami", "id", "date", "uptime", "ps", "top", "df", "du",
+        "free", "uname", "hostname", "which", "whereis", "find", "grep", "awk", "sed -n", "head",
+        "tail", "wc", "sort", "uniq", "cut", "tr", "test", "[", "[[",
+    ];
+
+    let command_lower = command.to_lowercase();
+    readonly_patterns.iter().any(|&pattern| {
+        // Check if command starts with pattern followed by space or is exactly the pattern
+        command_lower == pattern || command_lower.starts_with(&format!("{pattern} "))
+    })
 }
 
 /// Standardized result structure for `ModulesV2` modules
@@ -151,6 +514,8 @@ pub struct ModuleResult {
     pub stderr: String,
     /// Exit code from the module execution (0 = success, non-zero = failure)
     pub exit_code: i32,
+    /// Whether the operation made changes to the system
+    pub changed: bool,
 }
 
 impl ModuleResult {
@@ -167,6 +532,25 @@ impl ModuleResult {
             stdout,
             stderr: String::new(),
             exit_code: 0,
+            changed: true, // Assume changed by default for successful operations
+        }
+    }
+
+    /// Create a successful result with explicit changed status
+    ///
+    /// # Arguments
+    /// * `stdout` - The output from successful execution
+    /// * `changed` - Whether the operation made changes
+    ///
+    /// # Returns
+    /// * `ModuleResult` - A result indicating success
+    #[must_use]
+    pub const fn success_with_changed(stdout: String, changed: bool) -> Self {
+        Self {
+            stdout,
+            stderr: String::new(),
+            exit_code: 0,
+            changed,
         }
     }
 
@@ -184,6 +568,7 @@ impl ModuleResult {
             stdout: String::new(),
             stderr,
             exit_code: if exit_code == 0 { 1 } else { exit_code },
+            changed: false, // Failed operations don't change system state
         }
     }
 
@@ -193,15 +578,17 @@ impl ModuleResult {
     /// * `stdout` - Standard output
     /// * `stderr` - Standard error
     /// * `exit_code` - Exit code
+    /// * `changed` - Whether the operation made changes
     ///
     /// # Returns
     /// * `ModuleResult` - A complete result
     #[must_use]
-    pub const fn complete(stdout: String, stderr: String, exit_code: i32) -> Self {
+    pub const fn complete(stdout: String, stderr: String, exit_code: i32, changed: bool) -> Self {
         Self {
             stdout,
             stderr,
             exit_code,
+            changed,
         }
     }
 }
@@ -367,22 +754,33 @@ mod tests {
         assert_eq!(result.stdout, "success output");
         assert_eq!(result.stderr, "");
         assert_eq!(result.exit_code, 0);
+        assert!(result.changed);
+
+        // Test success with explicit changed status
+        let result = ModuleResult::success_with_changed("no change output".to_string(), false);
+        assert_eq!(result.stdout, "no change output");
+        assert_eq!(result.stderr, "");
+        assert_eq!(result.exit_code, 0);
+        assert!(!result.changed);
 
         // Test failure constructor
         let result = ModuleResult::failure("error message".to_string(), 1);
         assert_eq!(result.stdout, "");
         assert_eq!(result.stderr, "error message");
         assert_eq!(result.exit_code, 1);
+        assert!(!result.changed);
 
         // Test failure constructor with zero exit code (should be corrected to 1)
         let result = ModuleResult::failure("error message".to_string(), 0);
         assert_eq!(result.exit_code, 1);
+        assert!(!result.changed);
 
         // Test complete constructor
-        let result = ModuleResult::complete("output".to_string(), "error".to_string(), 2);
+        let result = ModuleResult::complete("output".to_string(), "error".to_string(), 2, true);
         assert_eq!(result.stdout, "output");
         assert_eq!(result.stderr, "error");
         assert_eq!(result.exit_code, 2);
+        assert!(result.changed);
     }
 
     #[test]
@@ -418,6 +816,298 @@ mod tests {
             "Remote processed: remote_test"
         );
         assert_eq!(result_table.get::<i32>("exit_code")?, 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_generate_host_display() -> mlua::Result<()> {
+        let lua = create_lua()?;
+
+        // Test with no host (should default to localhost)
+        let display = generate_host_display(&None);
+        assert_eq!(display, "localhost");
+
+        // Test with host name
+        let host = lua.create_table()?;
+        host.set("name", "web-server")?;
+        host.set("address", "192.168.1.100")?;
+        let display = generate_host_display(&Some(host));
+        assert_eq!(display, "web-server");
+
+        // Test with address but no name
+        let host = lua.create_table()?;
+        host.set("address", "192.168.1.100")?;
+        let display = generate_host_display(&Some(host));
+        assert_eq!(display, "192.168.1.100");
+
+        // Test with empty name (should fall back to address)
+        let host = lua.create_table()?;
+        host.set("name", "")?;
+        host.set("address", "192.168.1.100")?;
+        let display = generate_host_display(&Some(host));
+        assert_eq!(display, "192.168.1.100");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_generate_task_display() {
+        let display = generate_task_display("cmd");
+        assert_eq!(display, "cmd module");
+
+        let display = generate_task_display("apt");
+        assert_eq!(display, "apt module");
+    }
+
+    #[test]
+    fn test_print_debug_output() -> mlua::Result<()> {
+        let lua = create_lua()?;
+
+        // Test with empty stdout (should not print anything)
+        print_debug_output(&lua, "");
+
+        // Test with stdout content
+        print_debug_output(&lua, "test debug output");
+
+        // The actual printing behavior depends on the verbose flag,
+        // but we can at least verify the function doesn't panic
+        Ok(())
+    }
+
+    #[test]
+    fn test_execute_dry_run_logic() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("cmd", "echo 'test command'")?;
+
+        // Create a local connection for testing
+        let mut connection = ConnectionManager::get_connection(&lua, None)?;
+
+        // Test dry run logic for cmd module
+        let result =
+            execute_dry_run_logic("cmd", &params, &mut connection, "cmd module", "localhost")?;
+
+        // Verify dry run result
+        assert_eq!(result.exit_code, 0);
+        assert!(!result.changed); // echo command should be detected as read-only
+        assert!(result.stdout.contains("Dry run"));
+        assert!(
+            result
+                .stdout
+                .contains("execute command: echo 'test command'")
+        );
+        assert!(result.stderr.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_execute_dry_run_logic_apt() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("package", "nginx")?;
+        params.set("state", "present")?;
+        params.set("update_cache", true)?;
+
+        let mut connection = ConnectionManager::get_connection(&lua, None)?;
+
+        // Test dry run logic for apt module
+        let result =
+            execute_dry_run_logic("apt", &params, &mut connection, "apt module", "localhost")?;
+
+        // Verify dry run result
+        assert_eq!(result.exit_code, 0);
+        assert!(result.changed); // apt operations should be detected as changing
+        assert!(result.stdout.contains("Dry run"));
+        assert!(result.stdout.contains("update package cache"));
+        assert!(result.stdout.contains("manage package(s) nginx"));
+        assert!(result.stderr.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_execute_dry_run_logic_file() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+        params.set("path", "/etc/test.conf")?;
+        params.set("content", "test content")?;
+
+        let mut connection = ConnectionManager::get_connection(&lua, None)?;
+
+        // Test dry run logic for file module
+        let result =
+            execute_dry_run_logic("file", &params, &mut connection, "file module", "localhost")?;
+
+        // Verify dry run result
+        assert_eq!(result.exit_code, 0);
+        assert!(result.changed); // file operations should be detected as changing
+        assert!(result.stdout.contains("Dry run"));
+        assert!(result.stdout.contains("create/update file /etc/test.conf"));
+        assert!(result.stdout.contains("12 bytes")); // "test content" is 12 bytes
+        assert!(result.stderr.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_execute_dry_run_logic_unknown_module() -> mlua::Result<()> {
+        let lua = create_lua()?;
+        let params = lua.create_table()?;
+
+        let mut connection = ConnectionManager::get_connection(&lua, None)?;
+
+        // Test dry run logic for unknown module
+        let result = execute_dry_run_logic(
+            "unknown_module",
+            &params,
+            &mut connection,
+            "unknown_module module",
+            "localhost",
+        )?;
+
+        // Verify dry run result
+        assert_eq!(result.exit_code, 0);
+        assert!(result.changed); // unknown modules should assume changed for safety
+        assert!(result.stdout.contains("Dry run"));
+        assert!(result.stdout.contains("execute unknown_module module"));
+        assert!(result.stderr.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_generate_dry_run_message_cmd() -> mlua::Result<()> {
+        let lua = create_lua()?;
+
+        // Test read-only command
+        let params = lua.create_table()?;
+        params.set("cmd", "echo 'hello'")?;
+        let (message, would_change) = generate_dry_run_message("cmd", &params)?;
+        assert_eq!(message, "execute command: echo 'hello'");
+        assert!(!would_change); // echo is read-only
+
+        // Test write command
+        let params = lua.create_table()?;
+        params.set("cmd", "touch /tmp/test")?;
+        let (message, would_change) = generate_dry_run_message("cmd", &params)?;
+        assert_eq!(message, "execute command: touch /tmp/test");
+        assert!(would_change); // touch changes system state
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_generate_dry_run_message_apt() -> mlua::Result<()> {
+        let lua = create_lua()?;
+
+        // Test single package
+        let params = lua.create_table()?;
+        params.set("package", "nginx")?;
+        params.set("state", "present")?;
+        let (message, would_change) = generate_dry_run_message("apt", &params)?;
+        assert_eq!(message, "manage package(s) nginx (state: present)");
+        assert!(would_change);
+
+        // Test with cache update
+        let params = lua.create_table()?;
+        params.set("package", "nginx")?;
+        params.set("update_cache", true)?;
+        let (message, would_change) = generate_dry_run_message("apt", &params)?;
+        assert!(message.contains("update package cache"));
+        assert!(message.contains("manage package(s) nginx"));
+        assert!(would_change);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_extract_package_display() -> mlua::Result<()> {
+        let lua = create_lua()?;
+
+        // Test single package
+        let params = lua.create_table()?;
+        params.set("package", "nginx")?;
+        let display = extract_package_display(&params);
+        assert_eq!(display, "nginx");
+
+        // Test multiple packages
+        let packages = lua.create_table()?;
+        packages.set(1, "nginx")?;
+        packages.set(2, "apache2")?;
+        let params = lua.create_table()?;
+        params.set("package", packages)?;
+        let display = extract_package_display(&params);
+        assert_eq!(display, "[nginx, apache2]");
+
+        // Test missing package
+        let params = lua.create_table()?;
+        let display = extract_package_display(&params);
+        assert_eq!(display, "unknown package");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_is_readonly_command() {
+        // Test read-only commands
+        assert!(is_readonly_command("echo hello"));
+        assert!(is_readonly_command("cat /etc/passwd"));
+        assert!(is_readonly_command("ls -la"));
+        assert!(is_readonly_command("pwd"));
+        assert!(is_readonly_command("whoami"));
+        assert!(is_readonly_command("ps aux"));
+        assert!(is_readonly_command("grep pattern file"));
+
+        // Test write commands
+        assert!(!is_readonly_command("touch /tmp/test"));
+        assert!(!is_readonly_command("rm -rf /tmp"));
+        assert!(!is_readonly_command("mkdir /tmp/test"));
+        assert!(!is_readonly_command("cp source dest"));
+        assert!(!is_readonly_command("mv source dest"));
+        assert!(!is_readonly_command("chmod 755 file"));
+        assert!(!is_readonly_command("systemctl start nginx"));
+
+        // Test edge cases
+        assert!(is_readonly_command("ECHO hello")); // case insensitive
+        assert!(!is_readonly_command("echo_command")); // must be word boundary
+    }
+
+    #[test]
+    fn test_execution_engine_dry_run_mode() -> mlua::Result<()> {
+        let lua = create_lua()?;
+
+        let params = lua.create_table()?;
+        params.set("test_param", "test_value")?;
+
+        // Note: This test cannot easily test the actual dry run behavior
+        // because Args::parse() reads from command line arguments.
+        // In a real scenario, the dry run flag would be set via CLI.
+        // We can test the dry run logic function separately above.
+
+        // Test normal execution (non-dry-run)
+        let result_table = ExecutionEngine::execute_module(
+            &lua,
+            "test_module",
+            &params,
+            None, // Local execution
+            |_connection, params| {
+                let test_param = params
+                    .get::<String>("test_param")
+                    .map_err(|e| mlua::Error::RuntimeError(format!("Missing test_param: {e}")))?;
+
+                Ok(ModuleResult::success(format!("Processed: {test_param}")))
+            },
+        )?;
+
+        // Should execute normally when not in dry run mode
+        assert_eq!(
+            result_table.get::<String>("stdout")?,
+            "Processed: test_value"
+        );
+        assert_eq!(result_table.get::<i32>("exit_code")?, 0);
+        assert!(result_table.get::<bool>("changed")?);
 
         Ok(())
     }

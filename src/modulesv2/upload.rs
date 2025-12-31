@@ -156,13 +156,47 @@ fn execute_upload_operations(
 ) -> mlua::Result<ModuleResult> {
     let mut stdout_parts = Vec::new();
     let mut stderr_parts = Vec::new();
-    let mut _changed = false;
+    let mut changed = false;
 
     // Validate source file exists
     if !Path::new(src_path).exists() {
         return Ok(ModuleResult::failure(
             format!("Source file does not exist: {src_path}"),
             1,
+        ));
+    }
+
+    // Check if destination file exists and has the same content
+    let needs_upload = match std::fs::read_to_string(src_path) {
+        Ok(src_content) => {
+            match connection.cmd(&format!("cat {dest_path}")) {
+                Ok((dest_content, _, exit_code)) => {
+                    if exit_code == 0 {
+                        src_content.trim() != dest_content.trim()
+                    } else {
+                        true // Destination doesn't exist, need to upload
+                    }
+                }
+                Err(_) => true, // Error reading destination, assume we need to upload
+            }
+        }
+        Err(_) => {
+            return Ok(ModuleResult::failure(
+                format!("Failed to read source file: {src_path}"),
+                1,
+            ));
+        }
+    };
+
+    if !needs_upload {
+        stdout_parts.push(format!(
+            "File content unchanged, skipping upload: {src_path} -> {dest_path}"
+        ));
+        return Ok(ModuleResult::complete(
+            stdout_parts.join("\n"),
+            String::new(),
+            0,
+            false, // No change needed
         ));
     }
 
@@ -184,6 +218,7 @@ fn execute_upload_operations(
                 stdout_parts.join("\n"),
                 stderr_parts.join("\n"),
                 backup_exit_code,
+                false, // Backup failed, no change
             ));
         }
     }
@@ -194,7 +229,7 @@ fn execute_upload_operations(
             stdout_parts.push(format!(
                 "File uploaded successfully: {src_path} -> {dest_path}"
             ));
-            _changed = true;
+            changed = true;
         }
         Err(e) => {
             return Ok(ModuleResult::failure(format!("File upload failed: {e}"), 1));
@@ -217,6 +252,7 @@ fn execute_upload_operations(
                 stdout_parts.join("\n"),
                 stderr_parts.join("\n"),
                 chmod_exit_code,
+                true, // File was uploaded successfully, but chmod failed
             ));
         }
     }
@@ -237,6 +273,7 @@ fn execute_upload_operations(
                 stdout_parts.join("\n"),
                 stderr_parts.join("\n"),
                 chown_exit_code,
+                true, // File was uploaded successfully, but chown failed
             ));
         }
     } else if let Some(owner) = owner {
@@ -254,6 +291,7 @@ fn execute_upload_operations(
                 stdout_parts.join("\n"),
                 stderr_parts.join("\n"),
                 chown_exit_code,
+                true, // File was uploaded successfully, but chown failed
             ));
         }
     }
@@ -261,7 +299,8 @@ fn execute_upload_operations(
     Ok(ModuleResult::complete(
         stdout_parts.join("\n"),
         stderr_parts.join("\n"),
-        0, // Always return 0 for successful operations
+        0,       // Always return 0 for successful operations
+        changed, // Use the tracked changed state
     ))
 }
 

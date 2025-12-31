@@ -10,7 +10,7 @@ mod modules;
 pub mod modulesv2;
 pub mod parallel_executor;
 pub mod project;
-mod report;
+pub mod report;
 pub mod ssh;
 mod util;
 mod validator;

@@ -226,6 +226,7 @@ fn execute_dnf_operations(
                 stdout_parts.join("\n"),
                 stderr_parts.join("\n"),
                 cache_exit_code,
+                false, // Cache update failed, no change
             ));
         }
 
@@ -254,6 +255,7 @@ fn execute_dnf_operations(
                         stdout_parts.join("\n"),
                         stderr_parts.join("\n"),
                         result.exit_code,
+                        false, // Operation failed, no change
                     ));
                 }
             } else {
@@ -279,6 +281,7 @@ fn execute_dnf_operations(
                         stdout_parts.join("\n"),
                         stderr_parts.join("\n"),
                         result.exit_code,
+                        false, // Operation failed, no change
                     ));
                 }
             } else {
@@ -304,6 +307,7 @@ fn execute_dnf_operations(
                         stdout_parts.join("\n"),
                         stderr_parts.join("\n"),
                         result.exit_code,
+                        false, // Operation failed, no change
                     ));
                 }
             } else {
@@ -328,6 +332,7 @@ fn execute_dnf_operations(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    false, // Operation failed, no change
                 ));
             }
         }
@@ -347,6 +352,7 @@ fn execute_dnf_operations(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    false, // Operation failed, no change
                 ));
             }
         }
@@ -356,7 +362,8 @@ fn execute_dnf_operations(
     Ok(ModuleResult::complete(
         stdout_parts.join("\n"),
         stderr_parts.join("\n"),
-        0, // Always return 0 for successful operations
+        0,        // Always return 0 for successful operations
+        _changed, // Use the tracked changed state
     ))
 }
 
@@ -370,9 +377,10 @@ fn install_packages(
 
     // First check if packages are already installed
     if is_packages_installed(connection, package_spec)? {
-        return Ok(ModuleResult::success(format!(
-            "Package(s) {packages_str} already installed"
-        )));
+        return Ok(ModuleResult::success_with_changed(
+            format!("Package(s) {packages_str} already installed"),
+            false, // No change if already installed
+        ));
     }
 
     let mut cmd = format!("dnf install -y {packages_str}");
@@ -384,7 +392,12 @@ fn install_packages(
         .cmd(&cmd)
         .map_err(|e| mlua::Error::RuntimeError(format!("Package installation failed: {e}")))?;
 
-    Ok(ModuleResult::complete(stdout, stderr, exit_code))
+    Ok(ModuleResult::complete(
+        stdout,
+        stderr,
+        exit_code,
+        exit_code == 0, // Changed if successful
+    ))
 }
 
 /// Remove packages
@@ -396,16 +409,22 @@ fn remove_packages(
 
     // First check if any packages are installed
     if !is_packages_installed(connection, package_spec)? {
-        return Ok(ModuleResult::success(format!(
-            "Package(s) {packages_str} already removed"
-        )));
+        return Ok(ModuleResult::success_with_changed(
+            format!("Package(s) {packages_str} already removed"),
+            false, // No change if already removed
+        ));
     }
 
     let (stdout, stderr, exit_code) = connection
         .cmd(&format!("dnf remove -y {packages_str}"))
         .map_err(|e| mlua::Error::RuntimeError(format!("Package removal failed: {e}")))?;
 
-    Ok(ModuleResult::complete(stdout, stderr, exit_code))
+    Ok(ModuleResult::complete(
+        stdout,
+        stderr,
+        exit_code,
+        exit_code == 0, // Changed if successful
+    ))
 }
 
 /// Update specific packages to latest version
@@ -419,7 +438,12 @@ fn update_packages(
         .cmd(&format!("dnf update -y {packages_str}"))
         .map_err(|e| mlua::Error::RuntimeError(format!("Package update failed: {e}")))?;
 
-    Ok(ModuleResult::complete(stdout, stderr, exit_code))
+    Ok(ModuleResult::complete(
+        stdout,
+        stderr,
+        exit_code,
+        exit_code == 0,
+    ))
 }
 
 /// Upgrade all packages
@@ -428,7 +452,12 @@ fn upgrade_all_packages(connection: &mut Connection) -> mlua::Result<ModuleResul
         .cmd("dnf upgrade -y")
         .map_err(|e| mlua::Error::RuntimeError(format!("System upgrade failed: {e}")))?;
 
-    Ok(ModuleResult::complete(stdout, stderr, exit_code))
+    Ok(ModuleResult::complete(
+        stdout,
+        stderr,
+        exit_code,
+        exit_code == 0,
+    ))
 }
 
 /// Remove unused packages
@@ -437,7 +466,12 @@ fn autoremove_packages(connection: &mut Connection) -> mlua::Result<ModuleResult
         .cmd("dnf autoremove -y")
         .map_err(|e| mlua::Error::RuntimeError(format!("Autoremove failed: {e}")))?;
 
-    Ok(ModuleResult::complete(stdout, stderr, exit_code))
+    Ok(ModuleResult::complete(
+        stdout,
+        stderr,
+        exit_code,
+        exit_code == 0,
+    ))
 }
 
 /// Check if packages are installed

@@ -232,6 +232,7 @@ fn execute_file_operations(
                         stdout_parts.join("\n"),
                         stderr_parts.join("\n"),
                         result.exit_code,
+                        false, // Operation failed, no change
                     ));
                 }
             } else {
@@ -255,6 +256,7 @@ fn execute_file_operations(
                         stdout_parts.join("\n"),
                         stderr_parts.join("\n"),
                         result.exit_code,
+                        false, // Operation failed, no change
                     ));
                 }
             }
@@ -276,6 +278,7 @@ fn execute_file_operations(
                         stdout_parts.join("\n"),
                         stderr_parts.join("\n"),
                         result.exit_code,
+                        false, // Operation failed, no change
                     ));
                 }
             } else if let Some(content) = &params.content {
@@ -303,6 +306,7 @@ fn execute_file_operations(
                             stdout_parts.join("\n"),
                             stderr_parts.join("\n"),
                             result.exit_code,
+                            false, // Operation failed, no change
                         ));
                     }
                 } else {
@@ -334,6 +338,7 @@ fn execute_file_operations(
                             stdout_parts.join("\n"),
                             stderr_parts.join("\n"),
                             result.exit_code,
+                            false, // Operation failed, no change
                         ));
                     }
                 }
@@ -357,6 +362,7 @@ fn execute_file_operations(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    changed, // Use current changed state
                 ));
             }
         }
@@ -374,6 +380,7 @@ fn execute_file_operations(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    changed, // Use current changed state
                 ));
             }
         }
@@ -391,6 +398,7 @@ fn execute_file_operations(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    changed, // Use current changed state
                 ));
             }
         }
@@ -399,7 +407,8 @@ fn execute_file_operations(
     Ok(ModuleResult::complete(
         stdout_parts.join("\n"),
         stderr_parts.join("\n"),
-        0, // Success
+        0,       // Success
+        changed, // Use the tracked changed state
     ))
 }
 
@@ -425,6 +434,7 @@ fn remove_file_or_directory(connection: &mut Connection, path: &str) -> mlua::Re
         },
         stderr,
         exit_code,
+        exit_code == 0, // Changed if successful
     ))
 }
 
@@ -442,6 +452,7 @@ fn create_directory(connection: &mut Connection, path: &str) -> mlua::Result<Mod
         },
         stderr,
         exit_code,
+        exit_code == 0, // Changed if successful
     ))
 }
 
@@ -474,6 +485,7 @@ fn create_file(
         },
         stderr,
         exit_code,
+        exit_code == 0, // Changed if successful
     ))
 }
 
@@ -513,6 +525,7 @@ fn create_backup(connection: &mut Connection, path: &str) -> mlua::Result<Module
         },
         stderr,
         exit_code,
+        exit_code == 0, // Changed if successful
     ))
 }
 
@@ -540,6 +553,7 @@ fn update_file_content(
         },
         stderr,
         exit_code,
+        exit_code == 0, // Changed if successful
     ))
 }
 
@@ -565,6 +579,7 @@ fn create_symlink(
         },
         stderr,
         exit_code,
+        exit_code == 0, // Changed if successful
     ))
 }
 
@@ -578,7 +593,12 @@ fn set_file_mode(
         .cmd(&format!("chmod {} '{}'", mode, escape_shell_arg(path)))
         .map_err(|e| mlua::Error::RuntimeError(format!("Mode setting failed: {e}")))?;
 
-    Ok(ModuleResult::complete(stdout, stderr, exit_code))
+    Ok(ModuleResult::complete(
+        stdout,
+        stderr,
+        exit_code,
+        exit_code == 0,
+    ))
 }
 
 /// Set file owner
@@ -595,7 +615,12 @@ fn set_file_owner(
         ))
         .map_err(|e| mlua::Error::RuntimeError(format!("Owner setting failed: {e}")))?;
 
-    Ok(ModuleResult::complete(stdout, stderr, exit_code))
+    Ok(ModuleResult::complete(
+        stdout,
+        stderr,
+        exit_code,
+        exit_code == 0,
+    ))
 }
 
 /// Set file group
@@ -612,7 +637,12 @@ fn set_file_group(
         ))
         .map_err(|e| mlua::Error::RuntimeError(format!("Group setting failed: {e}")))?;
 
-    Ok(ModuleResult::complete(stdout, stderr, exit_code))
+    Ok(ModuleResult::complete(
+        stdout,
+        stderr,
+        exit_code,
+        exit_code == 0,
+    ))
 }
 
 /// Escape shell arguments to prevent injection

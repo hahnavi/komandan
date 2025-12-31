@@ -31,6 +31,15 @@ pub fn clear_report() {
         .clear();
 }
 
+#[cfg(test)]
+pub fn get_report_count() -> usize {
+    let report = get_report();
+    report
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .len()
+}
+
 pub fn generate_report() {
     let report = get_report()
         .lock()

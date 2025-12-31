@@ -147,7 +147,7 @@ fn execute_download_operations(
 ) -> mlua::Result<ModuleResult> {
     let mut stdout_parts = Vec::new();
     let mut stderr_parts = Vec::new();
-    let mut _changed = false;
+    let mut changed = false;
 
     // Check if source file exists on remote/target system
     let (_, _, src_exists_exit_code) = connection
@@ -158,6 +158,37 @@ fn execute_download_operations(
         return Ok(ModuleResult::failure(
             format!("Source file does not exist: {src_path}"),
             1,
+        ));
+    }
+
+    // Check if destination file exists and has the same content
+    let needs_download = if Path::new(dest_path).exists() {
+        match connection.cmd(&format!("cat {src_path}")) {
+            Ok((src_content, _, exit_code)) => {
+                if exit_code == 0 {
+                    match std::fs::read_to_string(dest_path) {
+                        Ok(dest_content) => src_content.trim() != dest_content.trim(),
+                        Err(_) => true, // Error reading destination, assume we need to download
+                    }
+                } else {
+                    true // Error reading source, assume we need to download
+                }
+            }
+            Err(_) => true, // Error reading source, assume we need to download
+        }
+    } else {
+        true // Destination doesn't exist, need to download
+    };
+
+    if !needs_download {
+        stdout_parts.push(format!(
+            "File content unchanged, skipping download: {src_path} -> {dest_path}"
+        ));
+        return Ok(ModuleResult::complete(
+            stdout_parts.join("\n"),
+            String::new(),
+            0,
+            false, // No change needed
         ));
     }
 
@@ -199,7 +230,7 @@ fn execute_download_operations(
             stdout_parts.push(format!(
                 "File downloaded successfully: {src_path} -> {dest_path}"
             ));
-            _changed = true;
+            changed = true;
         }
         Err(e) => {
             return Ok(ModuleResult::failure(
@@ -233,7 +264,8 @@ fn execute_download_operations(
     Ok(ModuleResult::complete(
         stdout_parts.join("\n"),
         stderr_parts.join("\n"),
-        0, // Always return 0 for successful operations
+        0,       // Always return 0 for successful operations
+        changed, // Use the tracked changed state
     ))
 }
 

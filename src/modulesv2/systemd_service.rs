@@ -158,7 +158,7 @@ fn execute_systemd_operations(
     let mut stdout_parts = Vec::new();
     let mut stderr_parts = Vec::new();
     // Reload systemd daemon if requested
-    let mut _changed = if daemon_reload {
+    let mut changed = if daemon_reload {
         let (reload_stdout, reload_stderr, reload_exit_code) = connection
             .cmd("systemctl --no-ask-password daemon-reload")
             .map_err(|e| mlua::Error::RuntimeError(format!("Daemon reload failed: {e}")))?;
@@ -173,6 +173,7 @@ fn execute_systemd_operations(
                 stdout_parts.join("\n"),
                 stderr_parts.join("\n"),
                 reload_exit_code,
+                false, // Daemon reload failed, no change
             ));
         }
 
@@ -191,13 +192,14 @@ fn execute_systemd_operations(
                 stderr_parts.push(result.stderr);
             }
             if result.exit_code == 0 && result.changed {
-                _changed = true;
+                changed = true;
             }
             if result.exit_code != 0 {
                 return Ok(ModuleResult::complete(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    false, // Operation failed, no change
                 ));
             }
         }
@@ -208,13 +210,14 @@ fn execute_systemd_operations(
                 stderr_parts.push(result.stderr);
             }
             if result.exit_code == 0 && result.changed {
-                _changed = true;
+                changed = true;
             }
             if result.exit_code != 0 {
                 return Ok(ModuleResult::complete(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    false, // Operation failed, no change
                 ));
             }
         }
@@ -225,13 +228,14 @@ fn execute_systemd_operations(
                 stderr_parts.push(result.stderr);
             }
             if result.exit_code == 0 {
-                _changed = true; // Restart always indicates change
+                changed = true; // Restart always indicates change
             }
             if result.exit_code != 0 {
                 return Ok(ModuleResult::complete(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    false, // Operation failed, no change
                 ));
             }
         }
@@ -242,13 +246,14 @@ fn execute_systemd_operations(
                 stderr_parts.push(result.stderr);
             }
             if result.exit_code == 0 {
-                _changed = true; // Reload always indicates change
+                changed = true; // Reload always indicates change
             }
             if result.exit_code != 0 {
                 return Ok(ModuleResult::complete(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    false, // Operation failed, no change
                 ));
             }
         }
@@ -259,13 +264,14 @@ fn execute_systemd_operations(
                 stderr_parts.push(result.stderr);
             }
             if result.exit_code == 0 && result.changed {
-                _changed = true;
+                changed = true;
             }
             if result.exit_code != 0 {
                 return Ok(ModuleResult::complete(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    false, // Operation failed, no change
                 ));
             }
         }
@@ -276,13 +282,14 @@ fn execute_systemd_operations(
                 stderr_parts.push(result.stderr);
             }
             if result.exit_code == 0 && result.changed {
-                _changed = true;
+                changed = true;
             }
             if result.exit_code != 0 {
                 return Ok(ModuleResult::complete(
                     stdout_parts.join("\n"),
                     stderr_parts.join("\n"),
                     result.exit_code,
+                    false, // Operation failed, no change
                 ));
             }
         }
@@ -297,6 +304,7 @@ fn execute_systemd_operations(
                 stdout_parts.join("\n"),
                 stderr_parts.join("\n"),
                 result.exit_code,
+                false, // Status never changes anything
             ));
         }
         _ => unreachable!("Action validation should prevent this"),
@@ -305,7 +313,8 @@ fn execute_systemd_operations(
     Ok(ModuleResult::complete(
         stdout_parts.join("\n"),
         stderr_parts.join("\n"),
-        0, // Always return 0 for successful operations
+        0,       // Always return 0 for successful operations
+        changed, // Use the tracked changed state
     ))
 }
 

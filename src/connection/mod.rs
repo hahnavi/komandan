@@ -345,8 +345,8 @@ pub fn create_connection(lua: &Lua, host: &Value) -> mlua::Result<Connection> {
         ConnectionType::Local => {
             let mut local = LocalSession::new();
 
-            // Create a dummy task for functions that only have host context
-            let task = create_dummy_task(lua)?;
+            // Create a dummy task with host elevation settings
+            let task = create_dummy_task_from_host(lua, &host_table)?;
 
             // Apply environment configuration to local session
             setup_environment_local(&mut local, &host_table, &task).map_err(|e| {
@@ -363,8 +363,8 @@ pub fn create_connection(lua: &Lua, host: &Value) -> mlua::Result<Connection> {
             Ok(Connection::Local(local))
         }
         ConnectionType::SSH => {
-            // Create a dummy task for functions that only have host context
-            let task = create_dummy_task(lua)?;
+            // Create a dummy task with host elevation settings
+            let task = create_dummy_task_from_host(lua, &host_table)?;
 
             // Create fully configured SSH session with detailed error handling
             let ssh = create_configured_ssh_session(&host_table, &task)?;
@@ -855,6 +855,38 @@ pub fn setup_environment_ssh(ssh: &mut SSHSession, host: &Table, task: &Table) -
 ///
 /// # Arguments
 /// * `lua` - The Lua context
+/// * `host` - Host configuration table to inherit settings from
+///
+/// # Returns
+/// * `mlua::Result<Table>` - A task table with host elevation settings
+fn create_dummy_task_from_host(lua: &Lua, host: &Table) -> mlua::Result<Table> {
+    let task = lua.create_table()?;
+
+    // Copy elevation settings from host to task
+    if let Ok(elevate) = host.get::<bool>("elevate") {
+        task.set("elevate", elevate)?;
+    }
+
+    if let Ok(elevation_method) = host.get::<String>("elevation_method") {
+        task.set("elevation_method", elevation_method)?;
+    }
+
+    if let Ok(as_user) = host.get::<String>("as_user") {
+        task.set("as_user", as_user)?;
+    }
+
+    // Copy environment variables from host to task
+    if let Ok(env) = host.get::<Table>("env") {
+        task.set("env", env)?;
+    }
+
+    Ok(task)
+}
+
+/// Create a dummy task table (legacy function for backward compatibility)
+///
+/// # Arguments
+/// * `lua` - The Lua context
 ///
 /// # Returns
 /// * `mlua::Result<Table>` - An empty task table
@@ -880,6 +912,9 @@ fn setup_environment_local(
     task: &Table,
 ) -> mlua::Result<()> {
     let defaults = Defaults::global();
+
+    // Apply elevation configuration to local session
+    local.elevation = get_elevation_config(host, task)?;
 
     let Ok(default_env) = defaults.env.read() else {
         return Err(ConnectionError::Configuration {
