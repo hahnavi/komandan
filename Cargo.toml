@@ -10,10 +10,11 @@ vendored-openssl = ["http-klien/vendored-openssl", "ssh2/vendored-openssl"]
 
 [dependencies]
 anyhow = "1.0.100"
-clap = { version = "4.5.53", features = ["derive"] }
+clap = { version = "4.5.55", features = ["derive"] }
+secrecy = { version = "0.10.3", features = ["serde"] }
 http-klien = { git = "https://github.com/hahnavi/http-klien-rs", branch = "main" }
-minijinja = { version = "2.14.0", features = ["loader", "json"] }
-mlua = { version = "0.11.5", features = [
+minijinja = { version = "2.15.1", features = ["loader", "json"] }
+mlua = { version = "0.11.6", features = [
     "anyhow",
     "luajit",
     "macros",
@@ -26,7 +27,7 @@ rayon = "1.11.0"
 regex = "1.12.2"
 rustyline = "17.0.2"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.148"
+serde_json = "1.0.149"
 ssh2 = "0.9.5"
 
 [dev-dependencies]

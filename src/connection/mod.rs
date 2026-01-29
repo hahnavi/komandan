@@ -53,6 +53,7 @@ use crate::util::{host_display, task_display};
 use crate::validator::validate_host;
 use anyhow::Result;
 use mlua::{Error::RuntimeError, Lua, Table, Value};
+use secrecy::{ExposeSecret, SecretString};
 use std::env;
 use std::path::Path;
 
@@ -504,7 +505,8 @@ pub fn get_auth_config(
             }
             .to_runtime_error()
         })?
-        .clone();
+        .as_ref()
+        .map(|s: &SecretString| s.expose_secret().to_string());
 
     let default_password = defaults
         .password
@@ -518,7 +520,8 @@ pub fn get_auth_config(
             }
             .to_runtime_error()
         })?
-        .clone();
+        .as_ref()
+        .map(|s: &SecretString| s.expose_secret().to_string());
 
     let ssh_auth_method = match host.get::<String>("private_key_file") {
         Ok(private_key_file) => SSHAuthMethod::PublicKey {
@@ -542,6 +545,29 @@ pub fn get_auth_config(
                     if let Some(ref password) = default_password {
                         SSHAuthMethod::Password(password.clone())
                     } else {
+                        // Check if SSH key auto-discovery is enabled
+                        if !*defaults.ssh_auto_discover_keys.read().map_err(|_| {
+                            ConnectionError::Configuration {
+                                message: "Failed to read ssh_auto_discover_keys setting"
+                                    .to_string(),
+                                context: "defaults access".to_string(),
+                                troubleshooting:
+                                    "This is an internal error. Try restarting the application"
+                                        .to_string(),
+                            }
+                            .to_runtime_error()
+                        })? {
+                            return Err(ConnectionError::Authentication {
+                                message: "No authentication method available and SSH key auto-discovery is disabled".to_string(),
+                                host: host_display,
+                                user,
+                                troubleshooting: "Enable SSH key auto-discovery with komandan.defaults:set_ssh_auto_discover_keys(true), \
+                                    or specify authentication in host config: 'password' for password auth or \
+                                    'private_key_file' for key auth. You can also set defaults with \
+                                    komandan.defaults:set_password() or komandan.defaults:set_private_key_file()".to_string(),
+                            }.to_runtime_error());
+                        }
+
                         let home = if let Some(h) = home_override {
                             h.to_string()
                         } else {

@@ -2,10 +2,10 @@ use anyhow::Context;
 use clap::Parser;
 use komandan::{
     args::{Args, Commands},
-    create_lua,
+    create_lua_with_args,
     defaults::Defaults,
     models::KomandanConfig,
-    print_version, project, repl, run_main_file,
+    print_version, project, repl, run_main_file_with_args,
 };
 use mlua::LuaSerdeExt;
 use std::fs;
@@ -31,7 +31,7 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
         }
     }
 
-    let lua = create_lua()?;
+    let lua = create_lua_with_args(args)?;
 
     if let Some(chunk) = args.chunk.clone() {
         lua.load(&chunk).eval::<()>()?;
@@ -50,7 +50,7 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
                 let config: KomandanConfig = serde_json::from_str(&config_content)?;
 
                 // Load defaults
-                if let Some(hosts_file) = config.defaults.hosts {
+                if let Some(ref hosts_file) = config.defaults.hosts {
                     let hosts_path = path.join(hosts_file);
                     if hosts_path.exists() {
                         let hosts_content = fs::read_to_string(&hosts_path)?;
@@ -71,7 +71,17 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
                                 *hosts_lock = hosts_vec;
                             }
                             Err(e) => {
-                                eprintln!("Warning: Failed to set hosts defaults: {e}");
+                                let hosts_file =
+                                    config.defaults.hosts.as_deref().map_or("<unknown>", |s| s);
+                                eprintln!(
+                                    "Warning: Failed to set hosts defaults from '{hosts_file}': {e}",
+                                );
+                                eprintln!(
+                                    "  This may cause connection issues if hosts are referenced without explicit configuration."
+                                );
+                                eprintln!(
+                                    "  Troubleshooting: Check that the hosts file syntax is valid and that defaults are accessible."
+                                );
                             }
                         }
                     } else {
@@ -79,12 +89,20 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
                             "Warning: Hosts file '{}' not found; hosts defaults were not loaded",
                             hosts_path.display()
                         );
+                        eprintln!(
+                            "  This may cause issues if your automation relies on global hosts configuration."
+                        );
+                        eprintln!(
+                            "  Remediation: Create the hosts file at '{}' or remove the 'hosts' field from komandan.json defaults.",
+                            hosts_path.display()
+                        );
                     }
                 }
 
                 let main_script_path = path.join(config.main);
-                run_main_file(
+                run_main_file_with_args(
                     &lua,
+                    args,
                     &main_script_path
                         .to_str()
                         .context("Invalid path")?
@@ -94,7 +112,7 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
                 anyhow::bail!("Directory {main_file} does not contain komandan.json");
             }
         } else {
-            run_main_file(&lua, main_file)?;
+            run_main_file_with_args(&lua, args, main_file)?;
         }
     } else if args.chunk.is_none() {
         repl(&lua)?;

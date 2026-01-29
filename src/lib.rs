@@ -78,6 +78,78 @@ pub fn create_lua() -> mlua::Result<Lua> {
     Ok(lua)
 }
 
+/// Creates a new Lua instance with explicit arguments (avoids re-parsing CLI args).
+///
+/// This function is similar to `create_lua()` but accepts explicit args to avoid
+/// re-parsing command-line arguments. Use this when args have already been parsed.
+///
+/// # Arguments
+///
+/// * `args` - Pre-parsed command-line arguments
+///
+/// # Errors
+///
+/// Returns an error if Lua initialization fails.
+#[allow(unsafe_code)]
+pub fn create_lua_with_args(args: &Args) -> mlua::Result<Lua> {
+    let lua = if args.flags.unsafe_lua {
+        unsafe { Lua::unsafe_new() }
+    } else {
+        Lua::new()
+    };
+
+    let project_dir = match &args.main_file {
+        Some(main_file) => {
+            let main_file_path = Path::new(main_file);
+
+            match main_file_path.parent() {
+                Some(parent) => {
+                    if parent.display().to_string() == "" {
+                        env::current_dir()?.display().to_string()
+                    } else {
+                        parent.display().to_string()
+                    }
+                }
+                _none => env::current_dir()?.display().to_string(),
+            }
+        }
+        None => env::current_dir()?.display().to_string(),
+    };
+
+    let project_dir_lua = project_dir;
+    lua.load(
+        chunk! {
+            package.path = $project_dir_lua .. "/?.lua;" .. $project_dir_lua .. "/?;" .. $project_dir_lua .. "/lua_modules/share/lua/5.1/?.lua;" .. $project_dir_lua .. "/lua_modules/share/lua/5.1/?/init.lua;"  .. package.path
+            package.cpath = $project_dir_lua .. "/?.so;" .. $project_dir_lua .. "/lua_modules/lib/lua/5.1/?.so;" .. package.cpath
+        }
+    ).exec()?;
+
+    setup_komandan_table(&lua)?;
+
+    Ok(lua)
+}
+
+/// Helper function to copy multiple fields from one Lua table to another.
+///
+/// This reduces boilerplate when copying multiple fields between tables.
+///
+/// # Arguments
+///
+/// * `src` - Source table to copy fields from
+/// * `dst` - Destination table to copy fields to
+/// * `fields` - Slice of field names to copy
+///
+/// # Errors
+///
+/// Returns an error if field retrieval or setting fails.
+fn copy_table_fields(src: &mlua::Table, dst: &mlua::Table, fields: &[&str]) -> mlua::Result<()> {
+    for &field in fields {
+        let value = src.get::<mlua::Value>(field)?;
+        dst.set(field, value)?;
+    }
+    Ok(())
+}
+
 /// Sets up the `komandan` global table in Lua.
 ///
 /// # Errors
@@ -130,34 +202,25 @@ pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     // Create separate 'k' table (not an alias)
     let k_table = lua.create_table()?;
 
-    // Copy core functionality to k
-    k_table.set("defaults", komandan.get::<mlua::Value>("defaults")?)?;
-    k_table.set("komando", komandan.get::<mlua::Value>("komando")?)?;
-    k_table.set(
+    // Copy core functionality to k using helper function
+    let core_fields = &[
+        "defaults",
+        "komando",
         "komando_parallel_hosts",
-        komandan.get::<mlua::Value>("komando_parallel_hosts")?,
-    )?;
-    k_table.set(
         "komando_parallel_tasks",
-        komandan.get::<mlua::Value>("komando_parallel_tasks")?,
-    )?;
+    ];
+    copy_table_fields(&komandan, &k_table, core_fields)?;
 
-    // Copy utility functions
-    k_table.set(
+    // Copy utility functions using helper function
+    let util_fields = &[
         "regex_is_match",
-        komandan.get::<mlua::Value>("regex_is_match")?,
-    )?;
-    k_table.set("filter_hosts", komandan.get::<mlua::Value>("filter_hosts")?)?;
-    k_table.set(
+        "filter_hosts",
         "parse_hosts_json_file",
-        komandan.get::<mlua::Value>("parse_hosts_json_file")?,
-    )?;
-    k_table.set(
         "parse_hosts_json_url",
-        komandan.get::<mlua::Value>("parse_hosts_json_url")?,
-    )?;
-    k_table.set("dprint", komandan.get::<mlua::Value>("dprint")?)?;
-    k_table.set("host_info", komandan.get::<mlua::Value>("host_info")?)?;
+        "dprint",
+        "host_info",
+    ];
+    copy_table_fields(&komandan, &k_table, util_fields)?;
 
     lua.globals().set("k", k_table)?;
 
@@ -194,6 +257,39 @@ pub fn run_main_file(lua: &Lua, main_file: &String) -> Result<()> {
     lua.load(&script).set_name(main_file).exec()?;
 
     if !Args::parse().flags.no_report {
+        generate_report();
+    }
+
+    Ok(())
+}
+
+/// Runs the main Lua file with explicit arguments (avoids re-parsing CLI args).
+///
+/// This function is similar to `run_main_file()` but accepts explicit args to avoid
+/// re-parsing command-line arguments. Use this when args have already been parsed.
+///
+/// # Arguments
+///
+/// * `lua` - The Lua context
+/// * `args` - Pre-parsed command-line arguments
+/// * `main_file` - Path to the main Lua file
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be read or if Lua execution fails.
+pub fn run_main_file_with_args(lua: &Lua, args: &Args, main_file: &String) -> Result<()> {
+    let script = match fs::read_to_string(main_file) {
+        Ok(script) => script,
+        Err(e) => {
+            return Err(anyhow::anyhow!(
+                "Failed to read the main file ({main_file}): {e}"
+            ));
+        }
+    };
+
+    lua.load(&script).set_name(main_file).exec()?;
+
+    if !args.flags.no_report {
         generate_report();
     }
 

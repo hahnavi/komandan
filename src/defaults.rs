@@ -1,5 +1,6 @@
 use anyhow::{Error, Result};
 use mlua::{LuaSerdeExt, UserData};
+use secrecy::{ExposeSecret, SecretString};
 use std::{
     collections::HashMap,
     sync::{Arc, OnceLock, RwLock},
@@ -12,14 +13,15 @@ pub struct Defaults {
     pub port: Arc<RwLock<u16>>,
     pub user: Arc<RwLock<Option<String>>>,
     pub private_key_file: Arc<RwLock<Option<String>>>,
-    pub private_key_pass: Arc<RwLock<Option<String>>>,
-    pub password: Arc<RwLock<Option<String>>>,
+    pub private_key_pass: Arc<RwLock<Option<SecretString>>>,
+    pub password: Arc<RwLock<Option<SecretString>>>,
     pub ignore_exit_code: Arc<RwLock<bool>>,
     pub elevate: Arc<RwLock<bool>>,
     pub elevation_method: Arc<RwLock<String>>,
     pub as_user: Arc<RwLock<Option<String>>>,
     pub known_hosts_file: Arc<RwLock<String>>,
     pub key_check: Arc<RwLock<bool>>,
+    pub ssh_auto_discover_keys: Arc<RwLock<bool>>,
     pub env: Arc<RwLock<HashMap<String, String>>>,
     pub hosts: Arc<RwLock<Vec<serde_json::Value>>>,
 }
@@ -55,9 +57,13 @@ impl Defaults {
 
         let private_key_file = std::env::var("KOMANDAN_SSH_PRIVATE_KEY_FILE").ok();
 
-        let private_key_pass = std::env::var("KOMANDAN_SSH_PRIVATE_KEY_PASS").ok();
+        let private_key_pass = std::env::var("KOMANDAN_SSH_PRIVATE_KEY_PASS")
+            .ok()
+            .map(|s| SecretString::new(s.into_boxed_str()));
 
-        let password = std::env::var("KOMANDAN_SSH_PASSWORD").ok();
+        let password = std::env::var("KOMANDAN_SSH_PASSWORD")
+            .ok()
+            .map(|s| SecretString::new(s.into_boxed_str()));
 
         let known_hosts_file =
             std::env::var("KOMANDAN_SSH_KNOWN_HOSTS_FILE").unwrap_or_else(|_| {
@@ -84,6 +90,7 @@ impl Defaults {
             as_user: Arc::new(RwLock::new(None)),
             known_hosts_file: Arc::new(RwLock::new(known_hosts_file)),
             key_check: Arc::new(RwLock::new(key_check)),
+            ssh_auto_discover_keys: Arc::new(RwLock::new(false)),
             env,
             hosts: Arc::new(RwLock::new(Vec::new())),
         })
@@ -94,13 +101,38 @@ impl Defaults {
     /// # Panics
     ///
     /// Panics if the global defaults cannot be initialized (e.g., due to lock failure).
+    /// This should never happen under normal circumstances as defaults initialization
+    /// only fails if the environment variable map cannot be locked.
     pub fn global() -> Self {
         GLOBAL_DEFAULTS
             .get_or_init(|| {
-                Self::new().unwrap_or_else(|e| panic!("Failed to create new defaults: {e}"))
+                #[allow(clippy::unwrap_used)]
+                Self::new().unwrap()
             })
             .clone()
     }
+}
+
+/// Macro to reduce boilerplate for lock error handling in `UserData` methods.
+///
+/// This macro wraps lock operations with consistent error handling.
+///
+/// # Arguments
+///
+/// * `$lock:expr` - The lock to acquire (e.g., `this.port`)
+/// * `$is_write:literal` - Whether this is a write lock (`true`) or read lock (`false`)
+/// * `$body:expr` - The body to execute with the lock held
+macro_rules! with_lock {
+    ($lock:expr, false, $body:expr) => {
+        $lock
+            .read()
+            .map_or_else(|_| handle_lock_error(stringify!($lock), false), $body)
+    };
+    ($lock:expr, true, $body:expr) => {
+        $lock
+            .write()
+            .map_or_else(|_| handle_lock_error(stringify!($lock), true), $body)
+    };
 }
 
 fn handle_lock_error<T>(lock_name: &str, is_write: bool) -> mlua::Result<T> {
@@ -113,19 +145,18 @@ fn handle_lock_error<T>(lock_name: &str, is_write: bool) -> mlua::Result<T> {
 impl UserData for Defaults {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("get_port", |_, this, ()| -> mlua::Result<u16> {
-            this.port
-                .read()
-                .map_or_else(|_| handle_lock_error("port", false), |port| Ok(*port))
+            with_lock!(this.port, false, |port: std::sync::RwLockReadGuard<_>| Ok(
+                *port
+            ))
         });
 
         methods.add_method_mut("set_port", |_, this, new_port: u16| -> mlua::Result<()> {
-            this.port.write().map_or_else(
-                |_| handle_lock_error("port", true),
-                |mut port| {
-                    *port = new_port;
-                    Ok(())
-                },
-            )
+            with_lock!(this.port, true, |mut port: std::sync::RwLockWriteGuard<
+                _,
+            >| {
+                *port = new_port;
+                Ok(())
+            })
         });
 
         methods.add_method("get_user", |_, this, ()| {
@@ -168,7 +199,11 @@ impl UserData for Defaults {
         methods.add_method("get_private_key_pass", |_, this, ()| {
             this.private_key_pass.read().map_or_else(
                 |_| handle_lock_error("private_key_pass", false),
-                |private_key_pass| Ok(private_key_pass.clone()),
+                |guard: std::sync::RwLockReadGuard<Option<SecretString>>| {
+                    Ok(guard
+                        .as_ref()
+                        .map(|s: &SecretString| s.expose_secret().to_string()))
+                },
             )
         });
 
@@ -177,8 +212,9 @@ impl UserData for Defaults {
             |_, this, new_private_key_pass: Option<String>| {
                 this.private_key_pass.write().map_or_else(
                     |_| handle_lock_error("private_key_pass", true),
-                    |mut private_key_pass| {
-                        *private_key_pass = new_private_key_pass;
+                    |mut guard: std::sync::RwLockWriteGuard<Option<SecretString>>| {
+                        *guard =
+                            new_private_key_pass.map(|s| SecretString::new(s.into_boxed_str()));
                         Ok(())
                     },
                 )
@@ -188,15 +224,19 @@ impl UserData for Defaults {
         methods.add_method("get_password", |_, this, ()| {
             this.password.read().map_or_else(
                 |_| handle_lock_error("password", false),
-                |password| Ok(password.clone()),
+                |guard: std::sync::RwLockReadGuard<Option<SecretString>>| {
+                    Ok(guard
+                        .as_ref()
+                        .map(|s: &SecretString| s.expose_secret().to_string()))
+                },
             )
         });
 
         methods.add_method_mut("set_password", |_, this, new_password: Option<String>| {
             this.password.write().map_or_else(
                 |_| handle_lock_error("password", true),
-                |mut password| {
-                    *password = new_password;
+                |mut guard: std::sync::RwLockWriteGuard<Option<SecretString>>| {
+                    *guard = new_password.map(|s| SecretString::new(s.into_boxed_str()));
                     Ok(())
                 },
             )
@@ -313,6 +353,23 @@ impl UserData for Defaults {
             )
         });
 
+        methods.add_method("get_ssh_auto_discover_keys", |_, this, ()| {
+            this.ssh_auto_discover_keys.read().map_or_else(
+                |_| handle_lock_error("ssh_auto_discover_keys", false),
+                |ssh_auto_discover_keys| Ok(*ssh_auto_discover_keys),
+            )
+        });
+
+        methods.add_method_mut("set_ssh_auto_discover_keys", |_, this, new_value: bool| {
+            this.ssh_auto_discover_keys.write().map_or_else(
+                |_| handle_lock_error("ssh_auto_discover_keys", true),
+                |mut ssh_auto_discover_keys| {
+                    *ssh_auto_discover_keys = new_value;
+                    Ok(())
+                },
+            )
+        });
+
         methods.add_method("get_hosts", |lua, this, ()| {
             this.hosts.read().map_or_else(
                 |_| handle_lock_error("hosts", false),
@@ -403,19 +460,19 @@ mod tests {
                 .map_err(|_| Error::msg("lock error"))?,
             None
         );
-        assert_eq!(
-            *defaults
+        assert!(
+            defaults
                 .private_key_pass
                 .read()
-                .map_err(|_| Error::msg("lock error"))?,
-            None
+                .map_err(|_| Error::msg("lock error"))?
+                .is_none()
         );
-        assert_eq!(
-            *defaults
+        assert!(
+            defaults
                 .password
                 .read()
-                .map_err(|_| Error::msg("lock error"))?,
-            None
+                .map_err(|_| Error::msg("lock error"))?
+                .is_none()
         );
         assert!(
             !(*defaults

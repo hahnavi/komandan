@@ -390,9 +390,13 @@ fn compare_package_state(expected: &PackageParameters, actual: &PackageState) ->
     // Always include installation status in actual state using standard field name
     set_installed_field(&mut actual_map, actual.installed);
 
-    // If there's an error, return error result
+    // If there's an error, return error result with populated actual state
     if let Some(error) = &actual.error {
-        return CheckResult::error(error.clone());
+        return CheckResult {
+            ok: false,
+            actual: actual_map,
+            error: Some(error.clone()),
+        };
     }
 
     // Check expected state (present/absent)
