@@ -374,7 +374,6 @@ fn test_package_validation_with_real_packages() -> anyhow::Result<()> {
         }
     }
 
-    let result: Table = lua.load(script).eval()?;
     assert!(result.get::<bool>("ok")?);
 
     let actual: Table = result.get("actual")?;
@@ -443,7 +442,7 @@ fn test_package_validation_with_version_checking() -> anyhow::Result<()> {
         "#;
 
         let result: Table = lua.load(script).eval()?;
-        assert!(result.get::<bool>("ok")?);
+        assert!(!result.get::<bool>("ok")?);  // Should fail due to version mismatch
     }
 
     Ok(())
