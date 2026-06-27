@@ -7,181 +7,28 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-/// Comprehensive error types for the parallel executor
-#[derive(Debug, Clone)]
+/// Error raised when a parallel-executor configuration parameter fails
+/// validation.
+///
+/// Only the `Configuration` case is constructable today; the prior
+/// `Serialization` / `Execution` / `Resource` / `LuaContext` /
+/// `InputValidation` variants, the `to_lua_error` / `with_troubleshooting`
+/// methods, and the manual `From` impl were unreachable scaffolding and have
+/// been removed (see `REFACTOR_PLAN.md` §2.1). The remediation hints that used
+/// to live on the variants were never surfaced (their only formatter,
+/// `to_lua_error`, was uncalled); reintroduce a hint field only when a real
+/// consumer (e.g. a `--explain` flag) needs it.
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum ParallelExecutorError {
-    /// Configuration validation errors
+    /// A configuration parameter (thread count, chunk size, timeout, ...)
+    /// failed validation in `Executor::validate_config`.
+    #[error("{message}")]
     Configuration {
+        /// What went wrong.
         message: String,
-        suggestion: String,
+        /// Name of the offending parameter, when applicable.
         parameter: Option<String>,
     },
-    /// Function serialization errors
-    Serialization {
-        message: String,
-        function_info: String,
-        troubleshooting: String,
-    },
-    /// Individual function execution errors
-    Execution {
-        index: usize,
-        error: String,
-        thread_id: String,
-        input_data: String,
-    },
-    /// Resource allocation and management errors
-    Resource {
-        message: String,
-        system_info: String,
-        recovery_suggestion: String,
-    },
-    /// Lua context creation and management errors
-    LuaContext {
-        message: String,
-        context_id: String,
-        troubleshooting: String,
-    },
-    /// Input validation errors
-    InputValidation {
-        message: String,
-        parameter: String,
-        expected: String,
-        actual: String,
-        suggestion: String,
-    },
-}
-
-impl ParallelExecutorError {
-    /// Converts the error to a Lua error with comprehensive information
-    #[must_use]
-    pub fn to_lua_error(self) -> mlua::Error {
-        let error_message = match self {
-            Self::Configuration {
-                message,
-                suggestion,
-                parameter,
-            } => {
-                let param_info = parameter.map_or(String::new(), |p| format!(" (parameter: {p})"));
-                format!("Configuration Error{param_info}: {message}\nSuggestion: {suggestion}")
-            }
-            Self::Serialization {
-                message,
-                function_info,
-                troubleshooting,
-            } => {
-                format!(
-                    "Serialization Error: {message}\nFunction Info: {function_info}\nTroubleshooting: {troubleshooting}"
-                )
-            }
-            Self::Execution {
-                index,
-                error,
-                thread_id,
-                input_data,
-            } => {
-                format!(
-                    "Execution Error at index {index}: {error}\nThread: {thread_id}\nInput: {input_data}"
-                )
-            }
-            Self::Resource {
-                message,
-                system_info,
-                recovery_suggestion,
-            } => {
-                format!(
-                    "Resource Error: {message}\nSystem Info: {system_info}\nRecovery: {recovery_suggestion}"
-                )
-            }
-            Self::LuaContext {
-                message,
-                context_id,
-                troubleshooting,
-            } => {
-                format!(
-                    "Lua Context Error ({context_id}): {message}\nTroubleshooting: {troubleshooting}"
-                )
-            }
-            Self::InputValidation {
-                message,
-                parameter,
-                expected,
-                actual,
-                suggestion,
-            } => {
-                format!(
-                    "Input Validation Error: {message}\nParameter: {parameter}\nExpected: {expected}\nActual: {actual}\nSuggestion: {suggestion}"
-                )
-            }
-        };
-
-        mlua::Error::RuntimeError(error_message)
-    }
-
-    /// Adds troubleshooting information to the error
-    #[must_use]
-    pub fn with_troubleshooting(mut self) -> Self {
-        match &mut self {
-            Self::Configuration { suggestion, .. } => {
-                if suggestion.is_empty() {
-                    *suggestion = "Check the parallel executor configuration parameters. Ensure thread_count is between 1-1024 and chunk_size is greater than 0.".to_string();
-                }
-            }
-            Self::Serialization {
-                troubleshooting, ..
-            } => {
-                if troubleshooting.is_empty() {
-                    *troubleshooting = "Ensure the function doesn't capture external variables (upvalues) that cannot be serialized. Use simple functions or pass data as parameters.".to_string();
-                }
-            }
-            Self::Resource {
-                recovery_suggestion,
-                ..
-            } => {
-                if recovery_suggestion.is_empty() {
-                    *recovery_suggestion = "Try reducing thread_count or chunk_size. Check system memory and CPU availability.".to_string();
-                }
-            }
-            Self::LuaContext {
-                troubleshooting, ..
-            } => {
-                if troubleshooting.is_empty() {
-                    *troubleshooting = "This may indicate memory pressure or Lua state corruption. Try reducing parallel load or restarting the application.".to_string();
-                }
-            }
-            _ => {}
-        }
-        self
-    }
-}
-
-impl From<ParallelExecutorError> for anyhow::Error {
-    fn from(err: ParallelExecutorError) -> Self {
-        match err {
-            ParallelExecutorError::Configuration {
-                message,
-                suggestion,
-                parameter,
-            } => {
-                let param_info = parameter.map_or(String::new(), |p| format!(" ({p})"));
-                anyhow::anyhow!("{message}{param_info}: {suggestion}")
-            }
-            ParallelExecutorError::Serialization { message, .. } => {
-                anyhow::anyhow!("Serialization error: {message}")
-            }
-            ParallelExecutorError::Execution { error, .. } => {
-                anyhow::anyhow!("Execution error: {error}")
-            }
-            ParallelExecutorError::Resource { message, .. } => {
-                anyhow::anyhow!("Resource error: {message}")
-            }
-            ParallelExecutorError::LuaContext { message, .. } => {
-                anyhow::anyhow!("Lua context error: {message}")
-            }
-            ParallelExecutorError::InputValidation { message, .. } => {
-                anyhow::anyhow!("Input validation error: {message}")
-            }
-        }
-    }
 }
 
 /// Summary of parallel execution results
@@ -657,9 +504,7 @@ impl MemoryTracker {
         MemoryUsage {
             #[allow(clippy::cast_precision_loss)]
             peak_memory_per_thread_mb: peak_memory_mb
-                / std::thread::available_parallelism()
-                    .map(std::num::NonZero::get)
-                    .unwrap_or(1) as f64,
+                / std::thread::available_parallelism().map_or(1, std::num::NonZero::get) as f64,
             total_memory_usage_mb: peak_memory_mb,
             memory_efficiency: if peak_memory_mb > 0.0 {
                 #[allow(clippy::cast_precision_loss)]
@@ -1012,9 +857,7 @@ impl ExecutorConfig {
     /// Creates a configuration optimized for I/O intensive tasks
     #[must_use]
     pub fn for_io_intensive() -> Self {
-        let cpu_count = std::thread::available_parallelism()
-            .map(std::num::NonZero::get)
-            .unwrap_or(4);
+        let cpu_count = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
 
         Self {
             thread_count: Some(cpu_count * 2), // More threads for I/O waiting
@@ -1029,9 +872,7 @@ impl ExecutorConfig {
     #[must_use]
     pub fn effective_thread_count(&self) -> usize {
         self.thread_count.unwrap_or_else(|| {
-            std::thread::available_parallelism()
-                .map(std::num::NonZero::get)
-                .unwrap_or(4) // Fallback to 4 threads if detection fails
+            std::thread::available_parallelism().map_or(4, std::num::NonZero::get) // Fallback to 4 threads if detection fails
         })
     }
 
@@ -1445,23 +1286,21 @@ impl ParallelExecutor {
             if thread_count == 0 {
                 return Err(ParallelExecutorError::Configuration {
                     message: "thread_count must be greater than 0".to_string(),
-                    suggestion: "Use a positive number of threads (e.g., 1-16) or omit thread_count to use CPU core count".to_string(),
                     parameter: Some("thread_count".to_string()),
-                }.into());
+                }
+                .into());
             }
 
             if thread_count > 1024 {
                 return Err(ParallelExecutorError::Configuration {
                     message: format!("thread_count {thread_count} exceeds maximum limit of 1024"),
-                    suggestion: "Use a reasonable number of threads (typically 1-32). More threads don't always improve performance".to_string(),
                     parameter: Some("thread_count".to_string()),
-                }.into());
+                }
+                .into());
             }
 
             // Warn about excessive thread counts relative to CPU cores
-            let cpu_cores = std::thread::available_parallelism()
-                .map(std::num::NonZero::get)
-                .unwrap_or(4);
+            let cpu_cores = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
 
             if thread_count > cpu_cores * 4 {
                 eprintln!(
@@ -1475,17 +1314,17 @@ impl ParallelExecutor {
             if chunk_size == 0 {
                 return Err(ParallelExecutorError::Configuration {
                     message: "chunk_size must be greater than 0".to_string(),
-                    suggestion: "Use a positive chunk size (e.g., 10-1000). Smaller chunks provide better load balancing, larger chunks reduce overhead".to_string(),
                     parameter: Some("chunk_size".to_string()),
-                }.into());
+                }
+                .into());
             }
 
             if chunk_size > 100_000 {
                 return Err(ParallelExecutorError::Configuration {
                     message: format!("chunk_size {chunk_size} is excessively large"),
-                    suggestion: "Use a reasonable chunk size (typically 10-1000). Very large chunks may cause memory issues".to_string(),
                     parameter: Some("chunk_size".to_string()),
-                }.into());
+                }
+                .into());
             }
         }
 
@@ -1494,17 +1333,19 @@ impl ParallelExecutor {
             if timeout_seconds == 0 {
                 return Err(ParallelExecutorError::Configuration {
                     message: "timeout_seconds must be greater than 0".to_string(),
-                    suggestion: "Use a positive timeout value in seconds (e.g., 60-3600). Consider the expected execution time of your functions".to_string(),
                     parameter: Some("timeout_seconds".to_string()),
-                }.into());
+                }
+                .into());
             }
 
             if timeout_seconds > 86400 {
                 return Err(ParallelExecutorError::Configuration {
-                    message: format!("timeout_seconds {timeout_seconds} exceeds maximum of 24 hours (86400 seconds)"),
-                    suggestion: "Use a reasonable timeout (typically 60-3600 seconds). Very long timeouts may indicate inefficient functions".to_string(),
+                    message: format!(
+                        "timeout_seconds {timeout_seconds} exceeds maximum of 24 hours (86400 seconds)"
+                    ),
                     parameter: Some("timeout_seconds".to_string()),
-                }.into());
+                }
+                .into());
             }
         }
 
@@ -1517,9 +1358,9 @@ impl ParallelExecutor {
                 _ => {
                     return Err(ParallelExecutorError::Configuration {
                         message: format!("Invalid error_strategy '{error_strategy}'"),
-                        suggestion: "Use 'continue' to process all items despite errors, or 'fail_fast' to stop on first error".to_string(),
                         parameter: Some("error_strategy".to_string()),
-                    }.into());
+                    }
+                    .into());
                 }
             }
         }
@@ -1529,9 +1370,9 @@ impl ParallelExecutor {
             if max_memory_mb == 0 {
                 return Err(ParallelExecutorError::Configuration {
                     message: "max_memory_mb must be greater than 0".to_string(),
-                    suggestion: "Use a positive memory limit in MB (e.g., 128-2048). Consider your system's available memory".to_string(),
                     parameter: Some("max_memory_mb".to_string()),
-                }.into());
+                }
+                .into());
             }
 
             if max_memory_mb > 16384 {
@@ -1539,8 +1380,6 @@ impl ParallelExecutor {
                     message: format!(
                         "max_memory_mb {max_memory_mb} exceeds reasonable limit of 16GB"
                     ),
-                    suggestion: "Use a reasonable memory limit (typically 128-2048 MB per thread)"
-                        .to_string(),
                     parameter: Some("max_memory_mb".to_string()),
                 }
                 .into());

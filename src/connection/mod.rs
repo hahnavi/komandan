@@ -8,7 +8,9 @@
 //!
 //! - **Unified Interface**: Single `create_connection()` function for all connection types
 //! - **Consistent Authentication**: Reuses existing authentication logic from komando.rs
-//! - **Detailed Error Handling**: Provides comprehensive error messages with troubleshooting guidance
+//! - **Structured Errors**: Errors carry semantic fields (`host`, `port`, `user`, `context`)
+//!   rendered via `Display`; verbose troubleshooting strings were removed
+//!   (see `REFACTOR_PLAN.md` §2.2)
 //! - **Backward Compatibility**: Maintains existing function signatures and behavior
 //! - **Configuration Reuse**: Uses existing validation, defaults, and configuration patterns
 //!
@@ -38,11 +40,10 @@
 //!
 //! ## Error Handling
 //!
-//! All connection errors include detailed troubleshooting information:
-//! - Authentication failures with specific guidance
-//! - Connection issues with network troubleshooting steps
-//! - Host key verification problems with resolution instructions
-//! - Configuration errors with parameter validation help
+//! Connection errors are typed via [`ConnectionError`] (a `thiserror` enum)
+//! whose `Display` output carries structured fields (`host`, `port`, `user`,
+//! `context`). Verbose troubleshooting text was removed in favor of
+//! documentation; see `REFACTOR_PLAN.md` §2.2.
 
 use crate::defaults::Defaults;
 use crate::executor::CommandExecutor;
@@ -60,169 +61,54 @@ use std::path::Path;
 #[cfg(test)]
 pub mod test_utils;
 
-/// Standardized error types for SSH connections
-#[derive(Debug)]
+/// Errors raised while establishing an SSH or local connection.
+///
+/// The prior `troubleshooting` string fields, the `format_error` method, and
+/// the `get_*_troubleshooting` helpers were verbose boilerplate that cluttered
+/// every error message; they have been removed (see `REFACTOR_PLAN.md` §2.2).
+/// `Display` now renders only the structured fields. Detailed SSH debugging
+/// guidance belongs in documentation, not every error string.
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum ConnectionError {
-    HostValidation {
-        message: String,
-        host: String,
-    },
+    /// Host table failed validation (missing/invalid fields).
+    #[error("Host validation failed: {message} for host '{host}'")]
+    HostValidation { message: String, host: String },
+
+    /// SSH authentication failed.
+    #[error("SSH authentication failed: {message} for {user}@{host}")]
     Authentication {
         message: String,
         host: String,
         user: String,
-        troubleshooting: String,
     },
+
+    /// SSH TCP/session connection failed.
+    #[error("SSH connection failed: {message} for {host}:{port}")]
     Connection {
         message: String,
         host: String,
         port: u16,
-        troubleshooting: String,
     },
-    HostKeyVerification {
-        message: String,
-        host: String,
-        troubleshooting: String,
-    },
-    Configuration {
-        message: String,
-        context: String,
-        troubleshooting: String,
-    },
+
+    /// SSH host-key verification failed.
+    #[error("SSH host key verification failed: {message} for host '{host}'")]
+    HostKeyVerification { message: String, host: String },
+
+    /// Connection-factory configuration error.
+    #[error("SSH configuration error: {message} in {context}")]
+    Configuration { message: String, context: String },
 }
 
 impl ConnectionError {
-    /// Format error message with consistent structure and troubleshooting context
-    #[must_use]
-    pub fn format_error(&self) -> String {
-        match self {
-            Self::HostValidation { message, host } => {
-                format!(
-                    "Host validation failed: {message} for host '{host}'\n\
-                    Troubleshooting: Verify host configuration parameters are correct and complete"
-                )
-            }
-            Self::Authentication {
-                message,
-                host,
-                user,
-                troubleshooting,
-            } => {
-                format!(
-                    "SSH authentication failed: {message} for {user}@{host}\n\
-                    Troubleshooting: {troubleshooting}"
-                )
-            }
-            Self::Connection {
-                message,
-                host,
-                port,
-                troubleshooting,
-            } => {
-                format!(
-                    "SSH connection failed: {message} for {host}:{port}\n\
-                    Troubleshooting: {troubleshooting}"
-                )
-            }
-            Self::HostKeyVerification {
-                message,
-                host,
-                troubleshooting,
-            } => {
-                format!(
-                    "SSH host key verification failed: {message} for {host}\n\
-                    Troubleshooting: {troubleshooting}"
-                )
-            }
-            Self::Configuration {
-                message,
-                context,
-                troubleshooting,
-            } => {
-                format!(
-                    "SSH configuration error: {message} in {context}\n\
-                    Troubleshooting: {troubleshooting}"
-                )
-            }
-        }
-    }
-
-    /// Convert to mlua `RuntimeError` with formatted message
+    /// Convert to an `mlua::Error::RuntimeError` carrying the `Display` output.
+    ///
+    /// Kept as a named helper because ~30 call sites use the
+    /// `ConnectionError::Variant { ... }.to_runtime_error()` idiom at the mlua
+    /// boundary; renaming/chaining them all to `.into()` would be pure churn.
     #[must_use]
     pub fn to_runtime_error(self) -> mlua::Error {
-        RuntimeError(self.format_error())
+        RuntimeError(self.to_string())
     }
-}
-
-/// Helper function to create authentication troubleshooting guidance
-fn get_auth_troubleshooting(auth_method: &SSHAuthMethod) -> String {
-    match auth_method {
-        SSHAuthMethod::Password(_) => {
-            "Check that password authentication is enabled on the server and the password is correct. \
-            Consider using SSH key authentication for better security.\n\
-            Additional steps:\n\
-            1. Verify PasswordAuthentication is enabled in /etc/ssh/sshd_config\n\
-            2. Check if the user account is locked: passwd -S username\n\
-            3. Review authentication logs: tail -f /var/log/auth.log\n\
-            4. Test with verbose SSH: ssh -v username@host".to_string()
-        }
-        SSHAuthMethod::PublicKey { private_key, passphrase } => {
-            let base_msg = if passphrase.is_some() {
-                format!(
-                    "Verify the private key file '{private_key}' exists, has correct permissions (600), \
-                    and the passphrase is correct. Ensure the corresponding public key is in \
-                    the server's authorized_keys file."
-                )
-            } else {
-                format!(
-                    "Verify the private key file '{private_key}' exists, has correct permissions (600), \
-                    and the corresponding public key is in the server's authorized_keys file."
-                )
-            };
-
-            format!(
-                "{base_msg}\n\
-                Additional troubleshooting steps:\n\
-                1. Check key file permissions: ls -la {private_key}\n\
-                2. Verify public key on server: cat ~/.ssh/authorized_keys\n\
-                3. Test key manually: ssh -i {private_key} -v username@host\n\
-                4. Check SSH agent: ssh-add -l\n\
-                5. Verify PubkeyAuthentication is enabled in /etc/ssh/sshd_config"
-            )
-        }
-    }
-}
-
-/// Helper function to create connection troubleshooting guidance
-fn get_connection_troubleshooting(host: &str, port: u16) -> String {
-    format!(
-        "Check network connectivity to {host}:{port}, verify the SSH service is running, \
-        and ensure firewall rules allow connections on port {port}.\n\
-        Detailed troubleshooting steps:\n\
-        1. Test basic connectivity: ping {host}\n\
-        2. Check port accessibility: telnet {host} {port} or nc -zv {host} {port}\n\
-        3. Try manual SSH connection: ssh -v -p {port} {host}\n\
-        4. Check SSH service status: systemctl status ssh (on target)\n\
-        5. Review SSH daemon logs: journalctl -u ssh -f\n\
-        6. Verify firewall rules: ufw status or iptables -L\n\
-        7. Check if SSH is listening: netstat -tlnp | grep :{port} (on target)"
-    )
-}
-
-/// Helper function to create host key troubleshooting guidance
-fn get_host_key_troubleshooting(host: &str, known_hosts_file: &str) -> String {
-    format!(
-        "The host key for '{host}' has changed or is not in the known_hosts file.\n\
-        Detailed resolution steps:\n\
-        1. Verify this change is expected (server rebuild, key rotation, etc.)\n\
-        2. Remove old key: ssh-keygen -R {host}\n\
-        3. Add new key: ssh-keyscan {host} >> {known_hosts_file}\n\
-        4. Alternative: ssh-keyscan -p PORT {host} >> {known_hosts_file} (if using non-standard port)\n\
-        5. Manual verification: ssh -o StrictHostKeyChecking=ask {host}\n\
-        6. For testing only: ssh -o StrictHostKeyChecking=no {host} (NOT recommended for production)\n\
-        7. Check known_hosts file permissions: ls -la {known_hosts_file}\n\
-        8. Verify known_hosts file format and content"
-    )
 }
 
 /// Unified connection interface that can represent either SSH or local connections
@@ -314,8 +200,8 @@ pub fn create_connection(lua: &Lua, host: &Value) -> mlua::Result<Connection> {
         ConnectionError::Configuration {
             message: format!("Failed to determine connection type: {e}"),
             context: "connection type determination".to_string(),
-            troubleshooting: "Verify the 'connection' field is set to 'ssh' or 'local', or ensure the address is valid".to_string(),
-        }.to_runtime_error()
+        }
+        .to_runtime_error()
     })?;
 
     match connection_type {
@@ -330,9 +216,6 @@ pub fn create_connection(lua: &Lua, host: &Value) -> mlua::Result<Connection> {
                 ConnectionError::Configuration {
                     message: format!("Failed to setup local environment: {e}"),
                     context: "local session environment setup".to_string(),
-                    troubleshooting:
-                        "Check environment variable configuration in host or task settings"
-                            .to_string(),
                 }
                 .to_runtime_error()
             })?;
@@ -473,8 +356,8 @@ pub fn get_auth_config(
         ConnectionError::Configuration {
             message: format!("Failed to determine user: {e}"),
             context: format!("task '{task_display}' on host '{host_display}'"),
-            troubleshooting: "Specify 'user' in host configuration, set default user with komandan.defaults:set_user(), or ensure USER environment variable is set".to_string(),
-        }.to_runtime_error()
+        }
+        .to_runtime_error()
     })?;
 
     let defaults = Defaults::global();
@@ -486,8 +369,6 @@ pub fn get_auth_config(
             ConnectionError::Configuration {
                 message: "Failed to read default private key file setting".to_string(),
                 context: "defaults access".to_string(),
-                troubleshooting: "This is an internal error. Try restarting the application"
-                    .to_string(),
             }
             .to_runtime_error()
         })?
@@ -500,8 +381,6 @@ pub fn get_auth_config(
             ConnectionError::Configuration {
                 message: "Failed to read default private key passphrase setting".to_string(),
                 context: "defaults access".to_string(),
-                troubleshooting: "This is an internal error. Try restarting the application"
-                    .to_string(),
             }
             .to_runtime_error()
         })?
@@ -515,8 +394,6 @@ pub fn get_auth_config(
             ConnectionError::Configuration {
                 message: "Failed to read default password setting".to_string(),
                 context: "defaults access".to_string(),
-                troubleshooting: "This is an internal error. Try restarting the application"
-                    .to_string(),
             }
             .to_runtime_error()
         })?
@@ -551,9 +428,6 @@ pub fn get_auth_config(
                                 message: "Failed to read ssh_auto_discover_keys setting"
                                     .to_string(),
                                 context: "defaults access".to_string(),
-                                troubleshooting:
-                                    "This is an internal error. Try restarting the application"
-                                        .to_string(),
                             }
                             .to_runtime_error()
                         })? {
@@ -561,10 +435,6 @@ pub fn get_auth_config(
                                 message: "No authentication method available and SSH key auto-discovery is disabled".to_string(),
                                 host: host_display,
                                 user,
-                                troubleshooting: "Enable SSH key auto-discovery with komandan.defaults:set_ssh_auto_discover_keys(true), \
-                                    or specify authentication in host config: 'password' for password auth or \
-                                    'private_key_file' for key auth. You can also set defaults with \
-                                    komandan.defaults:set_password() or komandan.defaults:set_private_key_file()".to_string(),
                             }.to_runtime_error());
                         }
 
@@ -575,8 +445,8 @@ pub fn get_auth_config(
                                 ConnectionError::Configuration {
                                     message: "HOME environment variable not set".to_string(),
                                     context: "SSH key discovery".to_string(),
-                                    troubleshooting: "Set the HOME environment variable or specify authentication method explicitly in host configuration".to_string(),
-                                }.to_runtime_error()
+                                }
+                                .to_runtime_error()
                             })?
                         };
                         let ed25519_path = format!("{home}/.ssh/id_ed25519");
@@ -603,13 +473,8 @@ pub fn get_auth_config(
                                     message: "No authentication method available".to_string(),
                                     host: host_display,
                                     user,
-                                    troubleshooting: format!(
-                                        "Specify authentication in host config: 'password' for password auth, \
-                                        'private_key_file' for key auth, or create default SSH keys at {ed25519_path} or {rsa_path}. \
-                                        You can also set defaults with komandan.defaults:set_password() or \
-                                        komandan.defaults:set_private_key_file()"
-                                    ),
-                                }.to_runtime_error());
+                                }
+                                .to_runtime_error());
                             }
                         }
                     }
@@ -638,21 +503,18 @@ pub fn get_auth_config(
 /// - Configuration parameters are invalid
 pub fn create_ssh_session(host: &Table) -> mlua::Result<SSHSession> {
     let defaults = Defaults::global();
-    let mut ssh = SSHSession::new()
-        .map_err(|e| {
-            ConnectionError::Configuration {
-                message: format!("Failed to create SSH session: {e}"),
-                context: "SSH session initialization".to_string(),
-                troubleshooting: "This is likely a system-level issue. Ensure SSH libraries are properly installed and accessible".to_string(),
-            }.to_runtime_error()
-        })?;
+    let mut ssh = SSHSession::new().map_err(|e| {
+        ConnectionError::Configuration {
+            message: format!("Failed to create SSH session: {e}"),
+            context: "SSH session initialization".to_string(),
+        }
+        .to_runtime_error()
+    })?;
 
     let Ok(default_key_check) = defaults.key_check.read() else {
         return Err(ConnectionError::Configuration {
             message: "Failed to read default host key check setting".to_string(),
             context: "defaults access".to_string(),
-            troubleshooting: "This is an internal error. Try restarting the application"
-                .to_string(),
         }
         .to_runtime_error());
     };
@@ -669,8 +531,6 @@ pub fn create_ssh_session(host: &Table) -> mlua::Result<SSHSession> {
         return Err(ConnectionError::Configuration {
             message: "Failed to read default known hosts file setting".to_string(),
             context: "defaults access".to_string(),
-            troubleshooting: "This is an internal error. Try restarting the application"
-                .to_string(),
         }
         .to_runtime_error());
     };
@@ -707,8 +567,6 @@ pub fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevatio
         return Err(ConnectionError::Configuration {
             message: "Failed to read default elevation setting".to_string(),
             context: "defaults access".to_string(),
-            troubleshooting: "This is an internal error. Try restarting the application"
-                .to_string(),
         }
         .to_runtime_error());
     };
@@ -735,8 +593,6 @@ pub fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevatio
         return Err(ConnectionError::Configuration {
             message: "Failed to read default elevation method setting".to_string(),
             context: "defaults access".to_string(),
-            troubleshooting: "This is an internal error. Try restarting the application"
-                .to_string(),
         }
         .to_runtime_error());
     };
@@ -753,8 +609,8 @@ pub fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevatio
         _ => Err(ConnectionError::Configuration {
             message: format!("Unsupported elevation method: '{elevation_method_str}'"),
             context: "elevation method configuration".to_string(),
-            troubleshooting: "Valid elevation methods are: 'sudo', 'su', 'none'. Check your host or task configuration".to_string(),
-        }.to_runtime_error()),
+        }
+        .to_runtime_error()),
     };
 
     let default_as_user = match defaults.as_user.read() {
@@ -763,8 +619,6 @@ pub fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevatio
             return Err(ConnectionError::Configuration {
                 message: "Failed to read default as_user setting".to_string(),
                 context: "defaults access".to_string(),
-                troubleshooting: "This is an internal error. Try restarting the application"
-                    .to_string(),
             }
             .to_runtime_error());
         }
@@ -805,8 +659,6 @@ pub fn setup_environment_ssh(ssh: &mut SSHSession, host: &Table, task: &Table) -
         return Err(ConnectionError::Configuration {
             message: "Failed to read default environment variables".to_string(),
             context: "defaults access".to_string(),
-            troubleshooting: "This is an internal error. Try restarting the application"
-                .to_string(),
         }
         .to_runtime_error());
     };
@@ -824,8 +676,6 @@ pub fn setup_environment_ssh(ssh: &mut SSHSession, host: &Table, task: &Table) -
                 ConnectionError::Configuration {
                     message: format!("Invalid host environment variable: {e}"),
                     context: "host environment variable processing".to_string(),
-                    troubleshooting: "Check that all host environment variables are strings"
-                        .to_string(),
                 }
                 .to_runtime_error()
             })?;
@@ -839,8 +689,6 @@ pub fn setup_environment_ssh(ssh: &mut SSHSession, host: &Table, task: &Table) -
                 ConnectionError::Configuration {
                     message: format!("Invalid task environment variable: {e}"),
                     context: "task environment variable processing".to_string(),
-                    troubleshooting: "Check that all task environment variables are strings"
-                        .to_string(),
                 }
                 .to_runtime_error()
             })?;
@@ -887,8 +735,6 @@ fn setup_environment_local(
         return Err(ConnectionError::Configuration {
             message: "Failed to read default environment variables".to_string(),
             context: "defaults access".to_string(),
-            troubleshooting: "This is an internal error. Try restarting the application"
-                .to_string(),
         }
         .to_runtime_error());
     };
@@ -906,8 +752,6 @@ fn setup_environment_local(
                 ConnectionError::Configuration {
                     message: format!("Invalid host environment variable: {e}"),
                     context: "host environment variable processing".to_string(),
-                    troubleshooting: "Check that all host environment variables are strings"
-                        .to_string(),
                 }
                 .to_runtime_error()
             })?;
@@ -921,8 +765,6 @@ fn setup_environment_local(
                 ConnectionError::Configuration {
                     message: format!("Invalid task environment variable: {e}"),
                     context: "task environment variable processing".to_string(),
-                    troubleshooting: "Check that all task environment variables are strings"
-                        .to_string(),
                 }
                 .to_runtime_error()
             })?;
@@ -952,8 +794,6 @@ fn get_port_from_host(host: &Table) -> mlua::Result<u16> {
             return Err(ConnectionError::Configuration {
                 message: "Failed to read default port setting".to_string(),
                 context: "defaults access".to_string(),
-                troubleshooting: "This is an internal error. Try restarting the application"
-                    .to_string(),
             }
             .to_runtime_error());
         };
@@ -990,8 +830,6 @@ pub fn create_configured_ssh_session(host_table: &Table, task: &Table) -> mlua::
         ConnectionError::Configuration {
             message: format!("Failed to create SSH session: {e}"),
             context: format!("SSH session creation for host '{host_display}'"),
-            troubleshooting: "Check SSH session configuration parameters and system SSH support"
-                .to_string(),
         }
         .to_runtime_error()
     })?;
@@ -1001,8 +839,6 @@ pub fn create_configured_ssh_session(host_table: &Table, task: &Table) -> mlua::
         ConnectionError::Configuration {
             message: format!("Missing or invalid address: {e}"),
             context: format!("host '{host_display}'"),
-            troubleshooting: "Ensure 'address' field is set to a valid hostname or IP address"
-                .to_string(),
         }
         .to_runtime_error()
     })?;
@@ -1011,131 +847,46 @@ pub fn create_configured_ssh_session(host_table: &Table, task: &Table) -> mlua::
         ConnectionError::Configuration {
             message: format!("Failed to get port: {e}"),
             context: format!("host '{host_display}'"),
-            troubleshooting:
-                "Check port configuration or set default with komandan.defaults:set_port()"
-                    .to_string(),
         }
         .to_runtime_error()
     })?;
 
-    // Connect using existing logic with enhanced error detection and detailed troubleshooting
-    ssh.connect(&address, port, &user, auth_method.clone())
+    // Connect using existing logic with error type classification
+    ssh.connect(&address, port, &user, auth_method)
         .map_err(|e| {
             let error_msg = e.to_string();
 
-            // Enhanced error type detection based on error message content and context
-            if error_msg.contains("authentication")
+            // Classify the underlying error by its message content
+            let is_auth = error_msg.contains("authentication")
                 || error_msg.contains("Authentication")
                 || error_msg.contains("auth")
                 || error_msg.contains("login")
                 || error_msg.contains("password")
                 || error_msg.contains("key")
-            {
+                || error_msg.contains("Permission denied");
+            let is_host_key = error_msg.contains("host key")
+                || error_msg.contains("Host key")
+                || error_msg.contains("known_hosts")
+                || error_msg.contains("verification");
+
+            if is_auth {
                 ConnectionError::Authentication {
                     message: error_msg,
                     host: format!("{address}:{port}"),
                     user: user.clone(),
-                    troubleshooting: get_auth_troubleshooting(&auth_method),
                 }
                 .to_runtime_error()
-            } else if error_msg.contains("host key")
-                || error_msg.contains("Host key")
-                || error_msg.contains("known_hosts")
-                || error_msg.contains("verification")
-            {
-                let known_hosts_file = ssh
-                    .known_hosts_file.as_deref()
-                    .unwrap_or("~/.ssh/known_hosts");
+            } else if is_host_key {
                 ConnectionError::HostKeyVerification {
                     message: error_msg,
                     host: address.clone(),
-                    troubleshooting: get_host_key_troubleshooting(&address, known_hosts_file),
-                }
-                .to_runtime_error()
-            } else if error_msg.contains("Connection refused")
-                || error_msg.contains("connection refused")
-            {
-                ConnectionError::Connection {
-                    message: error_msg,
-                    host: address.clone(),
-                    port,
-                    troubleshooting: format!(
-                        "Connection refused by {address}:{port}. This usually means:\n\
-                        1. SSH service is not running on the target host\n\
-                        2. Firewall is blocking port {port}\n\
-                        3. SSH is configured to listen on a different port\n\
-                        Try: systemctl status ssh (on target), telnet {address} {port}, or ssh -v -p {port} {address}"
-                    ),
-                }
-                .to_runtime_error()
-            } else if error_msg.contains("timeout")
-                || error_msg.contains("Timeout")
-                || error_msg.contains("timed out")
-            {
-                ConnectionError::Connection {
-                    message: error_msg,
-                    host: address.clone(),
-                    port,
-                    troubleshooting: format!(
-                        "Connection to {address}:{port} timed out. This usually means:\n\
-                        1. Network connectivity issues\n\
-                        2. Firewall dropping packets\n\
-                        3. Host is down or unreachable\n\
-                        Try: ping {address}, traceroute {address}, or check network connectivity"
-                    ),
-                }
-                .to_runtime_error()
-            } else if error_msg.contains("No route to host")
-                || error_msg.contains("Network unreachable")
-            {
-                ConnectionError::Connection {
-                    message: error_msg,
-                    host: address.clone(),
-                    port,
-                    troubleshooting: format!(
-                        "Network routing issue to {address}. This usually means:\n\
-                        1. Host is not reachable from this network\n\
-                        2. Routing configuration issues\n\
-                        3. DNS resolution problems\n\
-                        Try: ping {address}, nslookup {address}, or check routing table"
-                    ),
-                }
-                .to_runtime_error()
-            } else if error_msg.contains("Permission denied") {
-                ConnectionError::Authentication {
-                    message: error_msg,
-                    host: format!("{address}:{port}"),
-                    user: user.clone(),
-                    troubleshooting: format!(
-                        "Permission denied for user '{user}'. This usually means:\n\
-                        1. Incorrect username, password, or SSH key\n\
-                        2. User account is disabled or locked\n\
-                        3. SSH configuration restricts this user\n\
-                        Check: /var/log/auth.log on target, user account status, SSH config"
-                    ),
                 }
                 .to_runtime_error()
             } else {
-                // Generic connection error with enhanced troubleshooting
                 ConnectionError::Connection {
                     message: error_msg,
                     host: address.clone(),
                     port,
-                    troubleshooting: format!(
-                        "{}. Additional troubleshooting steps:\n\
-                        1. Verify host is reachable: ping {}\n\
-                        2. Check SSH service: telnet {} {}\n\
-                        3. Test manual connection: ssh -v {}@{} -p {}\n\
-                        4. Check firewall rules and network connectivity\n\
-                        5. Verify SSH daemon is running on target host",
-                        get_connection_troubleshooting(&address, port),
-                        address,
-                        address,
-                        port,
-                        user,
-                        address,
-                        port
-                    ),
                 }
                 .to_runtime_error()
             }
@@ -1146,9 +897,6 @@ pub fn create_configured_ssh_session(host_table: &Table, task: &Table) -> mlua::
         ConnectionError::Configuration {
             message: format!("Failed to configure elevation: {e}"),
             context: format!("elevation setup for host '{host_display}'"),
-            troubleshooting:
-                "Check elevation method and user configuration. Valid methods: 'sudo', 'su', 'none'"
-                    .to_string(),
         }
         .to_runtime_error()
     })?;
@@ -1157,8 +905,6 @@ pub fn create_configured_ssh_session(host_table: &Table, task: &Table) -> mlua::
         ConnectionError::Configuration {
             message: format!("Failed to setup SSH environment: {e}"),
             context: format!("environment setup for host '{host_display}'"),
-            troubleshooting: "Check environment variable configuration in host or task settings"
-                .to_string(),
         }
         .to_runtime_error()
     })?;
