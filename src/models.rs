@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use mlua::{Error, FromLua, IntoLua, Lua, LuaSerdeExt, UserData, Value};
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 
 use crate::ssh::ElevationMethod;
@@ -41,8 +42,8 @@ pub struct Host {
     user: Option<String>,
     key_check: Option<bool>,
     private_key_file: Option<String>,
-    private_key_pass: Option<String>,
-    password: Option<String>,
+    private_key_pass: Option<SecretString>,
+    password: Option<SecretString>,
     elevate: Option<bool>,
     elevation_method: Option<ElevationMethod>,
     as_user: Option<String>,
@@ -62,8 +63,12 @@ impl FromLua for Host {
             user: table.get("user")?,
             key_check: table.get("host_key_check")?,
             private_key_file: table.get("private_key_file")?,
-            private_key_pass: table.get("private_key_pass")?,
-            password: table.get("password")?,
+            private_key_pass: table
+                .get::<Option<String>>("private_key_pass")?
+                .map(|s| SecretString::new(s.into_boxed_str())),
+            password: table
+                .get::<Option<String>>("password")?
+                .map(|s| SecretString::new(s.into_boxed_str())),
             elevate: table.get("elevate")?,
             elevation_method: table
                 .get::<String>("elevation_method")
@@ -99,10 +104,13 @@ impl IntoLua for Host {
             table.set("private_key_file", private_key_file)?;
         }
         if let Some(private_key_pass) = self.private_key_pass {
-            table.set("private_key_pass", private_key_pass)?;
+            table.set(
+                "private_key_pass",
+                private_key_pass.expose_secret().to_string(),
+            )?;
         }
         if let Some(password) = self.password {
-            table.set("password", password)?;
+            table.set("password", password.expose_secret().to_string())?;
         }
         if let Some(elevate) = self.elevate {
             table.set("elevate", elevate)?;
@@ -284,8 +292,18 @@ mod tests {
         assert_eq!(host.port, Some(22));
         assert_eq!(host.user, Some("user".to_string()));
         assert_eq!(host.private_key_file, Some("/path/to/key".to_string()));
-        assert_eq!(host.private_key_pass, Some("pass".to_string()));
-        assert_eq!(host.password, Some("password".to_string()));
+        assert_eq!(
+            host.private_key_pass
+                .as_ref()
+                .map(|s| s.expose_secret().to_string()),
+            Some("pass".to_string())
+        );
+        assert_eq!(
+            host.password
+                .as_ref()
+                .map(|s| s.expose_secret().to_string()),
+            Some("password".to_string())
+        );
         assert_eq!(host.elevate, Some(true));
         assert_eq!(host.elevation_method, Some(ElevationMethod::Sudo));
         assert_eq!(host.as_user, Some("root".to_string()));
@@ -305,8 +323,8 @@ mod tests {
             user: Some("user".to_string()),
             key_check: None,
             private_key_file: Some("/path/to/key".to_string()),
-            private_key_pass: Some("pass".to_string()),
-            password: Some("password".to_string()),
+            private_key_pass: Some(SecretString::new("pass".to_string().into_boxed_str())),
+            password: Some(SecretString::new("password".to_string().into_boxed_str())),
             elevate: Some(true),
             elevation_method: Some(ElevationMethod::Sudo),
             as_user: Some("root".to_string()),
@@ -331,6 +349,42 @@ mod tests {
         assert_eq!(table.get::<String>("as_user")?, "root");
         assert_eq!(table.get::<HashMap<String, String>>("env")?, env);
         Ok(())
+    }
+
+    #[test]
+    fn test_host_debug_redacts_secrets() {
+        let host = Host {
+            name: None,
+            address: "127.0.0.1".to_string(),
+            port: None,
+            user: None,
+            key_check: None,
+            private_key_file: None,
+            private_key_pass: Some(SecretString::new(
+                "super_secret_passphrase".to_string().into_boxed_str(),
+            )),
+            password: Some(SecretString::new(
+                "super_secret_password".to_string().into_boxed_str(),
+            )),
+            elevate: None,
+            elevation_method: None,
+            as_user: None,
+            env: None,
+            connection: None,
+        };
+        let debug = format!("{host:?}");
+        assert!(
+            !debug.contains("super_secret_passphrase"),
+            "private_key_pass leaked into Debug: {debug}"
+        );
+        assert!(
+            !debug.contains("super_secret_password"),
+            "password leaked into Debug: {debug}"
+        );
+        assert!(
+            debug.contains("[REDACTED]"),
+            "expected [REDACTED] marker in Debug: {debug}"
+        );
     }
 
     #[test]
