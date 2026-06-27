@@ -12,9 +12,6 @@ use ssh2::{CheckResult, KnownHostFileKind, Session, Sftp};
 
 use crate::executor::{CommandExecutor, SessionResult};
 
-#[cfg(test)]
-pub mod test_utils;
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum SSHAuthMethod {
     Password(String),

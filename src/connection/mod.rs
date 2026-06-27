@@ -52,9 +52,6 @@ mod error;
 mod session;
 
 #[cfg(test)]
-pub mod test_utils;
-
-#[cfg(test)]
 mod tests;
 
 pub use auth::get_auth_config;
