@@ -29,44 +29,76 @@ use util::{
     dprint, filter_hosts, host_info, parse_hosts_json_file, parse_hosts_json_url, regex_is_match,
 };
 
-/// Creates a new Lua instance with Komandan configuration.
-///
-/// This function initializes a Lua environment with all Komandan modules,
-/// utilities, and the centralized connection factory for SSH and local connections.
-///
-/// # Errors
-///
-/// Returns an error if Lua initialization fails.
+/// Constructs a `Lua` VM, using the unsafe backend only when explicitly requested.
 #[allow(unsafe_code)]
-pub fn create_lua() -> mlua::Result<Lua> {
-    let lua = if crate::args::global_flags().unsafe_lua {
+fn build_lua(unsafe_lua: bool) -> Lua {
+    if unsafe_lua {
+        // SAFETY: `unsafe_new` bypasses Lua's internal safety guarantees; only
+        // enabled via the explicit `--unsafe-lua` CLI flag by a trusting user.
         unsafe { Lua::unsafe_new() }
     } else {
         Lua::new()
-    };
+    }
+}
 
+/// Prepends the project's Lua module search paths to `package.path`/`package.cpath`.
+///
+/// # Errors
+///
+/// Returns an error if loading/executing the package-path chunk fails.
+fn configure_package_path(lua: &Lua, project_dir: &str) -> mlua::Result<()> {
+    let project_dir_lua = project_dir;
+    lua.load(chunk! {
+        package.path = $project_dir_lua .. "/?.lua;" .. $project_dir_lua .. "/?;" .. $project_dir_lua .. "/lua_modules/share/lua/5.1/?.lua;" .. $project_dir_lua .. "/lua_modules/share/lua/5.1/?/init.lua;"  .. package.path
+        package.cpath = $project_dir_lua .. "/?.so;" .. $project_dir_lua .. "/lua_modules/lib/lua/5.1/?.so;" .. package.cpath
+    })
+    .exec()?;
+    Ok(())
+}
+
+/// Resolves the project directory from `args.main_file` (its parent dir),
+/// falling back to the current working directory when unset or parent-less.
+///
+/// # Errors
+///
+/// Returns an error if the current working directory cannot be determined.
+fn resolve_project_dir(args: &Args) -> mlua::Result<String> {
+    match &args.main_file {
+        Some(main_file) => {
+            let parent = Path::new(main_file).parent();
+            match parent {
+                Some(p) if !p.display().to_string().is_empty() => Ok(p.display().to_string()),
+                _ => Ok(env::current_dir()?.display().to_string()),
+            }
+        }
+        None => Ok(env::current_dir()?.display().to_string()),
+    }
+}
+
+/// Creates a new Lua instance with Komandan configuration.
+///
+/// Uses the already-initialized global config/flags (set by an earlier
+/// `create_lua_with_args` call, or defaults when uninitialized). Prefer
+/// `create_lua_with_args` when you have parsed `Args` in hand.
+///
+/// # Errors
+///
+/// Returns an error if Lua initialization or setup fails.
+pub fn create_lua() -> mlua::Result<Lua> {
     let project_dir = match crate::args::global_config() {
         Some(config) => config.project_dir.clone(),
         None => env::current_dir()?.display().to_string(),
     };
-
-    let project_dir_lua = project_dir;
-    lua.load(
-        chunk! {
-            package.path = $project_dir_lua .. "/?.lua;" .. $project_dir_lua .. "/?;" .. $project_dir_lua .. "/lua_modules/share/lua/5.1/?.lua;" .. $project_dir_lua .. "/lua_modules/share/lua/5.1/?/init.lua;"  .. package.path
-            package.cpath = $project_dir_lua .. "/?.so;" .. $project_dir_lua .. "/lua_modules/lib/lua/5.1/?.so;" .. package.cpath
-        }
-    ).exec()?;
-
+    let lua = build_lua(crate::args::global_flags().unsafe_lua);
+    configure_package_path(&lua, &project_dir)?;
     setup_komandan_table(&lua)?;
-
     Ok(lua)
 }
 
 /// Creates a new Lua instance with explicit arguments (avoids re-parsing CLI args).
 ///
-/// This function is similar to `create_lua()` but accepts explicit args to avoid
-/// re-parsing command-line arguments. Use this when args have already been parsed.
+/// Resolves the project directory from `args.main_file`, initializes the global
+/// config, then builds the Lua VM and Komandan environment.
 ///
 /// # Arguments
 ///
@@ -74,48 +106,18 @@ pub fn create_lua() -> mlua::Result<Lua> {
 ///
 /// # Errors
 ///
-/// Returns an error if Lua initialization fails.
-#[allow(unsafe_code)]
+/// Returns an error if Lua initialization or setup fails.
 pub fn create_lua_with_args(args: &Args) -> mlua::Result<Lua> {
-    let project_dir = match &args.main_file {
-        Some(main_file) => {
-            let main_file_path = Path::new(main_file);
-
-            match main_file_path.parent() {
-                Some(parent) => {
-                    if parent.display().to_string().is_empty() {
-                        env::current_dir()?.display().to_string()
-                    } else {
-                        parent.display().to_string()
-                    }
-                }
-                _none => env::current_dir()?.display().to_string(),
-            }
-        }
-        None => env::current_dir()?.display().to_string(),
-    };
+    let project_dir = resolve_project_dir(args)?;
 
     crate::args::init_global_config(crate::args::ResolvedConfig {
         flags: args.flags.clone(),
         project_dir: project_dir.clone(),
     });
 
-    let lua = if args.flags.unsafe_lua {
-        unsafe { Lua::unsafe_new() }
-    } else {
-        Lua::new()
-    };
-
-    let project_dir_lua = project_dir;
-    lua.load(
-        chunk! {
-            package.path = $project_dir_lua .. "/?.lua;" .. $project_dir_lua .. "/?;" .. $project_dir_lua .. "/lua_modules/share/lua/5.1/?.lua;" .. $project_dir_lua .. "/lua_modules/share/lua/5.1/?/init.lua;"  .. package.path
-            package.cpath = $project_dir_lua .. "/?.so;" .. $project_dir_lua .. "/lua_modules/lib/lua/5.1/?.so;" .. package.cpath
-        }
-    ).exec()?;
-
+    let lua = build_lua(args.flags.unsafe_lua);
+    configure_package_path(&lua, &project_dir)?;
     setup_komandan_table(&lua)?;
-
     Ok(lua)
 }
 
