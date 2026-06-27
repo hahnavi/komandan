@@ -65,14 +65,10 @@ impl FromLua for Host {
             private_key_pass: table.get("private_key_pass")?,
             password: table.get("password")?,
             elevate: table.get("elevate")?,
-            elevation_method: table.get::<String>("elevation_method").ok().and_then(|s| {
-                match s.as_str() {
-                    "none" => Some(ElevationMethod::None),
-                    "sudo" => Some(ElevationMethod::Sudo),
-                    "su" => Some(ElevationMethod::Su),
-                    _ => None,
-                }
-            }),
+            elevation_method: table
+                .get::<String>("elevation_method")
+                .ok()
+                .and_then(|s| s.parse().ok()),
             as_user: table.get("as_user")?,
             env: table.get("env")?,
             connection: table
@@ -112,11 +108,7 @@ impl IntoLua for Host {
             table.set("elevate", elevate)?;
         }
         if let Some(elevation_method) = self.elevation_method {
-            match elevation_method {
-                ElevationMethod::None => table.set("elevation_method", "none")?,
-                ElevationMethod::Sudo => table.set("elevation_method", "sudo")?,
-                ElevationMethod::Su => table.set("elevation_method", "su")?,
-            }
+            table.set("elevation_method", elevation_method.to_string())?;
         }
         if let Some(as_user) = self.as_user {
             table.set("as_user", as_user)?;
@@ -152,14 +144,10 @@ impl FromLua for Task {
             module: Module::from_lua(table.get(1)?, lua)?,
             ignore_exit_code: table.get("ignore_exit_code")?,
             elevate: table.get("elevate")?,
-            elevation_method: table.get::<String>("elevation_method").ok().and_then(|s| {
-                match s.as_str() {
-                    "none" => Some(ElevationMethod::None),
-                    "sudo" => Some(ElevationMethod::Sudo),
-                    "su" => Some(ElevationMethod::Su),
-                    _ => None,
-                }
-            }),
+            elevation_method: table
+                .get::<String>("elevation_method")
+                .ok()
+                .and_then(|s| s.parse().ok()),
             as_user: table.get("as_user")?,
             env: table.get("env")?,
         })
@@ -180,11 +168,7 @@ impl IntoLua for Task {
             table.set("elevate", elevate)?;
         }
         if let Some(elevation_method) = self.elevation_method {
-            match elevation_method {
-                ElevationMethod::None => table.set("elevation_method", "none")?,
-                ElevationMethod::Sudo => table.set("elevation_method", "sudo")?,
-                ElevationMethod::Su => table.set("elevation_method", "su")?,
-            }
+            table.set("elevation_method", elevation_method.to_string())?;
         }
         if let Some(as_user) = self.as_user {
             table.set("as_user", as_user)?;

@@ -34,6 +34,30 @@ pub enum ElevationMethod {
     Sudo,
 }
 
+impl std::str::FromStr for ElevationMethod {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "none" => Ok(Self::None),
+            "sudo" => Ok(Self::Sudo),
+            "su" => Ok(Self::Su),
+            other => Err(format!("invalid elevation method '{other}'")),
+        }
+    }
+}
+
+impl std::fmt::Display for ElevationMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::None => "none",
+            Self::Sudo => "sudo",
+            Self::Su => "su",
+        };
+        f.write_str(s)
+    }
+}
+
 #[derive(Clone)]
 pub struct SSHSession {
     pub session: Session,
