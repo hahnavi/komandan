@@ -163,8 +163,8 @@ fn test_komando_simple_cmd() -> mlua::Result<()> {
         })
         .eval::<Table>()?;
 
-    assert!(result_table.get::<Integer>("exit_code")? == 0);
-    assert!(result_table.get::<String>("stdout")? == "hello");
+    assert_eq!(result_table.get::<Integer>("exit_code")?, 0);
+    assert_eq!(result_table.get::<String>("stdout")?, "hello");
     assert!((result_table.get::<String>("stderr")?).is_empty());
     Ok(())
 }
@@ -193,8 +193,8 @@ fn test_komando_simple_script() -> mlua::Result<()> {
         })
         .eval::<Table>()?;
 
-    assert!(result_table.get::<Integer>("exit_code")? == 0);
-    assert!(result_table.get::<String>("stdout")? == "hello");
+    assert_eq!(result_table.get::<Integer>("exit_code")?, 0);
+    assert_eq!(result_table.get::<String>("stdout")?, "hello");
     assert!((result_table.get::<String>("stderr")?).is_empty());
     Ok(())
 }
@@ -231,8 +231,8 @@ fn test_komando_script_from_file() -> mlua::Result<()> {
         })
         .eval::<Table>()?;
 
-    assert!(result_table.get::<Integer>("exit_code")? == 0);
-    assert!(result_table.get::<String>("stdout")? == "hello");
+    assert_eq!(result_table.get::<Integer>("exit_code")?, 0);
+    assert_eq!(result_table.get::<String>("stdout")?, "hello");
     assert!((result_table.get::<String>("stderr")?).is_empty());
     Ok(())
 }
@@ -243,8 +243,7 @@ fn test_komando_apt() -> mlua::Result<()> {
     if std::process::Command::new("which")
         .arg("apt")
         .output()
-        .map(|o| !o.status.success())
-        .unwrap_or(true)
+        .map_or(true, |o| !o.status.success())
     {
         eprintln!("Skipping test_komando_apt: apt not available on this system");
         return Ok(());
@@ -271,6 +270,6 @@ fn test_komando_apt() -> mlua::Result<()> {
         })
         .eval::<Table>()?;
 
-    assert!(result_table.get::<Integer>("exit_code")? == 0);
+    assert_eq!(result_table.get::<Integer>("exit_code")?, 0);
     Ok(())
 }

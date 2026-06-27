@@ -79,7 +79,7 @@ fn test_invalid_input_data_errors() -> mlua::Result<()> {
             }
         }
         Err(other_error) => {
-            println!("Got different error type for non-table input: {other_error:?}",);
+            println!("Got different error type for non-table input: {other_error:?}");
         }
         Ok(()) => {
             println!("Input validation not implemented - allowing non-table input");

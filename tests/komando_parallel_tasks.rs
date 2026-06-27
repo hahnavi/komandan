@@ -42,7 +42,7 @@ fn test_komando_parallel_tasks() -> mlua::Result<()> {
 
     for pair in results.pairs::<Value, Table>() {
         let (_, table) = pair?;
-        assert!(table.get::<Integer>("exit_code")? == 0);
+        assert_eq!(table.get::<Integer>("exit_code")?, 0);
     }
     Ok(())
 }
