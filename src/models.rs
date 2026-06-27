@@ -13,13 +13,15 @@ pub enum ConnectionType {
 }
 
 impl std::str::FromStr for ConnectionType {
-    type Err = ();
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "local" => Ok(Self::Local),
             "ssh" => Ok(Self::SSH),
-            _ => Err(()),
+            _ => Err(format!(
+                "invalid connection type '{s}' (expected 'local' or 'ssh')"
+            )),
         }
     }
 }
@@ -76,10 +78,10 @@ impl FromLua for Host {
                 .and_then(|s| s.parse().ok()),
             as_user: table.get("as_user")?,
             env: table.get("env")?,
-            connection: table
-                .get::<String>("connection")
-                .ok()
-                .and_then(|s| s.parse().ok()),
+            connection: match table.get::<String>("connection") {
+                Ok(s) => Some(s.parse().map_err(Error::external)?),
+                Err(_) => None,
+            },
         })
     }
 }
@@ -385,6 +387,28 @@ mod tests {
             debug.contains("[REDACTED]"),
             "expected [REDACTED] marker in Debug: {debug}"
         );
+    }
+
+    #[test]
+    fn test_host_invalid_connection_errors() -> mlua::Result<()> {
+        let lua = Lua::new();
+        let table = lua.create_table()?;
+        table.set("address", "127.0.0.1")?;
+        table.set("connection", "bogus")?;
+        let result = Host::from_lua(Value::Table(table), &lua);
+        let msg = match result {
+            Err(e) => e.to_string(),
+            Ok(_) => {
+                return Err(Error::external(
+                    "invalid connection value should error, but Host parsed successfully",
+                ));
+            }
+        };
+        assert!(
+            msg.contains("invalid connection type"),
+            "error should mention invalid connection type: {msg}"
+        );
+        Ok(())
     }
 
     #[test]
