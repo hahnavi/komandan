@@ -183,16 +183,16 @@ impl IntoLua for Task {
 #[derive(Clone, Debug)]
 pub struct Module {
     functions: HashMap<String, Vec<u8>>,
-    others: HashMap<String, String>,
+    others: HashMap<String, serde_json::Value>,
 }
 
 impl FromLua for Module {
-    fn from_lua(value: Value, _: &Lua) -> mlua::Result<Self> {
+    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
         let table = value
             .as_table()
             .ok_or_else(|| Error::external("Value is not a table"))?;
         let mut functions: HashMap<String, Vec<u8>> = HashMap::new();
-        let mut others: HashMap<String, String> = HashMap::new();
+        let mut others: HashMap<String, serde_json::Value> = HashMap::new();
         for pair in table.pairs::<Value, Value>() {
             let (key, value) = pair?;
             if value.is_function() {
@@ -204,10 +204,7 @@ impl FromLua for Module {
                         .dump(true),
                 );
             } else {
-                others.insert(
-                    key.to_string()?,
-                    serde_json::to_string(&value).map_err(Error::external)?,
-                );
+                others.insert(key.to_string()?, lua.from_value(value)?);
             }
         }
         Ok(Self { functions, others })
@@ -221,8 +218,7 @@ impl IntoLua for Module {
             table.set(key.as_str(), lua.load(value).into_function()?)?;
         }
         for (key, value) in &self.others {
-            let json: serde_json::Value = serde_json::from_str(value).map_err(Error::external)?;
-            table.set(key.as_str(), lua.to_value(&json)?)?;
+            table.set(key.as_str(), lua.to_value(value)?)?;
         }
         Ok(Value::Table(table))
     }
@@ -349,7 +345,7 @@ mod tests {
         assert!(task.module.functions.is_empty());
         assert_eq!(
             task.module.others.get("command"),
-            Some(&"\"echo 'hello'\"".to_string())
+            Some(&serde_json::json!("echo 'hello'"))
         );
 
         table.set("name", "test")?;
@@ -380,7 +376,7 @@ mod tests {
         assert!(module.functions.is_empty());
         assert_eq!(
             module.others.get("command"),
-            Some(&"\"echo 'hello'\"".to_string())
+            Some(&serde_json::json!("echo 'hello'"))
         );
 
         let function = lua.load("return 1").into_function()?;
@@ -390,8 +386,47 @@ mod tests {
         assert_eq!(module.functions.len(), 1);
         assert_eq!(
             module.others.get("command"),
-            Some(&"\"echo 'hello'\"".to_string())
+            Some(&serde_json::json!("echo 'hello'"))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_module_round_trip_nested_mixed() -> mlua::Result<()> {
+        let lua = Lua::new();
+        let table = lua.create_table()?;
+        table.set("string_val", "hello")?;
+        table.set("number_val", 42)?;
+        table.set("bool_val", true)?;
+        let nested = lua.create_table()?;
+        nested.set("inner", "world")?;
+        nested.set("count", 7)?;
+        table.set("nested", nested)?;
+
+        // FromLua captures the table into a Module with no JSON-string intermediate.
+        let module = Module::from_lua(Value::Table(table), &lua)?;
+        assert!(module.functions.is_empty());
+        assert_eq!(
+            module.others.get("string_val"),
+            Some(&serde_json::json!("hello"))
+        );
+        assert_eq!(
+            module.others.get("bool_val"),
+            Some(&serde_json::json!(true))
+        );
+
+        // Round-trip Module -> IntoLua -> Lua table; nested + mixed values preserved.
+        let round_tripped = module
+            .into_lua(&lua)?
+            .as_table()
+            .ok_or_else(|| Error::external("round-tripped value is not a table"))?
+            .clone();
+        assert_eq!(round_tripped.get::<String>("string_val")?, "hello");
+        assert_eq!(round_tripped.get::<i64>("number_val")?, 42);
+        assert!(round_tripped.get::<bool>("bool_val")?);
+        let inner: mlua::Table = round_tripped.get("nested")?;
+        assert_eq!(inner.get::<String>("inner")?, "world");
+        assert_eq!(inner.get::<i64>("count")?, 7);
         Ok(())
     }
 }
