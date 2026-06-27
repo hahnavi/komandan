@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use clap::{Args as ClapArgs, Parser, Subcommand};
 
 /// Your army commander
@@ -56,7 +58,7 @@ pub struct NewArgs {
     pub dir: Option<String>,
 }
 
-#[derive(ClapArgs, Debug, PartialEq, Eq)]
+#[derive(ClapArgs, Clone, Debug, Default, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Flags {
     /// Dry run mode
@@ -82,4 +84,78 @@ pub struct Flags {
     /// Print version information
     #[arg(short = 'V', long)]
     pub version: bool,
+}
+
+static GLOBAL_CONFIG: OnceLock<ResolvedConfig> = OnceLock::new();
+
+static DEFAULT_FLAGS: Flags = Flags {
+    dry_run: false,
+    no_report: false,
+    interactive: false,
+    verbose: false,
+    unsafe_lua: false,
+    version: false,
+};
+
+/// Resolved runtime configuration, set once from parsed CLI args.
+///
+/// Carries the immutable flag set and the project directory used to seed Lua's
+/// `package.path`. Mirrors the `Defaults::global()` pattern in `defaults.rs`.
+#[derive(Clone, Debug)]
+pub struct ResolvedConfig {
+    /// CLI flag set.
+    pub flags: Flags,
+    /// Project directory (parent of the main Lua file, or CWD).
+    pub project_dir: String,
+}
+
+/// Initialize the global resolved config. Called once from `create_lua_with_args`.
+///
+/// Subsequent calls are ignored (config is immutable after first init).
+///
+/// # Errors
+///
+/// Infallible: never returns an error.
+///
+/// # Panics
+///
+/// Never panics. Re-initialization is silently ignored.
+pub fn init_global_config(config: ResolvedConfig) {
+    let _ = GLOBAL_CONFIG.set(config);
+}
+
+/// Returns the resolved global config, if it has been initialized.
+///
+/// `None` indicates `init_global_config` was never called (e.g. unit tests
+/// calling `create_lua()` directly); callers should fall back to defaults.
+///
+/// # Errors
+///
+/// Infallible: never returns an error.
+///
+/// # Panics
+///
+/// Never panics.
+#[must_use]
+pub fn global_config() -> Option<&'static ResolvedConfig> {
+    GLOBAL_CONFIG.get()
+}
+
+/// Returns the resolved global flags.
+///
+/// Returns `Flags::default()` (all-false) when the global config was never
+/// initialized (unit-test path).
+///
+/// # Errors
+///
+/// Infallible: never returns an error.
+///
+/// # Panics
+///
+/// Never panics.
+#[must_use]
+pub fn global_flags() -> &'static Flags {
+    GLOBAL_CONFIG
+        .get()
+        .map_or(&DEFAULT_FLAGS, |config| &config.flags)
 }

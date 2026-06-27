@@ -17,7 +17,6 @@ mod validator;
 use anyhow::Result;
 use args::Args;
 use checks::collect_check_functions;
-use clap::Parser;
 use defaults::Defaults;
 use komando::{komando, komando_parallel_hosts, komando_parallel_tasks};
 use mlua::{Lua, MultiValue, chunk};
@@ -40,28 +39,14 @@ use util::{
 /// Returns an error if Lua initialization fails.
 #[allow(unsafe_code)]
 pub fn create_lua() -> mlua::Result<Lua> {
-    let args = Args::parse();
-    let lua = if args.flags.unsafe_lua {
+    let lua = if crate::args::global_flags().unsafe_lua {
         unsafe { Lua::unsafe_new() }
     } else {
         Lua::new()
     };
 
-    let project_dir = match args.main_file {
-        Some(main_file) => {
-            let main_file_path = Path::new(&main_file);
-
-            match main_file_path.parent() {
-                Some(parent) => {
-                    if parent.display().to_string() == "" {
-                        env::current_dir()?.display().to_string()
-                    } else {
-                        parent.display().to_string()
-                    }
-                }
-                _none => env::current_dir()?.display().to_string(),
-            }
-        }
+    let project_dir = match crate::args::global_config() {
+        Some(config) => config.project_dir.clone(),
         None => env::current_dir()?.display().to_string(),
     };
 
@@ -92,19 +77,13 @@ pub fn create_lua() -> mlua::Result<Lua> {
 /// Returns an error if Lua initialization fails.
 #[allow(unsafe_code)]
 pub fn create_lua_with_args(args: &Args) -> mlua::Result<Lua> {
-    let lua = if args.flags.unsafe_lua {
-        unsafe { Lua::unsafe_new() }
-    } else {
-        Lua::new()
-    };
-
     let project_dir = match &args.main_file {
         Some(main_file) => {
             let main_file_path = Path::new(main_file);
 
             match main_file_path.parent() {
                 Some(parent) => {
-                    if parent.display().to_string() == "" {
+                    if parent.display().to_string().is_empty() {
                         env::current_dir()?.display().to_string()
                     } else {
                         parent.display().to_string()
@@ -114,6 +93,17 @@ pub fn create_lua_with_args(args: &Args) -> mlua::Result<Lua> {
             }
         }
         None => env::current_dir()?.display().to_string(),
+    };
+
+    crate::args::init_global_config(crate::args::ResolvedConfig {
+        flags: args.flags.clone(),
+        project_dir: project_dir.clone(),
+    });
+
+    let lua = if args.flags.unsafe_lua {
+        unsafe { Lua::unsafe_new() }
+    } else {
+        Lua::new()
     };
 
     let project_dir_lua = project_dir;
@@ -256,7 +246,7 @@ pub fn run_main_file(lua: &Lua, main_file: &String) -> Result<()> {
 
     lua.load(&script).set_name(main_file).exec()?;
 
-    if !Args::parse().flags.no_report {
+    if !crate::args::global_flags().no_report {
         generate_report();
     }
 
@@ -348,12 +338,13 @@ pub fn repl(lua: &Lua) -> Result<()> {
 pub fn print_version() {
     let version = env!("CARGO_PKG_VERSION");
     let authors = env!("CARGO_PKG_AUTHORS");
-    println!("Komandan {version} -- Copyright (C) 2025 {authors}");
+    println!("Komandan {version} -- Copyright (C) 2026 {authors}");
 }
 
 // Tests
 #[cfg(test)]
 mod tests {
+    use clap::Parser;
     use mlua::Table;
 
     use super::*;

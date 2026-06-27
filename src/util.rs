@@ -1,14 +1,11 @@
-use crate::args::Args;
 use crate::connection::create_connection;
 use crate::validator::validate_host;
-use clap::Parser;
 use http_klien::create_client_from_url;
 use mlua::{Error::RuntimeError, Lua, LuaSerdeExt, Table, Value, chunk};
 use std::{fs::File, io::Read};
 
 pub fn dprint(lua: &Lua, value: Value) -> mlua::Result<()> {
-    let args = Args::parse();
-    if args.flags.verbose {
+    if crate::args::global_flags().verbose {
         lua.load(chunk! {
             print($value)
         })
@@ -523,6 +520,7 @@ fn create_info_table(lua: &Lua, info: HostInfo) -> mlua::Result<Table> {
 mod tests {
     use tempfile::NamedTempFile;
 
+    use crate::args::Args;
     use crate::create_lua;
 
     use super::*;
