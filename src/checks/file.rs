@@ -1,6 +1,7 @@
 use crate::checks::base::{
     CheckResult, ExecutionContext, execution,
     result_validation::{StandardFields, create_validated_result, set_exists_field},
+    shell_escape,
     validation::{
         validate_file_mode, validate_optional_bool, validate_optional_string,
         validate_required_string,
@@ -315,11 +316,6 @@ fn compare_file_state(expected: &FileParameters, actual: &FileState) -> CheckRes
             CheckResult::failure(actual_map)
         }
     })
-}
-
-/// Escape shell arguments to prevent injection
-fn shell_escape(input: &str) -> String {
-    input.replace('\'', "'\"'\"'")
 }
 
 #[cfg(test)]

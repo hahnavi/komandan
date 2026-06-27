@@ -3,6 +3,7 @@ use crate::checks::base::{
     result_validation::{
         StandardFields, create_validated_result, set_enabled_field, set_exists_field,
     },
+    shell_escape,
     validation::{validate_optional_bool, validate_optional_string, validate_required_string},
 };
 use anyhow::{Context, Result};
@@ -264,11 +265,6 @@ fn query_service_active_and_enabled_state(
         enabled: enabled_state,
         error: None,
     }
-}
-
-/// Escape shell arguments to prevent injection
-fn shell_escape(input: &str) -> String {
-    input.replace('\'', "'\"'\"'")
 }
 
 /// Compare expected service parameters with actual service state

@@ -1,6 +1,7 @@
 use crate::checks::base::{
     CheckResult, ExecutionContext, execution,
     result_validation::{create_validated_result, set_installed_field, set_version_field},
+    shell_escape,
     validation::{validate_optional_string, validate_required_string},
 };
 use anyhow::{Context, Result};
@@ -375,11 +376,6 @@ fn query_dnf_package_state(
             },
         )
     }
-}
-
-/// Escape shell arguments to prevent injection
-fn shell_escape(input: &str) -> String {
-    input.replace('\'', "'\"'\"'")
 }
 
 /// Compare expected package parameters with actual package state
