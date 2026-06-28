@@ -15,17 +15,12 @@ pub fn parse_hosts_json_file(lua: &Lua, path: Value) -> mlua::Result<Table> {
     };
     let mut content = String::new();
 
-    let hosts = match file.read_to_string(&mut content) {
-        Ok(_) => match parse_hosts_json(lua, &content) {
-            Ok(h) => h,
-            Err(_) => {
-                return Err(RuntimeError(format!(
-                    "Failed to parse JSON file from '{path}'"
-                )));
-            }
-        },
-        Err(_) => return Err(RuntimeError(String::from("Failed to read JSON file"))),
+    let Ok(_) = file.read_to_string(&mut content) else {
+        return Err(RuntimeError(String::from("Failed to read JSON file")));
     };
+
+    let hosts = parse_hosts_json(lua, &content)
+        .map_err(|_| RuntimeError(format!("Failed to parse JSON file from '{path}'")))?;
 
     dprint(
         lua,
@@ -80,9 +75,8 @@ pub fn parse_hosts_json_url(lua: &Lua, url: Value) -> mlua::Result<Table> {
 }
 
 fn parse_hosts_json(lua: &Lua, content: &str) -> mlua::Result<Table> {
-    let json: serde_json::Value = match serde_json::from_str(content) {
-        Ok(j) => j,
-        Err(_) => return Err(RuntimeError(String::from("Failed to parse JSON"))),
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(content) else {
+        return Err(RuntimeError(String::from("Failed to parse JSON")));
     };
 
     let hosts = lua.create_table()?;
