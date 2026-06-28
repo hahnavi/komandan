@@ -113,8 +113,8 @@ impl ParallelExecutor {
         }
 
         if data_len > 1_000_000 {
-            eprintln!(
-                "Warning: Processing {data_len} items in parallel. Consider chunking for very large datasets."
+            tracing::warn!(
+                "Processing {data_len} items in parallel. Consider chunking for very large datasets."
             );
         }
 
@@ -386,7 +386,7 @@ pub fn global_executor() -> &'static Mutex<ParallelExecutor> {
                         .build()
                         .unwrap_or_else(|_| {
                             // If even this fails, we have a serious problem
-                            eprintln!("Fatal error: Failed to create thread pool");
+                            tracing::error!("Failed to create thread pool");
                             std::process::exit(1);
                         }),
                 );

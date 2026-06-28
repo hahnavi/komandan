@@ -17,6 +17,11 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_app(args: &Args) -> anyhow::Result<()> {
+    let default_level = if args.flags.verbose { "debug" } else { "warn" };
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_level));
+    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+
     if args.flags.version {
         print_version();
         return Ok(());
@@ -78,15 +83,9 @@ fn load_hosts_defaults(path: &Path, config: &KomandanConfig, lua: &Lua) -> anyho
 
     let hosts_path = path.join(hosts_file);
     if !hosts_path.exists() {
-        eprintln!(
-            "Warning: Hosts file '{}' not found; hosts defaults were not loaded",
-            hosts_path.display()
-        );
-        eprintln!(
-            "  This may cause issues if your automation relies on global hosts configuration."
-        );
-        eprintln!(
-            "  Remediation: Create the hosts file at '{}' or remove the 'hosts' field from komandan.json defaults.",
+        tracing::warn!(
+            "Hosts file '{}' not found; hosts defaults were not loaded. This may cause issues if your automation relies on global hosts configuration. Remediation: Create the hosts file at '{}' or remove the 'hosts' field from komandan.json defaults.",
+            hosts_path.display(),
             hosts_path.display()
         );
         return Ok(());
@@ -105,12 +104,8 @@ fn load_hosts_defaults(path: &Path, config: &KomandanConfig, lua: &Lua) -> anyho
     match Defaults::global().hosts.write() {
         Ok(mut hosts_lock) => *hosts_lock = hosts_vec,
         Err(e) => {
-            eprintln!("Warning: Failed to set hosts defaults from '{hosts_file}': {e}");
-            eprintln!(
-                "  This may cause connection issues if hosts are referenced without explicit configuration."
-            );
-            eprintln!(
-                "  Troubleshooting: Check that the hosts file syntax is valid and that defaults are accessible."
+            tracing::warn!(
+                "Failed to set hosts defaults from '{hosts_file}': {e}. This may cause connection issues if hosts are referenced without explicit configuration. Troubleshooting: Check that the hosts file syntax is valid and that defaults are accessible."
             );
         }
     }

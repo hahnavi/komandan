@@ -39,8 +39,8 @@ pub fn validate_config(config: &ExecutorConfig) -> Result<()> {
         let cpu_cores = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
 
         if thread_count > cpu_cores * 4 {
-            eprintln!(
-                "Warning: thread_count {thread_count} is much higher than CPU cores ({cpu_cores}). This may reduce performance."
+            tracing::warn!(
+                "thread_count {thread_count} is much higher than CPU cores ({cpu_cores}). This may reduce performance."
             );
         }
     }
@@ -124,8 +124,8 @@ pub fn validate_config(config: &ExecutorConfig) -> Result<()> {
         let total_memory_mb = max_memory_mb * effective_threads;
 
         if total_memory_mb > 8192 {
-            eprintln!(
-                "Warning: Total memory usage ({total_memory_mb} MB) with {effective_threads} threads may be excessive. Consider reducing thread_count or max_memory_mb."
+            tracing::warn!(
+                "Total memory usage ({total_memory_mb} MB) with {effective_threads} threads may be excessive. Consider reducing thread_count or max_memory_mb."
             );
         }
     }
@@ -143,14 +143,14 @@ pub fn validate_config_combinations(config: &ExecutorConfig) {
 
     // Warn about suboptimal combinations
     if thread_count > 16 && chunk_size < 10 {
-        eprintln!(
-            "Warning: High thread count ({thread_count}) with small chunk size ({chunk_size}) may cause excessive overhead. Consider increasing chunk_size."
+        tracing::warn!(
+            "High thread count ({thread_count}) with small chunk size ({chunk_size}) may cause excessive overhead. Consider increasing chunk_size."
         );
     }
 
     if thread_count == 1 && chunk_size > 1000 {
-        eprintln!(
-            "Warning: Single thread with large chunk size ({chunk_size}) provides no parallelism benefit. Consider using multiple threads."
+        tracing::warn!(
+            "Single thread with large chunk size ({chunk_size}) provides no parallelism benefit. Consider using multiple threads."
         );
     }
 
@@ -159,8 +159,8 @@ pub fn validate_config_combinations(config: &ExecutorConfig) {
         && timeout > 300
         && thread_count <= 2
     {
-        eprintln!(
-            "Info: Long timeout ({timeout} seconds) detected. Consider using more threads for I/O-intensive tasks."
+        tracing::warn!(
+            "Long timeout ({timeout} seconds) detected. Consider using more threads for I/O-intensive tasks."
         );
     }
 }

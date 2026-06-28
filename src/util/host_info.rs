@@ -69,7 +69,7 @@ pub fn host_info(lua: &Lua, host: Value) -> mlua::Result<Table> {
         Err(e) => {
             // Enhanced graceful error handling - log the specific error but return "Unknown" values
             // This maintains backward compatibility while providing better error context in logs
-            eprintln!("Warning: Failed to connect to host for info gathering: {e}");
+            tracing::warn!("Failed to connect to host for info gathering: {e}");
             return create_info_table(lua, create_unknown_host_info());
         }
     };

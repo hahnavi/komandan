@@ -47,7 +47,7 @@ impl Defaults {
             .ok()
             .and_then(|p| {
                 p.parse::<u16>().ok().or_else(|| {
-                    eprintln!("Warning: Invalid KOMANDAN_SSH_PORT value, using default 22");
+                    tracing::warn!("Invalid KOMANDAN_SSH_PORT value, using default 22");
                     None
                 })
             })
