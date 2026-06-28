@@ -5,6 +5,10 @@ use komandan::*;
 
 #[test]
 fn test_check_package_basic_functionality() -> anyhow::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     // Test basic package check functionality
@@ -42,6 +46,10 @@ fn test_check_package_basic_functionality() -> anyhow::Result<()> {
 
 #[test]
 fn test_check_package_with_state_validation() -> anyhow::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     // Test package state validation

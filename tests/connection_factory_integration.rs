@@ -100,6 +100,10 @@ fn test_connection_factory_explicit_local() -> Result<()> {
 
 #[test]
 fn test_connection_factory_explicit_ssh() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     // Test explicit SSH connection type overrides localhost
@@ -126,6 +130,10 @@ fn test_connection_factory_explicit_ssh() -> Result<()> {
 
 #[test]
 fn test_connection_factory_remote_address_defaults_ssh() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     // Test remote address defaults to SSH connection
@@ -181,6 +189,10 @@ fn test_connection_factory_with_environment_variables() -> Result<()> {
 
 #[test]
 fn test_connection_factory_ssh_with_key_authentication() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     // Test SSH connection with key authentication
@@ -209,6 +221,10 @@ fn test_connection_factory_ssh_with_key_authentication() -> Result<()> {
 
 #[test]
 fn test_connection_factory_ssh_with_custom_port() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     // Test SSH connection with custom port

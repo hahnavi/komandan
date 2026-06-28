@@ -273,6 +273,11 @@ fn test_service_validation_state_checking() -> anyhow::Result<()> {
 
 #[test]
 fn test_package_validation_with_real_packages() -> anyhow::Result<()> {
+    if std::env::var("KOMANDAN_PKG_TEST").is_err() {
+        eprintln!("Skipping real-package validation test - set KOMANDAN_PKG_TEST=1 to enable");
+        return Ok(());
+    }
+
     let lua = create_lua()?;
 
     // Test 1: Check for a package that should exist on most systems (bash)

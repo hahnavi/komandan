@@ -5,6 +5,10 @@ use tempfile::NamedTempFile;
 
 #[test]
 fn test_komando_invalid_known_hosts_path() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let result = lua
@@ -33,6 +37,10 @@ fn test_komando_invalid_known_hosts_path() -> mlua::Result<()> {
 
 #[test]
 fn test_komando_known_hosts_check_not_match() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let result = lua
@@ -59,6 +67,10 @@ fn test_komando_known_hosts_check_not_match() -> mlua::Result<()> {
 
 #[test]
 fn test_komando_userauth_invalid_password() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let result = lua
@@ -86,6 +98,10 @@ fn test_komando_userauth_invalid_password() -> mlua::Result<()> {
 
 #[test]
 fn test_komando_use_default_user() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let result = lua
@@ -115,6 +131,10 @@ fn test_komando_use_default_user() -> mlua::Result<()> {
 #[test]
 #[allow(unsafe_code)]
 fn test_komando_use_default_user_from_env() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
     unsafe { std::env::set_var("USER", "usertest") };
 
@@ -142,6 +162,10 @@ fn test_komando_use_default_user_from_env() -> mlua::Result<()> {
 
 #[test]
 fn test_komando_simple_cmd() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let result_table = lua
@@ -171,6 +195,10 @@ fn test_komando_simple_cmd() -> mlua::Result<()> {
 
 #[test]
 fn test_komando_simple_script() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let result_table = lua
@@ -201,6 +229,10 @@ fn test_komando_simple_script() -> mlua::Result<()> {
 
 #[test]
 fn test_komando_script_from_file() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let mut temp_file = NamedTempFile::new().map_err(mlua::Error::external)?;
@@ -239,6 +271,10 @@ fn test_komando_script_from_file() -> mlua::Result<()> {
 
 #[test]
 fn test_komando_apt() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     // Skip test if apt is not available (e.g., on non-Debian systems)
     if std::process::Command::new("which")
         .arg("apt")
