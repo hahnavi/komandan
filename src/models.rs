@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use mlua::{Error, FromLua, IntoLua, Lua, LuaSerdeExt, UserData, Value};
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 
 use crate::ssh::ElevationMethod;
@@ -12,13 +13,15 @@ pub enum ConnectionType {
 }
 
 impl std::str::FromStr for ConnectionType {
-    type Err = ();
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "local" => Ok(Self::Local),
             "ssh" => Ok(Self::SSH),
-            _ => Err(()),
+            _ => Err(format!(
+                "invalid connection type '{s}' (expected 'local' or 'ssh')"
+            )),
         }
     }
 }
@@ -33,7 +36,7 @@ impl ConnectionType {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Host {
     name: Option<String>,
     address: String,
@@ -41,8 +44,8 @@ pub struct Host {
     user: Option<String>,
     key_check: Option<bool>,
     private_key_file: Option<String>,
-    private_key_pass: Option<String>,
-    password: Option<String>,
+    private_key_pass: Option<SecretString>,
+    password: Option<SecretString>,
     elevate: Option<bool>,
     elevation_method: Option<ElevationMethod>,
     as_user: Option<String>,
@@ -62,23 +65,23 @@ impl FromLua for Host {
             user: table.get("user")?,
             key_check: table.get("host_key_check")?,
             private_key_file: table.get("private_key_file")?,
-            private_key_pass: table.get("private_key_pass")?,
-            password: table.get("password")?,
+            private_key_pass: table
+                .get::<Option<String>>("private_key_pass")?
+                .map(|s| SecretString::new(s.into_boxed_str())),
+            password: table
+                .get::<Option<String>>("password")?
+                .map(|s| SecretString::new(s.into_boxed_str())),
             elevate: table.get("elevate")?,
-            elevation_method: table.get::<String>("elevation_method").ok().and_then(|s| {
-                match s.as_str() {
-                    "none" => Some(ElevationMethod::None),
-                    "sudo" => Some(ElevationMethod::Sudo),
-                    "su" => Some(ElevationMethod::Su),
-                    _ => None,
-                }
-            }),
+            elevation_method: table
+                .get::<Option<String>>("elevation_method")?
+                .map(|s| s.parse().map_err(Error::external))
+                .transpose()?,
             as_user: table.get("as_user")?,
             env: table.get("env")?,
             connection: table
-                .get::<String>("connection")
-                .ok()
-                .and_then(|s| s.parse().ok()),
+                .get::<Option<String>>("connection")?
+                .map(|s| s.parse().map_err(Error::external))
+                .transpose()?,
         })
     }
 }
@@ -103,20 +106,19 @@ impl IntoLua for Host {
             table.set("private_key_file", private_key_file)?;
         }
         if let Some(private_key_pass) = self.private_key_pass {
-            table.set("private_key_pass", private_key_pass)?;
+            table.set(
+                "private_key_pass",
+                private_key_pass.expose_secret().to_string(),
+            )?;
         }
         if let Some(password) = self.password {
-            table.set("password", password)?;
+            table.set("password", password.expose_secret().to_string())?;
         }
         if let Some(elevate) = self.elevate {
             table.set("elevate", elevate)?;
         }
         if let Some(elevation_method) = self.elevation_method {
-            match elevation_method {
-                ElevationMethod::None => table.set("elevation_method", "none")?,
-                ElevationMethod::Sudo => table.set("elevation_method", "sudo")?,
-                ElevationMethod::Su => table.set("elevation_method", "su")?,
-            }
+            table.set("elevation_method", elevation_method.to_string())?;
         }
         if let Some(as_user) = self.as_user {
             table.set("as_user", as_user)?;
@@ -152,14 +154,10 @@ impl FromLua for Task {
             module: Module::from_lua(table.get(1)?, lua)?,
             ignore_exit_code: table.get("ignore_exit_code")?,
             elevate: table.get("elevate")?,
-            elevation_method: table.get::<String>("elevation_method").ok().and_then(|s| {
-                match s.as_str() {
-                    "none" => Some(ElevationMethod::None),
-                    "sudo" => Some(ElevationMethod::Sudo),
-                    "su" => Some(ElevationMethod::Su),
-                    _ => None,
-                }
-            }),
+            elevation_method: table
+                .get::<Option<String>>("elevation_method")?
+                .map(|s| s.parse().map_err(Error::external))
+                .transpose()?,
             as_user: table.get("as_user")?,
             env: table.get("env")?,
         })
@@ -180,11 +178,7 @@ impl IntoLua for Task {
             table.set("elevate", elevate)?;
         }
         if let Some(elevation_method) = self.elevation_method {
-            match elevation_method {
-                ElevationMethod::None => table.set("elevation_method", "none")?,
-                ElevationMethod::Sudo => table.set("elevation_method", "sudo")?,
-                ElevationMethod::Su => table.set("elevation_method", "su")?,
-            }
+            table.set("elevation_method", elevation_method.to_string())?;
         }
         if let Some(as_user) = self.as_user {
             table.set("as_user", as_user)?;
@@ -199,16 +193,16 @@ impl IntoLua for Task {
 #[derive(Clone, Debug)]
 pub struct Module {
     functions: HashMap<String, Vec<u8>>,
-    others: HashMap<String, String>,
+    others: HashMap<String, serde_json::Value>,
 }
 
 impl FromLua for Module {
-    fn from_lua(value: Value, _: &Lua) -> mlua::Result<Self> {
+    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
         let table = value
             .as_table()
             .ok_or_else(|| Error::external("Value is not a table"))?;
         let mut functions: HashMap<String, Vec<u8>> = HashMap::new();
-        let mut others: HashMap<String, String> = HashMap::new();
+        let mut others: HashMap<String, serde_json::Value> = HashMap::new();
         for pair in table.pairs::<Value, Value>() {
             let (key, value) = pair?;
             if value.is_function() {
@@ -220,10 +214,7 @@ impl FromLua for Module {
                         .dump(true),
                 );
             } else {
-                others.insert(
-                    key.to_string()?,
-                    serde_json::to_string(&value).map_err(Error::external)?,
-                );
+                others.insert(key.to_string()?, lua.from_value(value)?);
             }
         }
         Ok(Self { functions, others })
@@ -237,8 +228,7 @@ impl IntoLua for Module {
             table.set(key.as_str(), lua.load(value).into_function()?)?;
         }
         for (key, value) in &self.others {
-            let json: serde_json::Value = serde_json::from_str(value).map_err(Error::external)?;
-            table.set(key.as_str(), lua.to_value(&json)?)?;
+            table.set(key.as_str(), lua.to_value(value)?)?;
         }
         Ok(Value::Table(table))
     }
@@ -304,8 +294,18 @@ mod tests {
         assert_eq!(host.port, Some(22));
         assert_eq!(host.user, Some("user".to_string()));
         assert_eq!(host.private_key_file, Some("/path/to/key".to_string()));
-        assert_eq!(host.private_key_pass, Some("pass".to_string()));
-        assert_eq!(host.password, Some("password".to_string()));
+        assert_eq!(
+            host.private_key_pass
+                .as_ref()
+                .map(|s| s.expose_secret().to_string()),
+            Some("pass".to_string())
+        );
+        assert_eq!(
+            host.password
+                .as_ref()
+                .map(|s| s.expose_secret().to_string()),
+            Some("password".to_string())
+        );
         assert_eq!(host.elevate, Some(true));
         assert_eq!(host.elevation_method, Some(ElevationMethod::Sudo));
         assert_eq!(host.as_user, Some("root".to_string()));
@@ -325,8 +325,8 @@ mod tests {
             user: Some("user".to_string()),
             key_check: None,
             private_key_file: Some("/path/to/key".to_string()),
-            private_key_pass: Some("pass".to_string()),
-            password: Some("password".to_string()),
+            private_key_pass: Some(SecretString::new("pass".to_string().into_boxed_str())),
+            password: Some(SecretString::new("password".to_string().into_boxed_str())),
             elevate: Some(true),
             elevation_method: Some(ElevationMethod::Sudo),
             as_user: Some("root".to_string()),
@@ -354,6 +354,124 @@ mod tests {
     }
 
     #[test]
+    fn test_host_debug_redacts_secrets() {
+        let host = Host {
+            name: None,
+            address: "127.0.0.1".to_string(),
+            port: None,
+            user: None,
+            key_check: None,
+            private_key_file: None,
+            private_key_pass: Some(SecretString::new(
+                "super_secret_passphrase".to_string().into_boxed_str(),
+            )),
+            password: Some(SecretString::new(
+                "super_secret_password".to_string().into_boxed_str(),
+            )),
+            elevate: None,
+            elevation_method: None,
+            as_user: None,
+            env: None,
+            connection: None,
+        };
+        let debug = format!("{host:?}");
+        assert!(
+            !debug.contains("super_secret_passphrase"),
+            "private_key_pass leaked into Debug: {debug}"
+        );
+        assert!(
+            !debug.contains("super_secret_password"),
+            "password leaked into Debug: {debug}"
+        );
+        assert!(
+            debug.contains("[REDACTED]"),
+            "expected [REDACTED] marker in Debug: {debug}"
+        );
+    }
+
+    #[test]
+    fn test_host_invalid_connection_errors() -> mlua::Result<()> {
+        let lua = Lua::new();
+        let table = lua.create_table()?;
+        table.set("address", "127.0.0.1")?;
+        table.set("connection", "bogus")?;
+        let result = Host::from_lua(Value::Table(table), &lua);
+        let msg = match result {
+            Err(e) => e.to_string(),
+            Ok(_) => {
+                return Err(Error::external(
+                    "invalid connection value should error, but Host parsed successfully",
+                ));
+            }
+        };
+        assert!(
+            msg.contains("invalid connection type"),
+            "error should mention invalid connection type: {msg}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_host_invalid_elevation_method_errors() -> mlua::Result<()> {
+        let lua = Lua::new();
+        let table = lua.create_table()?;
+        table.set("address", "127.0.0.1")?;
+        table.set("elevation_method", "definitely-not-real")?;
+        let result = Host::from_lua(Value::Table(table), &lua);
+        assert!(
+            result.is_err(),
+            "invalid elevation_method value should error, but Host parsed successfully"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_host_non_string_elevation_method_errors() -> mlua::Result<()> {
+        // Non-string elevation_method (e.g. a number) must surface as a type
+        // error rather than silently becoming None.
+        let lua = Lua::new();
+        let table = lua.create_table()?;
+        table.set("address", "127.0.0.1")?;
+        table.set("elevation_method", 42)?;
+        let result = Host::from_lua(Value::Table(table), &lua);
+        assert!(
+            result.is_err(),
+            "non-string elevation_method should error, but Host parsed successfully"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_host_non_string_connection_errors() -> mlua::Result<()> {
+        let lua = Lua::new();
+        let table = lua.create_table()?;
+        table.set("address", "127.0.0.1")?;
+        table.set("connection", 99)?;
+        let result = Host::from_lua(Value::Table(table), &lua);
+        assert!(
+            result.is_err(),
+            "non-string connection value should error, but Host parsed successfully"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_task_invalid_elevation_method_errors() -> mlua::Result<()> {
+        let lua = Lua::new();
+        let table = lua.create_table()?;
+        let module_table = lua.create_table()?;
+        module_table.set("command", "echo hi")?;
+        table.set(1, module_table)?;
+        table.set("elevation_method", "nope")?;
+        let result = Task::from_lua(Value::Table(table), &lua);
+        assert!(
+            result.is_err(),
+            "invalid task elevation_method should error, but Task parsed successfully"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_task_from_lua() -> mlua::Result<()> {
         let lua = Lua::new();
         let table = lua.create_table()?;
@@ -365,7 +483,7 @@ mod tests {
         assert!(task.module.functions.is_empty());
         assert_eq!(
             task.module.others.get("command"),
-            Some(&"\"echo 'hello'\"".to_string())
+            Some(&serde_json::json!("echo 'hello'"))
         );
 
         table.set("name", "test")?;
@@ -396,7 +514,7 @@ mod tests {
         assert!(module.functions.is_empty());
         assert_eq!(
             module.others.get("command"),
-            Some(&"\"echo 'hello'\"".to_string())
+            Some(&serde_json::json!("echo 'hello'"))
         );
 
         let function = lua.load("return 1").into_function()?;
@@ -406,8 +524,47 @@ mod tests {
         assert_eq!(module.functions.len(), 1);
         assert_eq!(
             module.others.get("command"),
-            Some(&"\"echo 'hello'\"".to_string())
+            Some(&serde_json::json!("echo 'hello'"))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_module_round_trip_nested_mixed() -> mlua::Result<()> {
+        let lua = Lua::new();
+        let table = lua.create_table()?;
+        table.set("string_val", "hello")?;
+        table.set("number_val", 42)?;
+        table.set("bool_val", true)?;
+        let nested = lua.create_table()?;
+        nested.set("inner", "world")?;
+        nested.set("count", 7)?;
+        table.set("nested", nested)?;
+
+        // FromLua captures the table into a Module with no JSON-string intermediate.
+        let module = Module::from_lua(Value::Table(table), &lua)?;
+        assert!(module.functions.is_empty());
+        assert_eq!(
+            module.others.get("string_val"),
+            Some(&serde_json::json!("hello"))
+        );
+        assert_eq!(
+            module.others.get("bool_val"),
+            Some(&serde_json::json!(true))
+        );
+
+        // Round-trip Module -> IntoLua -> Lua table; nested + mixed values preserved.
+        let round_tripped = module
+            .into_lua(&lua)?
+            .as_table()
+            .ok_or_else(|| Error::external("round-tripped value is not a table"))?
+            .clone();
+        assert_eq!(round_tripped.get::<String>("string_val")?, "hello");
+        assert_eq!(round_tripped.get::<i64>("number_val")?, 42);
+        assert!(round_tripped.get::<bool>("bool_val")?);
+        let inner: mlua::Table = round_tripped.get("nested")?;
+        assert_eq!(inner.get::<String>("inner")?, "world");
+        assert_eq!(inner.get::<i64>("count")?, 7);
         Ok(())
     }
 }

@@ -2,12 +2,12 @@ use anyhow::Context;
 use clap::Parser;
 use komandan::{
     args::{Args, Commands},
-    create_lua,
+    create_lua_with_args,
     defaults::Defaults,
     models::KomandanConfig,
-    print_version, project, repl, run_main_file,
+    print_version, project, repl, run_main_file_with_args,
 };
-use mlua::LuaSerdeExt;
+use mlua::{Lua, LuaSerdeExt};
 use std::fs;
 use std::path::Path;
 
@@ -17,93 +17,138 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_app(args: &Args) -> anyhow::Result<()> {
+    let default_level = if args.flags.verbose { "debug" } else { "warn" };
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_level));
+    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+
     if args.flags.version {
         print_version();
         return Ok(());
     }
 
-    // Handle subcommands first
     if let Some(command) = &args.command {
-        match command {
-            Commands::Project(project_args) => {
-                return project::handle_project_command(project_args);
-            }
-        }
+        return match command {
+            Commands::Project(project_args) => project::handle_project_command(project_args),
+        };
     }
 
-    let lua = create_lua()?;
+    let lua = create_lua_with_args(args)?;
 
-    if let Some(chunk) = args.chunk.clone() {
-        lua.load(&chunk).eval::<()>()?;
+    if let Some(chunk_src) = args.chunk.clone() {
+        lua.load(&chunk_src).eval::<()>()?;
     }
 
     if args.flags.dry_run {
         println!("[[[ Running in dry-run mode ]]]");
     }
 
-    if let Some(main_file) = &args.main_file {
-        let path = Path::new(main_file);
-        if path.is_dir() {
-            let config_path = path.join("komandan.json");
-            if config_path.exists() {
-                let config_content = fs::read_to_string(&config_path)?;
-                let config: KomandanConfig = serde_json::from_str(&config_content)?;
-
-                // Load defaults
-                if let Some(hosts_file) = config.defaults.hosts {
-                    let hosts_path = path.join(hosts_file);
-                    if hosts_path.exists() {
-                        let hosts_content = fs::read_to_string(&hosts_path)?;
-                        let chunk = lua.load(&hosts_content);
-                        let hosts_table: mlua::Table = chunk.eval()?;
-
-                        let defaults = Defaults::global();
-                        let mut hosts_vec = Vec::new();
-                        for pair in hosts_table.pairs::<mlua::Value, mlua::Value>() {
-                            let (_, value) = pair?;
-                            let json_value: serde_json::Value =
-                                LuaSerdeExt::from_value(&lua, value)?;
-                            hosts_vec.push(json_value);
-                        }
-
-                        match defaults.hosts.write() {
-                            Ok(mut hosts_lock) => {
-                                *hosts_lock = hosts_vec;
-                            }
-                            Err(e) => {
-                                eprintln!("Warning: Failed to set hosts defaults: {e}");
-                            }
-                        }
-                    } else {
-                        eprintln!(
-                            "Warning: Hosts file '{}' not found; hosts defaults were not loaded",
-                            hosts_path.display()
-                        );
-                    }
-                }
-
-                let main_script_path = path.join(config.main);
-                run_main_file(
-                    &lua,
-                    &main_script_path
-                        .to_str()
-                        .context("Invalid path")?
-                        .to_string(),
-                )?;
+    match &args.main_file {
+        Some(main_file) => {
+            let path = Path::new(main_file);
+            if path.is_dir() {
+                run_project_dir(path, args, &lua)?;
             } else {
-                anyhow::bail!("Directory {main_file} does not contain komandan.json");
+                run_main_file_with_args(&lua, args, main_file)?;
             }
-        } else {
-            run_main_file(&lua, main_file)?;
         }
-    } else if args.chunk.is_none() {
-        repl(&lua)?;
+        None if args.chunk.is_none() => repl(&lua)?,
+        _ => {}
     }
 
     if args.flags.interactive && (args.main_file.is_some() || args.chunk.is_some()) {
         repl(&lua)?;
     }
 
+    Ok(())
+}
+
+/// Loads host defaults from the project's configured hosts file into the global
+/// `Defaults`, if a hosts file is configured and present. Emits warnings (no
+/// hard error) when the file is missing or the lock is poisoned.
+///
+/// # Arguments
+///
+/// * `path` - Project directory containing the hosts file
+/// * `config` - Parsed `komandan.json` config
+/// * `lua` - Lua context used to evaluate the hosts file
+///
+/// # Errors
+///
+/// Returns an error only if reading/evaluating the hosts file fails.
+fn load_hosts_defaults(path: &Path, config: &KomandanConfig, lua: &Lua) -> anyhow::Result<()> {
+    let Some(hosts_file) = config.defaults.hosts.as_deref() else {
+        return Ok(());
+    };
+
+    let hosts_path = path.join(hosts_file);
+    if !hosts_path.exists() {
+        tracing::warn!(
+            "Hosts file '{}' not found; hosts defaults were not loaded. This may cause issues if your automation relies on global hosts configuration. Remediation: Create the hosts file at '{}' or remove the 'hosts' field from komandan.json defaults.",
+            hosts_path.display(),
+            hosts_path.display()
+        );
+        return Ok(());
+    }
+
+    let hosts_content = fs::read_to_string(&hosts_path)?;
+    let hosts_table: mlua::Table = lua.load(&hosts_content).eval()?;
+
+    let mut hosts_vec = Vec::new();
+    for pair in hosts_table.pairs::<mlua::Value, mlua::Value>() {
+        let (_, value) = pair?;
+        let json_value: serde_json::Value = LuaSerdeExt::from_value(lua, value)?;
+        hosts_vec.push(json_value);
+    }
+
+    match Defaults::global().hosts.write() {
+        Ok(mut hosts_lock) => *hosts_lock = hosts_vec,
+        Err(e) => {
+            tracing::warn!(
+                "Failed to set hosts defaults from '{hosts_file}': {e}. This may cause connection issues if hosts are referenced without explicit configuration. Troubleshooting: Check that the hosts file syntax is valid and that defaults are accessible."
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Runs a Komandan project directory: reads its `komandan.json`, loads host
+/// defaults, then executes the configured main script.
+///
+/// # Arguments
+///
+/// * `path` - Project directory containing `komandan.json`
+/// * `args` - Parsed CLI args
+/// * `lua` - Lua context
+///
+/// # Errors
+///
+/// Returns an error if `komandan.json` is missing, unreadable, invalid, or if
+/// main-script execution fails.
+fn run_project_dir(path: &Path, args: &Args, lua: &Lua) -> anyhow::Result<()> {
+    let config_path = path.join("komandan.json");
+    anyhow::ensure!(
+        config_path.exists(),
+        "Directory {} does not contain komandan.json",
+        path.display()
+    );
+
+    let config_content = fs::read_to_string(&config_path)?;
+    let config: KomandanConfig = serde_json::from_str(&config_content).with_context(|| {
+        format!(
+            "Failed to parse {} as a Komandan config (expected fields: name, version, main, defaults)",
+            config_path.display()
+        )
+    })?;
+
+    load_hosts_defaults(path, &config, lua)?;
+
+    let main_script = path
+        .join(config.main)
+        .to_str()
+        .context("project main script path must be valid UTF-8")?
+        .to_string();
+    run_main_file_with_args(lua, args, &main_script)?;
     Ok(())
 }
 

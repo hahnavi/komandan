@@ -1,3 +1,5 @@
+use std::sync::{OnceLock, RwLock};
+
 use clap::{Args as ClapArgs, Parser, Subcommand};
 
 /// Your army commander
@@ -56,7 +58,7 @@ pub struct NewArgs {
     pub dir: Option<String>,
 }
 
-#[derive(ClapArgs, Debug, PartialEq, Eq)]
+#[derive(ClapArgs, Clone, Debug, Default, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Flags {
     /// Dry run mode
@@ -82,4 +84,112 @@ pub struct Flags {
     /// Print version information
     #[arg(short = 'V', long)]
     pub version: bool,
+}
+
+/// Updatable global resolved-config store.
+///
+/// Held in a `RwLock` so that repeated `init_global_config` calls (e.g.
+/// `create_lua_with_args` invoked once per task in the same process, or unit
+/// tests running `run_app` repeatedly with different args) refresh the active
+/// config instead of silently keeping the first one. This replaces the older
+/// `OnceLock<ResolvedConfig>` behavior that discarded later values and could
+/// leave later VMs reading stale flags / `project_dir` / package-path state.
+static GLOBAL_CONFIG: OnceLock<RwLock<ResolvedConfig>> = OnceLock::new();
+
+fn config_cell() -> &'static RwLock<ResolvedConfig> {
+    GLOBAL_CONFIG.get_or_init(|| {
+        RwLock::new(ResolvedConfig {
+            flags: Flags::default(),
+            project_dir: String::new(),
+        })
+    })
+}
+
+/// Resolved runtime configuration, set once from parsed CLI args.
+///
+/// Carries the immutable flag set and the project directory used to seed Lua's
+/// `package.path`. Mirrors the `Defaults::global()` pattern in `defaults.rs`.
+#[derive(Clone, Debug)]
+pub struct ResolvedConfig {
+    /// CLI flag set.
+    pub flags: Flags,
+    /// Project directory (parent of the main Lua file, or CWD).
+    pub project_dir: String,
+}
+
+/// Initialize (or refresh) the global resolved config.
+///
+/// The config lives in an updatable `RwLock`, so this is **not** a one-shot
+/// any more: calling it again with new values replaces the active config and
+/// subsequent `create_lua` / `create_lua_with_args` / `global_flags` callers
+/// observe the latest values. This avoids the prior bug where the second call
+/// silently dropped new flags/`project_dir`.
+///
+/// Returns an error only if the underlying lock is poisoned.
+///
+/// # Errors
+///
+/// Returns an error if the global config `RwLock` is poisoned.
+///
+/// # Panics
+///
+/// Never panics.
+pub fn init_global_config(config: ResolvedConfig) -> Result<(), String> {
+    {
+        let mut guard = config_cell()
+            .write()
+            .map_err(|e| format!("global config lock poisoned: {e}"))?;
+        *guard = config;
+    }
+    Ok(())
+}
+
+/// Returns a snapshot of the resolved global config.
+///
+/// Because the store is now updatable, callers receive a clone of the current
+/// values rather than a static reference. `Flags::default()` / empty
+/// `project_dir` are returned before `init_global_config` was ever called
+/// (e.g. unit tests calling `create_lua()` directly).
+///
+/// # Errors
+///
+/// Returns an error if the global config `RwLock` is poisoned.
+///
+/// # Panics
+///
+/// Never panics.
+#[must_use]
+pub fn global_config() -> ResolvedConfig {
+    config_cell()
+        .read()
+        .map_or_else(|_| ResolvedConfig::default_empty(), |guard| guard.clone())
+}
+
+impl ResolvedConfig {
+    fn default_empty() -> Self {
+        Self {
+            flags: Flags::default(),
+            project_dir: String::new(),
+        }
+    }
+}
+
+/// Returns a snapshot of the resolved global flags.
+///
+/// Returns `Flags::default()` (all-false) when the global config was never
+/// initialized or the lock is poisoned.
+///
+/// # Errors
+///
+/// Infallible: never returns an error.
+///
+/// # Panics
+///
+/// Never panics.
+#[must_use]
+pub fn global_flags() -> Flags {
+    config_cell()
+        .read()
+        .map(|guard| guard.flags.clone())
+        .unwrap_or_default()
 }

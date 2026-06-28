@@ -36,7 +36,7 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 params.install_opts = ""
             end
             if not params.install_recommends then
-                params.install_opts = params.install_opts .. " --no-install-recommends"
+                params.install_opts = (params.install_opts or "") .. " --no-install-recommends"
             end
 
             local function sanitize_package_string(input)
@@ -51,8 +51,19 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 if type(input) ~= "string" then
                     return nil
                 end
-                -- Allow alphanumeric, -, _, =, ., +, and space (for opts)
+                -- Allow alphanumeric, -, _, =, ., +, :, and space (for opts)
+                -- Note: Space is allowed but output will be shell-quoted to prevent injection
                 return input:gsub("[^%w%-_=%.%+%:/ ]", "")
+            end
+
+            -- Shell-quote a string to prevent command injection
+            -- Wraps the input in single quotes and escapes any existing single quotes
+            local function shell_quote(input)
+                if type(input) ~= "string" then
+                    return ""
+                end
+                -- Escape single quotes by replacing each with quote-backslash-quote sequence
+                return "'" .. input:gsub("'", "'\\''") .. "'"
             end
 
             local function sanitize_package_param(param)
@@ -149,7 +160,8 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 if self.params.action == "install" then
                     if not installed then
                         local packages_str = self.package_list_to_string(self.params.package)
-                        self.ssh:cmd("apt -s install " .. packages_str .. " " .. self.params.install_opts)
+                        local opts_str = self.params.install_opts ~= "" and " " .. shell_quote(self.params.install_opts) or ""
+                        self.ssh:cmd("apt -s install " .. packages_str .. opts_str)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "remove" then
@@ -187,7 +199,8 @@ pub fn apt(lua: &Lua, params: Table) -> mlua::Result<Table> {
                 if self.params.action == "install" then
                     if not installed then
                         local packages_str = self.package_list_to_string(self.params.package)
-                        self.ssh:cmd("apt install -y " .. packages_str .. " " .. self.params.install_opts)
+                        local opts_str = self.params.install_opts ~= "" and " " .. shell_quote(self.params.install_opts) or ""
+                        self.ssh:cmd("apt install -y " .. packages_str .. opts_str)
                         self.ssh:set_changed(true)
                     end
                 elseif self.params.action == "remove" then

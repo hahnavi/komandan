@@ -12,4 +12,4 @@ local task = {
 	}),
 }
 
-komandan.komando(host, task)
+komandan.komando(task, host)

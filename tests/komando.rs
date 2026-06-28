@@ -5,11 +5,15 @@ use tempfile::NamedTempFile;
 
 #[test]
 fn test_komando_invalid_known_hosts_path() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let result = lua
         .load(chunk! {
-            local hosts = {
+            local host = {
                 address = "localhost",
                 user = "usertest",
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
@@ -23,7 +27,7 @@ fn test_komando_invalid_known_hosts_path() -> mlua::Result<()> {
                 })
             }
 
-            return komandan.komando(hosts, task)
+            return komandan.komando(task, host)
         })
         .eval::<Table>();
 
@@ -33,11 +37,15 @@ fn test_komando_invalid_known_hosts_path() -> mlua::Result<()> {
 
 #[test]
 fn test_komando_known_hosts_check_not_match() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let result = lua
         .load(chunk! {
-            local hosts = {
+            local host = {
                 address = "localhost2",
                 user = "usertest",
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
@@ -49,7 +57,7 @@ fn test_komando_known_hosts_check_not_match() -> mlua::Result<()> {
                 })
             }
 
-            return komandan.komando(hosts, task)
+            return komandan.komando(task, host)
         })
         .eval::<Table>();
 
@@ -59,11 +67,15 @@ fn test_komando_known_hosts_check_not_match() -> mlua::Result<()> {
 
 #[test]
 fn test_komando_userauth_invalid_password() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let result = lua
         .load(chunk! {
-            local hosts = {
+            local host = {
                 address = "localhost",
                 user = "usertest",
                 password = "passw0rd",
@@ -76,7 +88,7 @@ fn test_komando_userauth_invalid_password() -> mlua::Result<()> {
                 })
             }
 
-            return komandan.komando(hosts, task)
+            return komandan.komando(task, host)
         })
         .eval::<Table>();
 
@@ -86,13 +98,17 @@ fn test_komando_userauth_invalid_password() -> mlua::Result<()> {
 
 #[test]
 fn test_komando_use_default_user() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let result = lua
         .load(chunk! {
             komandan.defaults:set_user("usertest")
 
-            local hosts = {
+            local host = {
                 address = "localhost",
                 host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519"
@@ -104,7 +120,7 @@ fn test_komando_use_default_user() -> mlua::Result<()> {
                 })
             }
 
-            return komandan.komando(hosts, task)
+            return komandan.komando(task, host)
         })
         .eval::<Table>();
 
@@ -115,12 +131,16 @@ fn test_komando_use_default_user() -> mlua::Result<()> {
 #[test]
 #[allow(unsafe_code)]
 fn test_komando_use_default_user_from_env() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
     unsafe { std::env::set_var("USER", "usertest") };
 
     let result = lua
         .load(chunk! {
-            local hosts = {
+            local host = {
                 address = "localhost",
                 host_key_check = false,
                 private_key_file = os.getenv("HOME") .. "/.ssh/id_ed25519",
@@ -132,7 +152,7 @@ fn test_komando_use_default_user_from_env() -> mlua::Result<()> {
                 })
             }
 
-            return komandan.komando(hosts, task)
+            return komandan.komando(task, host)
         })
         .eval::<Table>();
 
@@ -142,11 +162,15 @@ fn test_komando_use_default_user_from_env() -> mlua::Result<()> {
 
 #[test]
 fn test_komando_simple_cmd() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let result_table = lua
         .load(chunk! {
-            local hosts = {
+            local host = {
                 address = "localhost",
                 user = "usertest",
                 host_key_check = false,
@@ -159,23 +183,27 @@ fn test_komando_simple_cmd() -> mlua::Result<()> {
                 })
             }
 
-            return komandan.komando(hosts, task)
+            return komandan.komando(task, host)
         })
         .eval::<Table>()?;
 
-    assert!(result_table.get::<Integer>("exit_code")? == 0);
-    assert!(result_table.get::<String>("stdout")? == "hello");
+    assert_eq!(result_table.get::<Integer>("exit_code")?, 0);
+    assert_eq!(result_table.get::<String>("stdout")?, "hello");
     assert!((result_table.get::<String>("stderr")?).is_empty());
     Ok(())
 }
 
 #[test]
 fn test_komando_simple_script() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let result_table = lua
         .load(chunk! {
-            local hosts = {
+            local host = {
                 address = "localhost",
                 user = "usertest",
                 host_key_check = false,
@@ -189,18 +217,22 @@ fn test_komando_simple_script() -> mlua::Result<()> {
                 })
             }
 
-            return komandan.komando(hosts, task)
+            return komandan.komando(task, host)
         })
         .eval::<Table>()?;
 
-    assert!(result_table.get::<Integer>("exit_code")? == 0);
-    assert!(result_table.get::<String>("stdout")? == "hello");
+    assert_eq!(result_table.get::<Integer>("exit_code")?, 0);
+    assert_eq!(result_table.get::<String>("stdout")?, "hello");
     assert!((result_table.get::<String>("stderr")?).is_empty());
     Ok(())
 }
 
 #[test]
 fn test_komando_script_from_file() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let mut temp_file = NamedTempFile::new().map_err(mlua::Error::external)?;
@@ -213,7 +245,7 @@ fn test_komando_script_from_file() -> mlua::Result<()> {
 
     let result_table = lua
         .load(chunk! {
-            local hosts = {
+            local host = {
                 address = "localhost",
                 user = "usertest",
                 host_key_check = false,
@@ -227,24 +259,27 @@ fn test_komando_script_from_file() -> mlua::Result<()> {
                 })
             }
 
-            return komandan.komando(hosts, task)
+            return komandan.komando(task, host)
         })
         .eval::<Table>()?;
 
-    assert!(result_table.get::<Integer>("exit_code")? == 0);
-    assert!(result_table.get::<String>("stdout")? == "hello");
+    assert_eq!(result_table.get::<Integer>("exit_code")?, 0);
+    assert_eq!(result_table.get::<String>("stdout")?, "hello");
     assert!((result_table.get::<String>("stderr")?).is_empty());
     Ok(())
 }
 
 #[test]
 fn test_komando_apt() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     // Skip test if apt is not available (e.g., on non-Debian systems)
     if std::process::Command::new("which")
         .arg("apt")
         .output()
-        .map(|o| !o.status.success())
-        .unwrap_or(true)
+        .map_or(true, |o| !o.status.success())
     {
         eprintln!("Skipping test_komando_apt: apt not available on this system");
         return Ok(());
@@ -254,7 +289,7 @@ fn test_komando_apt() -> mlua::Result<()> {
 
     let result_table = lua
         .load(chunk! {
-            local hosts = {
+            local host = {
                 address = "localhost",
                 user = "usertest",
                 host_key_check = false,
@@ -267,10 +302,10 @@ fn test_komando_apt() -> mlua::Result<()> {
                 })
             }
 
-            return komandan.komando(hosts, task)
+            return komandan.komando(task, host)
         })
         .eval::<Table>()?;
 
-    assert!(result_table.get::<Integer>("exit_code")? == 0);
+    assert_eq!(result_table.get::<Integer>("exit_code")?, 0);
     Ok(())
 }

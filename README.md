@@ -201,7 +201,7 @@ local task = {
     }),
 }
 
-komandan.komando_parallel_hosts(hosts, task)
+komandan.komando_parallel_hosts(task, hosts)
 ```
 
 ```lua
@@ -236,7 +236,7 @@ local tasks = {
     }
 }
 
-komandan.komando_parallel_tasks(host, tasks)
+komandan.komando_parallel_tasks(tasks, host)
 ```
 
 ## Error Handling
@@ -246,7 +246,7 @@ Komandan provides error information through the return values of the `komando` f
 Example:
 
 ```lua
-local result = komandan.komando(host, task)
+local result = komandan.komando(task, host)
 
 if result.exit_code ~= 0 then
   print("Task failed with exit code: " .. result.exit_code)

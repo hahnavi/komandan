@@ -3,10 +3,6 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-use clap::Parser;
-
-use crate::args::Args;
-
 static REPORT: OnceLock<Mutex<Vec<ReportRecord>>> = OnceLock::new();
 
 fn get_report() -> &'static Mutex<Vec<ReportRecord>> {
@@ -22,6 +18,15 @@ pub fn insert_record(task: String, host: String, status: TaskStatus) {
         .push(record);
 }
 
+#[cfg(test)]
+pub fn clear_report() {
+    let report = get_report();
+    report
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clear();
+}
+
 pub fn generate_report() {
     let report = get_report()
         .lock()
@@ -35,7 +40,7 @@ pub fn generate_report() {
     let col1_width = width - col2_width - 2;
     println!();
     println!("{:=^width$}", " Komando Report ");
-    if Args::parse().flags.dry_run {
+    if crate::args::global_flags().dry_run {
         println!("{:-^width$}", " Dry-run mode: no changes were made ");
     }
     println!("{:<col1_width$}{:>col2_width$}", "Task on Host", "Status");
@@ -101,6 +106,9 @@ mod tests {
 
     #[test]
     fn test_insert_record() {
+        // Clear any existing report data from other tests
+        clear_report();
+
         insert_record("task1".to_string(), "host1".to_string(), TaskStatus::OK);
         insert_record(
             "task1".to_string(),

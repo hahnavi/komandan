@@ -6,6 +6,13 @@ use std::io::Write;
 use std::path::Path;
 use tempfile::{NamedTempFile, TempDir};
 
+fn ssh_port() -> u16 {
+    std::env::var("KOMANDAN_SSH_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(52222)
+}
+
 fn create_ssh_session() -> Result<SSHSession> {
     let mut session = SSHSession::new()?;
     let home = std::env::var("HOME")?;
@@ -13,12 +20,9 @@ fn create_ssh_session() -> Result<SSHSession> {
 
     session.connect(
         "localhost",
-        22,
+        ssh_port(),
         "usertest",
-        SSHAuthMethod::PublicKey {
-            private_key: private_key_path,
-            passphrase: None,
-        },
+        SSHAuthMethod::public_key(private_key_path, None),
     )?;
 
     Ok(session)
@@ -26,6 +30,10 @@ fn create_ssh_session() -> Result<SSHSession> {
 
 #[test]
 fn test_command_execution_with_env_variables() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let mut session = create_ssh_session()?;
     session.set_env("TEST_VAR", "test_value");
 
@@ -38,6 +46,10 @@ fn test_command_execution_with_env_variables() -> Result<()> {
 
 #[test]
 fn test_get_remote_env_method() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let session = create_ssh_session()?;
     let result = session.get_remote_env("USER")?;
     assert_eq!(result, "usertest");
@@ -46,6 +58,10 @@ fn test_get_remote_env_method() -> Result<()> {
 
 #[test]
 fn test_get_tmpdir_method() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let session = create_ssh_session()?;
     let result = session.get_tmpdir();
     assert!(result.is_ok());
@@ -56,6 +72,10 @@ fn test_get_tmpdir_method() -> Result<()> {
 
 #[test]
 fn test_chmod_method() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let session = create_ssh_session()?;
     let tmpdir = session.get_tmpdir()?;
     let remote_path = format!("{tmpdir}/test_chmod");
@@ -73,6 +93,10 @@ fn test_chmod_method() -> Result<()> {
 
 #[test]
 fn test_upload_download_methods() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let session = create_ssh_session()?;
     let tmpdir = session.get_tmpdir()?;
 
@@ -106,6 +130,10 @@ fn test_upload_download_methods() -> Result<()> {
 
 #[test]
 fn test_write_remote_file_method() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let session = create_ssh_session()?;
     let tmpdir = session.get_tmpdir()?;
     let remote_path_str = format!("{tmpdir}/written_file");
@@ -121,6 +149,10 @@ fn test_write_remote_file_method() -> Result<()> {
 
 #[test]
 fn test_cmd_method_interface() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let mut session = create_ssh_session()?;
     let (stdout, _, exit_code) = session.cmd("echo test")?;
     assert_eq!(exit_code, 0);
@@ -130,6 +162,10 @@ fn test_cmd_method_interface() -> Result<()> {
 
 #[test]
 fn test_cmdq_method_interface() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let session = create_ssh_session()?;
     let (stdout, _, exit_code) = session.cmdq("echo test")?;
     assert_eq!(exit_code, 0);
@@ -139,6 +175,10 @@ fn test_cmdq_method_interface() -> Result<()> {
 
 #[test]
 fn test_upload_directory_utility() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let session = create_ssh_session()?;
     let tmpdir = session.get_tmpdir()?;
 
@@ -170,6 +210,10 @@ fn test_upload_directory_utility() -> Result<()> {
 
 #[test]
 fn test_download_directory_utility() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let session = create_ssh_session()?;
     let tmpdir = session.get_tmpdir()?;
 

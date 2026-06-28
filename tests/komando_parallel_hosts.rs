@@ -3,6 +3,10 @@ use mlua::{Integer, Table, Value, chunk};
 
 #[test]
 fn test_komando_parallel_hosts() -> mlua::Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let lua = create_lua()?;
 
     let results = lua
@@ -38,13 +42,13 @@ fn test_komando_parallel_hosts() -> mlua::Result<()> {
                 }),
             }
 
-            return komandan.komando_parallel_hosts(hosts, task)
+            return komandan.komando_parallel_hosts(task, hosts)
         })
         .eval::<Table>()?;
 
     for pair in results.pairs::<Value, Table>() {
         let (_, table) = pair?;
-        assert!(table.get::<Integer>("exit_code")? == 0);
+        assert_eq!(table.get::<Integer>("exit_code")?, 0);
     }
     Ok(())
 }

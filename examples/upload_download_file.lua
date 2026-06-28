@@ -21,6 +21,6 @@ local task_download = {
 	}),
 }
 
-komandan.komando(host, task_upload)
+komandan.komando(task_upload, host)
 
-komandan.komando(host, task_download)
+komandan.komando(task_download, host)

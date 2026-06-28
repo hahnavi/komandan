@@ -22,6 +22,6 @@ local filtered_hosts = komandan.filter_hosts(hosts, "dbserver")
 
 for _, task in pairs(tasks) do
 	for _, host in pairs(filtered_hosts) do
-		komandan.komando(host, task)
+		komandan.komando(task, host)
 	end
 end

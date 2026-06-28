@@ -6,6 +6,13 @@ use std::fs;
 use std::io::Write;
 use tempfile::{NamedTempFile, TempDir};
 
+fn ssh_port() -> u16 {
+    std::env::var("KOMANDAN_SSH_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(52222)
+}
+
 fn create_ssh_session() -> Result<SSHSession> {
     let mut session = SSHSession::new()?;
     let home = std::env::var("HOME")?;
@@ -13,12 +20,9 @@ fn create_ssh_session() -> Result<SSHSession> {
 
     session.connect(
         "localhost",
-        22,
+        ssh_port(),
         "usertest",
-        SSHAuthMethod::PublicKey {
-            private_key: private_key_path,
-            passphrase: None,
-        },
+        SSHAuthMethod::public_key(private_key_path, None),
     )?;
 
     Ok(session)
@@ -26,6 +30,10 @@ fn create_ssh_session() -> Result<SSHSession> {
 
 #[test]
 fn test_lua_cmd_execution() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let session = create_ssh_session()?;
     let lua = Lua::new();
     let globals = lua.globals();
@@ -56,6 +64,10 @@ fn test_lua_cmd_execution() -> Result<()> {
 
 #[test]
 fn test_lua_requires() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let session = create_ssh_session()?;
     let lua = Lua::new();
     let globals = lua.globals();
@@ -92,6 +104,10 @@ fn test_lua_requires() -> Result<()> {
 
 #[test]
 fn test_lua_file_operations() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let session = create_ssh_session()?;
     let lua = Lua::new();
     let globals = lua.globals();
@@ -179,6 +195,10 @@ fn test_lua_file_operations() -> Result<()> {
 
 #[test]
 fn test_lua_env_and_tmpdir() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let session = create_ssh_session()?;
     let lua = Lua::new();
     let globals = lua.globals();
@@ -207,6 +227,10 @@ fn test_lua_env_and_tmpdir() -> Result<()> {
 
 #[test]
 fn test_lua_state_management() -> Result<()> {
+    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
     let session = create_ssh_session()?;
     let lua = Lua::new();
     let globals = lua.globals();

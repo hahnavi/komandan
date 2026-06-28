@@ -33,6 +33,13 @@ jobs:
           echo "127.0.0.1 localhost2" | tee -a /etc/hosts > /dev/null
 
       - name: Generate coverage report
+        env:
+          # Localhost SSH coverage path only. Tests that hit external hosts
+          # (test.rebex.net) additionally require KOMANDAN_SSH_EXTERNAL_TEST,
+          # which is intentionally not set here to keep coverage deterministic
+          # and avoid depending on third-party uptime.
+          KOMANDAN_SSH_TEST: "1"
+          KOMANDAN_SSH_PORT: "22"
         run: |
           cargo +nightly tarpaulin --verbose --out Xml --implicit-test-threads
 

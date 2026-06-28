@@ -11,17 +11,39 @@ use mlua::{Error::RuntimeError, UserData, Value};
 use ssh2::{CheckResult, KnownHostFileKind, Session, Sftp};
 
 use crate::executor::{CommandExecutor, SessionResult};
+use secrecy::{ExposeSecret, SecretString};
 
-#[cfg(test)]
-mod test_utils;
-
-#[derive(Debug, PartialEq, Eq)]
+/// Authentication method for an SSH connection.
+///
+/// Secret material (password, passphrase) is held in [`SecretString`] so it
+/// is not accidentally leaked through `Debug` formatting or stray clones. The
+/// secrets are exposed only at the `userauth_*` call site in [`SSHSession::connect`].
+#[derive(Debug, Clone)]
 pub enum SSHAuthMethod {
-    Password(String),
+    Password(SecretString),
     PublicKey {
+        /// Filesystem path to the private key. Not secret.
         private_key: String,
-        passphrase: Option<String>,
+        /// Optional passphrase for the private key.
+        passphrase: Option<SecretString>,
     },
+}
+
+impl SSHAuthMethod {
+    /// Constructs a password auth method from a plaintext string.
+    #[must_use]
+    pub fn password(password: impl Into<String>) -> Self {
+        Self::Password(SecretString::new(password.into().into_boxed_str()))
+    }
+
+    /// Constructs a public-key auth method.
+    #[must_use]
+    pub fn public_key(private_key: impl Into<String>, passphrase: Option<String>) -> Self {
+        Self::PublicKey {
+            private_key: private_key.into(),
+            passphrase: passphrase.map(|p| SecretString::new(p.into_boxed_str())),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -37,6 +59,30 @@ pub enum ElevationMethod {
     Sudo,
 }
 
+impl std::str::FromStr for ElevationMethod {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "none" => Ok(Self::None),
+            "sudo" => Ok(Self::Sudo),
+            "su" => Ok(Self::Su),
+            other => Err(format!("invalid elevation method '{other}'")),
+        }
+    }
+}
+
+impl std::fmt::Display for ElevationMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::None => "none",
+            Self::Sudo => "sudo",
+            Self::Su => "su",
+        };
+        f.write_str(s)
+    }
+}
+
 #[derive(Clone)]
 pub struct SSHSession {
     pub session: Session,
@@ -47,6 +93,20 @@ pub struct SSHSession {
     stderr: Option<String>,
     exit_code: Option<i32>,
     changed: Option<bool>,
+}
+
+impl std::fmt::Debug for SSHSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SSHSession")
+            .field("known_hosts_file", &self.known_hosts_file)
+            .field("env", &self.env)
+            .field("elevation", &self.elevation)
+            .field("stdout", &self.stdout)
+            .field("stderr", &self.stderr)
+            .field("exit_code", &self.exit_code)
+            .field("changed", &self.changed)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SSHSession {
@@ -116,7 +176,8 @@ impl SSHSession {
 
         match auth_method {
             SSHAuthMethod::Password(password) => {
-                self.session.userauth_password(username, &password)?;
+                self.session
+                    .userauth_password(username, password.expose_secret())?;
             }
             SSHAuthMethod::PublicKey {
                 private_key,
@@ -126,7 +187,9 @@ impl SSHSession {
                     username,
                     None,
                     Path::new(&private_key),
-                    passphrase.as_deref(),
+                    passphrase
+                        .as_ref()
+                        .map(secrecy::ExposeSecret::expose_secret),
                 )?;
             }
         }
