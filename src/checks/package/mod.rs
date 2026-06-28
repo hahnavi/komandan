@@ -55,14 +55,16 @@ pub fn check_package(lua: &Lua, args: MultiValue) -> mlua::Result<Table> {
         .ok_or_else(|| mlua::Error::RuntimeError("Parameters must be a table".to_string()))?
         .clone();
 
-    let host_table = args_iter.next().map_or_else(
-        || None,
-        |value| {
-            value
-                .as_table()
-                .map_or_else(|| None, |table| Some(table.clone()))
-        },
-    );
+    let host_table = match args_iter.next() {
+        None | Some(mlua::Value::Nil) => None,
+        Some(mlua::Value::Table(table)) => Some(table),
+        Some(other) => {
+            return Err(mlua::Error::RuntimeError(format!(
+                "optional host argument must be a table, got {}",
+                other.type_name()
+            )));
+        }
+    };
 
     // Execute the package validation
     let result = execute_package_validation(lua, &params, host_table.as_ref());

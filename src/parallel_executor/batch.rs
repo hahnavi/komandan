@@ -64,40 +64,42 @@ impl BatchProcessor {
         let batch_size = self.get_adaptive_batch_size(data.len());
         let batches: Vec<Vec<T>> = data.chunks(batch_size).map(<[T]>::to_vec).collect();
 
-        let Ok(mut stats) = self.stats.lock() else {
-            return Vec::new(); // Return empty vec on lock failure
-        };
-        stats.batch_count = batches.len();
-        #[allow(clippy::cast_precision_loss)]
-        {
-            stats.avg_batch_size = if batches.is_empty() {
-                0.0
+        // Update stats if the lock is healthy. On poison we deliberately skip
+        // ONLY the metrics update — real execution results must still flow
+        // through. The previous code returned `Vec::new()` on poison, which
+        // masqueraded as a successful empty batch and lost all real results.
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.batch_count = batches.len();
+            #[allow(clippy::cast_precision_loss)]
+            {
+                stats.avg_batch_size = if batches.is_empty() {
+                    0.0
+                } else {
+                    data.len() as f64 / batches.len() as f64
+                };
+            }
+
+            // Calculate load balance score
+            if batches.len() > 1 {
+                let sizes: Vec<usize> = batches.iter().map(std::vec::Vec::len).collect();
+                #[allow(clippy::cast_precision_loss)]
+                let avg_size = sizes.iter().sum::<usize>() as f64 / sizes.len() as f64;
+                #[allow(clippy::cast_precision_loss)]
+                let variance = sizes
+                    .iter()
+                    .map(|&size| (size as f64 - avg_size).powi(2))
+                    .sum::<f64>()
+                    / sizes.len() as f64;
+                let std_dev = variance.sqrt();
+                stats.load_balance_score = (1.0 - (std_dev / avg_size)).max(0.0);
             } else {
-                data.len() as f64 / batches.len() as f64
-            };
+                stats.load_balance_score = 1.0;
+            }
+
+            stats.batch_efficiency = Self::calculate_batch_efficiency(data.len(), batch_size);
         }
 
-        // Calculate load balance score
-        if batches.len() > 1 {
-            let sizes: Vec<usize> = batches.iter().map(std::vec::Vec::len).collect();
-            #[allow(clippy::cast_precision_loss)]
-            let avg_size = sizes.iter().sum::<usize>() as f64 / sizes.len() as f64;
-            #[allow(clippy::cast_precision_loss)]
-            let variance = sizes
-                .iter()
-                .map(|&size| (size as f64 - avg_size).powi(2))
-                .sum::<f64>()
-                / sizes.len() as f64;
-            let std_dev = variance.sqrt();
-            stats.load_balance_score = (1.0 - (std_dev / avg_size)).max(0.0);
-        } else {
-            stats.load_balance_score = 1.0;
-        }
-
-        stats.batch_efficiency = Self::calculate_batch_efficiency(data.len(), batch_size);
-        drop(stats);
-
-        // Process batches in parallel
+        // Process batches in parallel (always, regardless of stats lock state)
         batches.into_par_iter().flat_map(processor).collect()
     }
 

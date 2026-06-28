@@ -289,7 +289,7 @@ fn test_komando_apt() -> mlua::Result<()> {
 
     let result_table = lua
         .load(chunk! {
-            local hosts = {
+            local host = {
                 address = "localhost",
                 user = "usertest",
                 host_key_check = false,

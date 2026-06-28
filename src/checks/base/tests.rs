@@ -270,9 +270,11 @@ fn test_execute_command_with_error_handling_not_found() {
         "File read check",
     );
 
-    // Should return success with exists=false for not found errors
+    // Not-found errors return success with an empty actual map. Callers
+    // interpret the missing keys per their own semantics (file/service/package
+    // checks each map absence to their own state).
     assert!(result.ok);
-    assert_eq!(result.actual.get("exists"), Some(&"false".to_string()));
+    assert!(!result.actual.contains_key("exists"));
     assert!(result.error.is_none());
 }
 

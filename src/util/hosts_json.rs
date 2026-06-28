@@ -51,7 +51,8 @@ pub fn parse_hosts_json_url(lua: &Lua, url: Value) -> mlua::Result<Table> {
                     response.status_code
                 )));
             }
-            String::from_utf8_lossy(&response.body).to_string()
+            String::from_utf8(response.body)
+                .map_err(|e| RuntimeError(format!("Response body is not valid UTF-8: {e}")))?
         }
         Err(e) => {
             return Err(RuntimeError(format!("Failed to fetch URL: {e:?}")));
@@ -88,10 +89,19 @@ fn parse_hosts_json(lua: &Lua, content: &str) -> mlua::Result<Table> {
         return Err(RuntimeError(String::from("JSON does not contain a table")));
     };
 
+    let mut next_index = 1;
     for pair in lua_table.pairs() {
         let (_, value): (Value, Value) = pair?;
-        if let Ok(host) = validate_host(lua, value) {
-            hosts.set(hosts.len()? + 1, host)?;
+        match validate_host(lua, value) {
+            Ok(host) => {
+                hosts.set(next_index, host)?;
+                next_index += 1;
+            }
+            Err(e) => {
+                return Err(RuntimeError(format!(
+                    "Invalid host record at index {next_index}: {e}"
+                )));
+            }
         }
     }
 

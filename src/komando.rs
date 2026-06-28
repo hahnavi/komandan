@@ -35,7 +35,7 @@ use crate::validator::{validate_host, validate_task};
 pub fn komando(lua: &Lua, (task, host): (Value, Value)) -> mlua::Result<Table> {
     let (task, host) = if host.is_nil() {
         (
-            lua.create_function(validate_task)?.call::<Table>(&host)?,
+            lua.create_function(validate_task)?.call::<Table>(&task)?,
             lua.load(chunk! {
                 return { address = "localhost" }
             })
@@ -401,7 +401,10 @@ mod tests {
         host.set("password", "testpass")?;
         let (_, auth) = get_auth_config(&host, &task, None)?;
         match auth {
-            SSHAuthMethod::Password(pass) => assert_eq!(pass, "testpass"),
+            SSHAuthMethod::Password(pass) => {
+                use secrecy::ExposeSecret;
+                assert_eq!(pass.expose_secret(), "testpass");
+            }
             SSHAuthMethod::PublicKey { .. } => panic!("Expected Password authentication"),
         }
 

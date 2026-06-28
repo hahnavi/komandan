@@ -129,26 +129,24 @@ pub fn get_auth_config(
         .map(|s: &SecretString| s.expose_secret().to_string());
 
     let ssh_auth_method = match host.get::<String>("private_key_file") {
-        Ok(private_key_file) => SSHAuthMethod::PublicKey {
-            private_key: private_key_file,
-            passphrase: host
-                .get::<String>("private_key_pass")
+        Ok(private_key_file) => SSHAuthMethod::public_key(
+            private_key_file,
+            host.get::<String>("private_key_pass")
                 .ok()
                 .or(default_private_key_pass),
-        },
+        ),
         Err(_) => match default_private_key_file {
-            Some(ref private_key_file) => SSHAuthMethod::PublicKey {
-                private_key: private_key_file.clone(),
-                passphrase: host
-                    .get::<String>("private_key_pass")
+            Some(ref private_key_file) => SSHAuthMethod::public_key(
+                private_key_file.clone(),
+                host.get::<String>("private_key_pass")
                     .ok()
                     .or(default_private_key_pass),
-            },
+            ),
             None => match host.get::<String>("password") {
-                Ok(password) => SSHAuthMethod::Password(password),
+                Ok(password) => SSHAuthMethod::password(password),
                 Err(_) => {
                     if let Some(ref password) = default_password {
-                        SSHAuthMethod::Password(password.clone())
+                        SSHAuthMethod::password(password.clone())
                     } else {
                         // Check if SSH key auto-discovery is enabled
                         if !*defaults.ssh_auto_discover_keys.read().map_err(|_| {
@@ -179,23 +177,21 @@ pub fn get_auth_config(
                         };
                         let ed25519_path = format!("{home}/.ssh/id_ed25519");
                         if Path::new(&ed25519_path).exists() {
-                            SSHAuthMethod::PublicKey {
-                                private_key: ed25519_path,
-                                passphrase: host
-                                    .get::<String>("private_key_pass")
+                            SSHAuthMethod::public_key(
+                                ed25519_path,
+                                host.get::<String>("private_key_pass")
                                     .ok()
                                     .or(default_private_key_pass),
-                            }
+                            )
                         } else {
                             let rsa_path = format!("{home}/.ssh/id_rsa");
                             if Path::new(&rsa_path).exists() {
-                                SSHAuthMethod::PublicKey {
-                                    private_key: rsa_path,
-                                    passphrase: host
-                                        .get::<String>("private_key_pass")
+                                SSHAuthMethod::public_key(
+                                    rsa_path,
+                                    host.get::<String>("private_key_pass")
                                         .ok()
                                         .or(default_private_key_pass),
-                                }
+                                )
                             } else {
                                 return Err(ConnectionError::Authentication {
                                     message: "No authentication method available".to_string(),

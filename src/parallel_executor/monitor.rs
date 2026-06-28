@@ -39,13 +39,21 @@ impl PerformanceMonitor {
     }
 
     /// Records the completion of processing
-    pub fn finish_processing(&mut self, successful_count: usize) -> PerformanceMetrics {
+    ///
+    /// `sequential_work` is the sum of per-item execution times (the work that
+    /// would have been done serially). It lets us derive a real `speedup_factor`
+    /// instead of the previous algebraically-cancelled `thread_count` constant.
+    pub fn finish_processing(
+        &mut self,
+        successful_count: usize,
+        sequential_work: Duration,
+    ) -> PerformanceMetrics {
         let total_time = self.start_time.elapsed();
 
         let memory_usage = self.memory_tracker.get_usage();
-        let throughput = self
-            .throughput_calculator
-            .calculate(total_time, successful_count);
+        let throughput =
+            self.throughput_calculator
+                .calculate(total_time, successful_count, sequential_work);
 
         PerformanceMetrics {
             memory_usage,
@@ -152,7 +160,12 @@ impl ThroughputCalculator {
         self.start_time = Some(Instant::now());
     }
 
-    fn calculate(&self, total_time: Duration, successful_count: usize) -> ThroughputMetrics {
+    fn calculate(
+        &self,
+        total_time: Duration,
+        successful_count: usize,
+        sequential_work: Duration,
+    ) -> ThroughputMetrics {
         #[allow(clippy::cast_precision_loss)]
         let items_per_second = if total_time.as_secs_f64() > 0.0 {
             successful_count as f64 / total_time.as_secs_f64()
@@ -160,19 +173,26 @@ impl ThroughputCalculator {
             0.0
         };
 
-        // Estimate sequential time (rough approximation)
-        #[allow(clippy::cast_precision_loss)]
-        let estimated_sequential_time = total_time.as_secs_f64() * self.thread_count as f64;
+        // Real speedup: how much faster we were vs running the same work
+        // serially. Sequential work is the sum of per-item execution times
+        // (already collected in `ExecutionResult::execution_time`); total_time
+        // is the wall-clock parallel elapsed time. Both grounded in measured
+        // data instead of the previous `total_time * thread_count / total_time`
+        // expression that always collapsed to `thread_count`.
         let speedup_factor = if total_time.as_secs_f64() > 0.0 {
-            estimated_sequential_time / total_time.as_secs_f64()
+            sequential_work.as_secs_f64() / total_time.as_secs_f64()
         } else {
             1.0
         };
 
-        // CPU efficiency based on how well we utilized available threads
+        // CPU efficiency: fraction of theoretical parallel speedup we achieved.
         #[allow(clippy::cast_precision_loss)]
         let theoretical_max_speedup = self.thread_count as f64;
-        let cpu_efficiency = (speedup_factor / theoretical_max_speedup).min(1.0);
+        let cpu_efficiency = if theoretical_max_speedup > 0.0 {
+            (speedup_factor / theoretical_max_speedup).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
 
         ThroughputMetrics {
             items_per_second,

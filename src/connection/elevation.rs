@@ -33,10 +33,36 @@ pub fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevatio
     let task_elevate = task.get::<Value>("elevate")?;
     let host_elevate = host.get::<Value>("elevate")?;
 
+    // Resolve elevate: only Value::Nil falls back to the next source. Any
+    // other non-boolean value is a configuration error.
     let elevate = if !task_elevate.is_nil() {
-        task_elevate.as_boolean().unwrap_or(false)
+        match task_elevate {
+            Value::Boolean(b) => b,
+            other => {
+                return Err(ConnectionError::Configuration {
+                    message: format!(
+                        "task 'elevate' must be a boolean, got {}",
+                        other.type_name()
+                    ),
+                    context: "elevation configuration".to_string(),
+                }
+                .to_runtime_error());
+            }
+        }
     } else if !host_elevate.is_nil() {
-        host_elevate.as_boolean().unwrap_or(false)
+        match host_elevate {
+            Value::Boolean(b) => b,
+            other => {
+                return Err(ConnectionError::Configuration {
+                    message: format!(
+                        "host 'elevate' must be a boolean, got {}",
+                        other.type_name()
+                    ),
+                    context: "elevation configuration".to_string(),
+                }
+                .to_runtime_error());
+            }
+        }
     } else {
         *default_elevate
     };
@@ -56,10 +82,14 @@ pub fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevatio
         .to_runtime_error());
     };
 
-    let elevation_method_str = task.get::<String>("elevation_method").unwrap_or_else(|_| {
-        host.get::<String>("elevation_method")
-            .unwrap_or_else(|_| default_elevation_method.clone())
-    });
+    // Read elevation_method as Option<String> so present-but-wrong-type values
+    // surface as errors instead of silently falling back to host/default.
+    let elevation_method_str = match task.get::<Option<String>>("elevation_method")? {
+        Some(s) => s,
+        None => host
+            .get::<Option<String>>("elevation_method")?
+            .unwrap_or_else(|| default_elevation_method.clone()),
+    };
 
     let elevation_method = match elevation_method_str.as_str() {
         "none" => Ok(ElevationMethod::None),
@@ -83,10 +113,13 @@ pub fn get_elevation_config(host: &Table, task: &Table) -> mlua::Result<Elevatio
         }
     };
 
-    let as_user = task.get::<Option<String>>("as_user").unwrap_or_else(|_| {
-        host.get::<Option<String>>("as_user")
-            .unwrap_or(default_as_user)
-    });
+    // Read as_user as Option<String> from each layer in turn; wrong types error.
+    let as_user = match task.get::<Option<String>>("as_user")? {
+        Some(user) => Some(user),
+        None => host
+            .get::<Option<String>>("as_user")?
+            .map_or(default_as_user, Some),
+    };
 
     Ok(Elevation {
         method: elevation_method?,

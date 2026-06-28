@@ -1,31 +1,16 @@
 use tempfile::NamedTempFile;
 
-use crate::args::Args;
 use crate::create_lua;
 
 use super::*;
 use mlua::{Table, Value};
-use std::{env, fs::write, io::Write};
+use std::{fs::write, io::Write};
 
 #[test]
-#[allow(unsafe_code)]
 fn test_dprint_verbose() -> mlua::Result<()> {
-    // Simulate verbose flag being set
-    let args = Args {
-        main_file: None,
-        chunk: None,
-        command: None,
-        flags: crate::args::Flags {
-            dry_run: false,
-            no_report: false,
-            interactive: false,
-            verbose: true,
-            unsafe_lua: false,
-            version: false,
-        },
-    };
-    unsafe { env::set_var("MOCK_ARGS", format!("{args:?}")) };
-
+    // Verbose flag is sourced from global_flags(); without an explicit
+    // init_global_config() call, the test default (verbose=false) applies.
+    // dprint returns Ok(()) regardless, so this simply exercises the path.
     let lua = create_lua()?;
     let value = Value::String(lua.create_string("Test verbose print")?);
     assert!(dprint(&lua, value).is_ok());
@@ -34,24 +19,7 @@ fn test_dprint_verbose() -> mlua::Result<()> {
 }
 
 #[test]
-#[allow(unsafe_code)]
 fn test_dprint_not_verbose() -> mlua::Result<()> {
-    // Simulate verbose flag not being set
-    let args = Args {
-        main_file: None,
-        chunk: None,
-        command: None,
-        flags: crate::args::Flags {
-            dry_run: false,
-            no_report: false,
-            interactive: false,
-            verbose: false,
-            unsafe_lua: false,
-            version: false,
-        },
-    };
-    unsafe { env::set_var("MOCK_ARGS", format!("{args:?}")) };
-
     let lua = create_lua()?;
     let value = Value::String(lua.create_string("Test non-verbose print")?);
     assert!(dprint(&lua, value).is_ok());
@@ -221,8 +189,14 @@ fn test_regex_is_match_invalid_regex() -> mlua::Result<()> {
     let lua = create_lua()?;
     let text = lua.create_string("hello world")?;
     let pattern = lua.create_string("[")?;
-    let result = regex_is_match(&lua, (text, pattern))?;
-    assert!(!result);
+    let result = regex_is_match(&lua, (text, pattern));
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(
+            e.to_string().contains("Invalid regex pattern"),
+            "expected invalid-regex error, got: {e}"
+        );
+    }
     Ok(())
 }
 

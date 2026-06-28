@@ -41,7 +41,10 @@ fn test_create_connection_ssh_factory_logic() -> mlua::Result<()> {
     let (user, auth) = get_auth_config(&host_table, &task, None)?;
     assert_eq!(user, "testuser");
     match auth {
-        SSHAuthMethod::Password(pass) => assert_eq!(pass, "testpass"),
+        SSHAuthMethod::Password(pass) => {
+            use secrecy::ExposeSecret;
+            assert_eq!(pass.expose_secret(), "testpass");
+        }
         SSHAuthMethod::PublicKey { .. } => panic!("Expected Password authentication"),
     }
 
@@ -256,7 +259,10 @@ fn test_get_auth_config() -> anyhow::Result<()> {
     host.set("password", "testpass")?;
     let (_, auth) = get_auth_config(&host, &task, None)?;
     match auth {
-        SSHAuthMethod::Password(pass) => assert_eq!(pass, "testpass"),
+        SSHAuthMethod::Password(pass) => {
+            use secrecy::ExposeSecret;
+            assert_eq!(pass.expose_secret(), "testpass");
+        }
         SSHAuthMethod::PublicKey { .. } => panic!("Expected Password authentication"),
     }
 

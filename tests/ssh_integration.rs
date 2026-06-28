@@ -6,6 +6,13 @@ use std::io::Write;
 use std::path::Path;
 use tempfile::{NamedTempFile, TempDir};
 
+fn ssh_port() -> u16 {
+    std::env::var("KOMANDAN_SSH_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(52222)
+}
+
 fn create_ssh_session() -> Result<SSHSession> {
     let mut session = SSHSession::new()?;
     let home = std::env::var("HOME")?;
@@ -13,12 +20,9 @@ fn create_ssh_session() -> Result<SSHSession> {
 
     session.connect(
         "localhost",
-        22,
+        ssh_port(),
         "usertest",
-        SSHAuthMethod::PublicKey {
-            private_key: private_key_path,
-            passphrase: None,
-        },
+        SSHAuthMethod::public_key(private_key_path, None),
     )?;
 
     Ok(session)

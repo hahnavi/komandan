@@ -174,7 +174,7 @@ fn test_config_validation() {
 
 #[test]
 fn test_global_executor() {
-    let executor = global_executor();
+    let executor = global_executor().unwrap_or_else(|e| panic!("global executor init failed: {e}"));
     if let Ok(executor_guard) = executor.lock() {
         assert!(executor_guard.thread_count() > 0);
     } else {

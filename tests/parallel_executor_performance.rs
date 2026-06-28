@@ -249,17 +249,23 @@ fn test_throughput_measurement() -> mlua::Result<()> {
         println!("Speedup factor: {speedup_factor:.2}x");
         println!("CPU efficiency: {:.1}%", cpu_efficiency * 100.0);
 
-        // Verify reasonable values
+        // Verify reasonable values.
+        //
+        // `speedup_factor` is now derived from real measured data
+        // (sum of per-item execution times / wall-clock parallel time) rather
+        // than the previous algebraic constant (`thread_count`). For small
+        // workloads where thread-pool / Lua-VM setup overhead dominates,
+        // speedup can fall below 1.0 — that is a real measurement, not a bug.
         assert!(
             items_per_second > 0.0,
             "Items per second should be positive"
         );
         assert!(
-            speedup_factor >= 1.0,
-            "Speedup factor should be at least 1.0"
+            speedup_factor > 0.0,
+            "Speedup factor should be positive (real measurement, may be < 1.0 for small workloads)"
         );
         assert!(
-            cpu_efficiency > 0.0 && cpu_efficiency <= 1.0,
+            (0.0..=1.0).contains(&cpu_efficiency),
             "CPU efficiency should be between 0 and 1"
         );
     }

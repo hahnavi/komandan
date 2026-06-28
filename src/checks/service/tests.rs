@@ -211,7 +211,10 @@ fn test_compare_service_state_unexpected_nonexistent() {
 }
 
 #[test]
-fn test_compare_service_state_unknown_enabled() {
+fn test_compare_service_state_explicit_enabled_with_unknown_actual_fails() {
+    // Explicit enabled expectation cannot be verified when the actual state
+    // is unknown — that must surface as a validation failure (previously it
+    // silently passed).
     let expected = ServiceParameters {
         name: "nginx".to_string(),
         state: Some("active".to_string()),
@@ -221,16 +224,38 @@ fn test_compare_service_state_unknown_enabled() {
     let actual = ServiceState {
         exists: true,
         state: Some("active".to_string()),
-        enabled: None, // Unknown enabled state
+        enabled: None,
         error: None,
     };
 
     let result = compare::compare_service_state(&expected, &actual);
-    // Should still pass validation since we don't fail on unknown enabled state
-    assert!(result.ok);
+    assert!(
+        !result.ok,
+        "explicit enabled expectation with unknown actual must fail validation"
+    );
     assert_eq!(result.actual.get("exists"), Some(&"true".to_string()));
     assert_eq!(result.actual.get("state"), Some(&"active".to_string()));
     assert_eq!(result.actual.get("enabled"), Some(&"unknown".to_string()));
+}
+
+#[test]
+fn test_compare_service_state_no_explicit_enabled_with_unknown_actual_passes() {
+    // No explicit enabled expectation: unknown actual state is still acceptable.
+    let expected = ServiceParameters {
+        name: "nginx".to_string(),
+        state: Some("active".to_string()),
+        enabled: None,
+    };
+
+    let actual = ServiceState {
+        exists: true,
+        state: Some("active".to_string()),
+        enabled: None,
+        error: None,
+    };
+
+    let result = compare::compare_service_state(&expected, &actual);
+    assert!(result.ok);
 }
 
 #[test]

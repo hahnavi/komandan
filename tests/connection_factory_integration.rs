@@ -1,3 +1,8 @@
+//! Integration tests for the connection factory.
+//!
+//! These tests verify that the connection factory works correctly with real configurations
+//! and integrate properly with the existing SSH and local session infrastructure.
+
 use anyhow::Result;
 use komandan::connection::{Connection, create_connection};
 use komandan::create_lua;
@@ -5,9 +10,28 @@ use komandan::executor::CommandExecutor;
 use mlua::Value;
 use std::env;
 
-/// Integration tests for the connection factory
-/// These tests verify that the connection factory works correctly with real configurations
-/// and integrates properly with the existing SSH and local session infrastructure.
+/// Returns early (skip the caller) unless both:
+/// - `KOMANDAN_SSH_TEST` is set (the local-SSH gate), and
+/// - `KOMANDAN_SSH_EXTERNAL_TEST` is set (the explicit external-host gate).
+///
+/// Localhost SSH tests only need `KOMANDAN_SSH_TEST`. Tests that reach out to
+/// `test.rebex.net` require the external gate too, so coverage CI (which only
+/// sets the local flag) cannot accidentally exercise them.
+#[allow(clippy::unnecessary_wraps)]
+fn require_external_ssh_gate() -> Result<()> {
+    if env::var("KOMANDAN_SSH_TEST").is_err() {
+        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
+        return Ok(());
+    }
+    if env::var("KOMANDAN_SSH_EXTERNAL_TEST").is_err() {
+        eprintln!(
+            "Skipping external-host SSH integration test - \
+             set KOMANDAN_SSH_EXTERNAL_TEST=1 to enable (in addition to KOMANDAN_SSH_TEST)"
+        );
+        return Ok(());
+    }
+    Ok(())
+}
 
 #[test]
 fn test_connection_factory_local_connection() -> Result<()> {
@@ -100,10 +124,7 @@ fn test_connection_factory_explicit_local() -> Result<()> {
 
 #[test]
 fn test_connection_factory_explicit_ssh() -> Result<()> {
-    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
-        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
-        return Ok(());
-    }
+    require_external_ssh_gate()?;
     let lua = create_lua()?;
 
     // Test explicit SSH connection type overrides localhost
@@ -130,10 +151,7 @@ fn test_connection_factory_explicit_ssh() -> Result<()> {
 
 #[test]
 fn test_connection_factory_remote_address_defaults_ssh() -> Result<()> {
-    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
-        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
-        return Ok(());
-    }
+    require_external_ssh_gate()?;
     let lua = create_lua()?;
 
     // Test remote address defaults to SSH connection
@@ -221,10 +239,7 @@ fn test_connection_factory_ssh_with_key_authentication() -> Result<()> {
 
 #[test]
 fn test_connection_factory_ssh_with_custom_port() -> Result<()> {
-    if std::env::var("KOMANDAN_SSH_TEST").is_err() {
-        eprintln!("Skipping SSH integration test - set KOMANDAN_SSH_TEST=1 to enable");
-        return Ok(());
-    }
+    require_external_ssh_gate()?;
     let lua = create_lua()?;
 
     // Test SSH connection with custom port
@@ -251,6 +266,8 @@ fn test_connection_factory_ssh_with_custom_port() -> Result<()> {
 
 #[test]
 fn test_connection_factory_with_defaults() -> Result<()> {
+    // Touches test.rebex.net — needs the external SSH gate.
+    require_external_ssh_gate()?;
     let lua = create_lua()?;
 
     // Set some defaults
@@ -360,7 +377,7 @@ fn test_connection_factory_environment_interface() -> Result<()> {
 fn test_connection_factory_connection_type_detection() -> Result<()> {
     let lua = create_lua()?;
 
-    // Test local connection type detection
+    // Test local connection type detection (no external host).
     let local_host = lua.create_table()?;
     local_host.set("address", "localhost")?;
 
@@ -370,7 +387,17 @@ fn test_connection_factory_connection_type_detection() -> Result<()> {
         komandan::models::ConnectionType::Local
     );
 
-    // Test SSH connection type detection
+    // Test SSH connection type detection. Uses test.rebex.net — only run when
+    // the external SSH gate is also set, so localhost-only CI (coverage) skips
+    // this portion without losing the local-detection coverage above.
+    if env::var("KOMANDAN_SSH_TEST").is_err() || env::var("KOMANDAN_SSH_EXTERNAL_TEST").is_err() {
+        eprintln!(
+            "Skipping SSH portion of connection_type_detection - \
+             set KOMANDAN_SSH_TEST=1 and KOMANDAN_SSH_EXTERNAL_TEST=1 to enable"
+        );
+        return Ok(());
+    }
+
     let ssh_host = lua.create_table()?;
     ssh_host.set("address", "test.rebex.net")?;
     ssh_host.set("user", "demo")?;
@@ -438,6 +465,8 @@ fn test_connection_factory_real_ssh_integration() -> Result<()> {
 /// Test that connection factory maintains backward compatibility
 #[test]
 fn test_connection_factory_backward_compatibility() -> Result<()> {
+    // Touches test.rebex.net — needs the external SSH gate.
+    require_external_ssh_gate()?;
     let lua = create_lua()?;
 
     // Test that existing host configurations still work

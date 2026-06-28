@@ -10,7 +10,17 @@ To build the Docker image and start the SSH server, run the following command:
 ./run_sshd.sh
 ```
 
-The SSH server will be running on port 2222.
+The SSH server will be running on port 52222.
+
+## Test port override
+
+The integration tests (`tests/ssh_integration.rs`, `tests/ssh_lua_integration.rs`)
+connect to port `52222` by default. Override with `KOMANDAN_SSH_PORT`, e.g. when
+running against a host sshd on port 22 (as the GitHub Actions workflows do):
+
+```bash
+KOMANDAN_SSH_PORT=22 cargo test --test ssh_integration
+```
 
 ## Authentication
 
@@ -23,7 +33,7 @@ The `run_sshd.sh` script will automatically use your `~/.ssh/id_ed25519` public 
 You can connect to the server using the following command:
 
 ```bash
-ssh usertest@localhost -p 2222
+ssh usertest@localhost -p 52222
 ```
 
 ### Password Authentication

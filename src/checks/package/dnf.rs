@@ -32,10 +32,14 @@ pub(super) fn query_dnf_package_state(
 
     if result.ok {
         result.actual.get("stdout").map_or_else(
+            // No stdout means `execute_command_with_error_handling` classified
+            // the stderr (e.g. "package X is not installed") as a not-found
+            // condition and returned an empty actual map. Treat that as
+            // absent rather than a hard error.
             || PackageState {
                 installed: false,
                 version: None,
-                error: Some("No output from rpm command".to_string()),
+                error: None,
             },
             |stdout| {
                 let version = stdout.trim();

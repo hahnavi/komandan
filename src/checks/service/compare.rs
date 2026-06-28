@@ -109,13 +109,17 @@ pub(super) fn compare_service_state(
     // Check enabled status using standard field name and helper
     set_enabled_field(&mut actual_map, actual.enabled);
 
-    if let Some(expected_enabled) = expected.enabled
-        && let Some(actual_enabled) = actual.enabled
-        && expected_enabled != actual_enabled
-    {
-        validation_passed = false;
+    match (expected.enabled, actual.enabled) {
+        // Explicit expectation cannot be verified because the actual enabled
+        // state is unknown — that is a validation failure, not a silent pass.
+        (Some(_), None) => validation_passed = false,
+        // Explicit expectation unmet.
+        (Some(expected_enabled), Some(actual_enabled)) if expected_enabled != actual_enabled => {
+            validation_passed = false;
+        }
+        // All other cases (no explicit expectation, or expectation matches) pass.
+        _ => {}
     }
-    // Don't fail validation for unknown enabled state, just report it
 
     create_validated_result(validation_passed, &actual_map, None, "service").unwrap_or_else(|_| {
         if validation_passed {

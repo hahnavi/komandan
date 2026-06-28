@@ -11,14 +11,39 @@ use mlua::{Error::RuntimeError, UserData, Value};
 use ssh2::{CheckResult, KnownHostFileKind, Session, Sftp};
 
 use crate::executor::{CommandExecutor, SessionResult};
+use secrecy::{ExposeSecret, SecretString};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+/// Authentication method for an SSH connection.
+///
+/// Secret material (password, passphrase) is held in [`SecretString`] so it
+/// is not accidentally leaked through `Debug` formatting or stray clones. The
+/// secrets are exposed only at the `userauth_*` call site in [`SSHSession::connect`].
+#[derive(Debug, Clone)]
 pub enum SSHAuthMethod {
-    Password(String),
+    Password(SecretString),
     PublicKey {
+        /// Filesystem path to the private key. Not secret.
         private_key: String,
-        passphrase: Option<String>,
+        /// Optional passphrase for the private key.
+        passphrase: Option<SecretString>,
     },
+}
+
+impl SSHAuthMethod {
+    /// Constructs a password auth method from a plaintext string.
+    #[must_use]
+    pub fn password(password: impl Into<String>) -> Self {
+        Self::Password(SecretString::new(password.into().into_boxed_str()))
+    }
+
+    /// Constructs a public-key auth method.
+    #[must_use]
+    pub fn public_key(private_key: impl Into<String>, passphrase: Option<String>) -> Self {
+        Self::PublicKey {
+            private_key: private_key.into(),
+            passphrase: passphrase.map(|p| SecretString::new(p.into_boxed_str())),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -151,7 +176,8 @@ impl SSHSession {
 
         match auth_method {
             SSHAuthMethod::Password(password) => {
-                self.session.userauth_password(username, &password)?;
+                self.session
+                    .userauth_password(username, password.expose_secret())?;
             }
             SSHAuthMethod::PublicKey {
                 private_key,
@@ -161,7 +187,9 @@ impl SSHSession {
                     username,
                     None,
                     Path::new(&private_key),
-                    passphrase.as_deref(),
+                    passphrase
+                        .as_ref()
+                        .map(secrecy::ExposeSecret::expose_secret),
                 )?;
             }
         }

@@ -28,7 +28,7 @@ use anyhow::{Context, Result};
 use mlua::{Function, Lua, Table, Value};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// The main parallel executor struct that provides parallel map operations
 #[derive(Debug)]
@@ -237,8 +237,14 @@ impl ParallelExecutor {
         let successful_count = results.iter().filter(|r| r.result.is_ok()).count();
         let thread_count = self.thread_count();
 
+        // Sum of per-item execution times — the wall-clock work that would
+        // have run serially. Used by the throughput calculator to derive a
+        // real speedup factor instead of an algebraic constant.
+        let sequential_work: Duration = results.iter().map(|r| r.execution_time).sum::<Duration>();
+
         // Finish performance monitoring
-        let base_performance_metrics = performance_monitor.finish_processing(successful_count);
+        let base_performance_metrics =
+            performance_monitor.finish_processing(successful_count, sequential_work);
 
         // Get actual statistics from connection pool and batch processor
         let connection_stats = self.connection_pool.get_stats();
@@ -297,7 +303,7 @@ impl ParallelExecutor {
     pub fn configure(&mut self, config: ExecutorConfig) -> mlua::Result<()> {
         validate_config(&config).map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
 
-        // If thread count changed, recreate the thread pool and connection pool
+        // If thread count changed, recreate the thread pool and connection pool.
         if config.thread_count != self.config.thread_count {
             let new_pool = match config.thread_count {
                 Some(count) => ThreadPoolBuilder::new()
@@ -314,8 +320,16 @@ impl ParallelExecutor {
 
             // Clear connection pool when thread count changes
             self.connection_pool.clear();
+        }
 
-            // Recreate batch processor with new configuration
+        // Rebuild the batch processor whenever ANY of its inputs change
+        // (chunk_size, thread_count-derived sizing, memory threshold), not
+        // just on thread_count changes. Otherwise `map()` keeps using the old
+        // optimal_batch_size even after `configure` updated `self.config`.
+        if config.chunk_size != self.config.chunk_size
+            || config.thread_count != self.config.thread_count
+            || config.max_memory_mb != self.config.max_memory_mb
+        {
             self.batch_processor = BatchProcessor::new(&config);
         }
 
@@ -352,71 +366,28 @@ impl ParallelExecutor {
     }
 }
 
-/// Global parallel executor instance with lazy initialization
+/// Global parallel executor instance.
+///
+/// Initialized explicitly via [`init_global_executor`]. The lazy fallback that
+/// previously lived here was removed: it called `std::process::exit(1)` from
+/// library code, which is unacceptable. Setup failures now propagate as
+/// errors through [`init_global_executor`] / [`global_executor`].
 static GLOBAL_EXECUTOR: OnceLock<Mutex<ParallelExecutor>> = OnceLock::new();
 
-/// Gets a reference to the global parallel executor
+/// Initializes the global parallel executor with the given configuration.
 ///
-/// # Returns
-/// * `&'static Mutex<ParallelExecutor>` - Reference to the global executor
-pub fn global_executor() -> &'static Mutex<ParallelExecutor> {
-    GLOBAL_EXECUTOR.get_or_init(|| {
-        let executor = ParallelExecutor::new(None).unwrap_or_else(|_| {
-            // Fallback to single-threaded if initialization fails
-            ParallelExecutor::new(Some(ExecutorConfig {
-                thread_count: Some(1),
-                chunk_size: Some(100),
-                timeout_seconds: Some(300),
-                error_strategy: Some("continue".to_string()),
-                max_memory_mb: Some(512),
-            }))
-            .unwrap_or_else(|_| {
-                // Ultimate fallback - create a minimal executor
-                let fallback_config = ExecutorConfig {
-                    thread_count: Some(1),
-                    chunk_size: Some(100),
-                    timeout_seconds: Some(300),
-                    error_strategy: Some("continue".to_string()),
-                    max_memory_mb: Some(512),
-                };
-
-                let thread_pool = Arc::new(
-                    rayon::ThreadPoolBuilder::new()
-                        .num_threads(1)
-                        .build()
-                        .unwrap_or_else(|_| {
-                            // If even this fails, we have a serious problem
-                            tracing::error!("Failed to create thread pool");
-                            std::process::exit(1);
-                        }),
-                );
-                let connection_pool = ConnectionPool::new(10);
-                let batch_processor = BatchProcessor::new(&fallback_config);
-
-                ParallelExecutor {
-                    thread_pool,
-                    config: fallback_config,
-                    connection_pool,
-                    batch_processor,
-                }
-            })
-        });
-        Mutex::new(executor)
-    })
-}
-
-/// Initializes the global parallel executor with custom configuration
+/// Must be called once during startup before [`global_executor`] is used.
+/// Subsequent calls return an error. Setup failures (invalid config, thread
+/// pool creation) are propagated instead of aborting the process.
 ///
 /// # Arguments
-/// * `config` - Configuration for the global executor
-///
-/// # Returns
-/// * `Result<()>` - Success or error
+/// * `config` - Configuration for the global executor. `None` uses defaults.
 ///
 /// # Errors
 /// Returns an error if:
 /// - Global executor is already initialized
-/// - Configuration is invalid
+/// - Configuration validation fails
+/// - Thread pool creation fails
 pub fn init_global_executor(config: Option<ExecutorConfig>) -> Result<()> {
     if GLOBAL_EXECUTOR.get().is_some() {
         anyhow::bail!("Global executor is already initialized");
@@ -428,4 +399,21 @@ pub fn init_global_executor(config: Option<ExecutorConfig>) -> Result<()> {
         .map_err(|_| anyhow::anyhow!("Failed to set global executor"))?;
 
     Ok(())
+}
+
+/// Gets a reference to the global parallel executor, initializing it with
+/// default configuration on first use.
+///
+/// Uses `OnceLock::get_or_try_init` so concurrent first-use callers (e.g.
+/// parallel test threads) cannot race into the "already initialized" branch
+/// the way a check-then-set sequence would. Any failure (e.g. thread pool
+/// creation) is surfaced as an error rather than aborting the host process.
+///
+/// # Errors
+/// Returns an error if the default-config executor cannot be constructed.
+pub fn global_executor() -> Result<&'static Mutex<ParallelExecutor>> {
+    GLOBAL_EXECUTOR.get_or_try_init(|| {
+        let executor = ParallelExecutor::new(None)?;
+        Ok::<_, anyhow::Error>(Mutex::new(executor))
+    })
 }

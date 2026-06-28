@@ -40,8 +40,12 @@ impl SerializedValue {
             Value::String(s) => Ok(Self::String(s.to_str()?.to_string())),
             Value::Table(t) => {
                 let mut map = HashMap::new();
-                for pair in t.pairs::<String, Value>() {
+                // Iterate with `Value` keys and stringify them so array-style
+                // and integer-keyed tables (which are common in Lua) survive
+                // the round-trip instead of erroring on a non-String key.
+                for pair in t.pairs::<Value, Value>() {
                     let (key, value) = pair?;
+                    let key = key.to_string()?;
                     map.insert(key, Self::from_lua_value(value)?);
                 }
                 Ok(Self::Table(map))
@@ -204,7 +208,13 @@ impl LuaContextFactory {
         Ok(())
     }
 
-    /// Serializes a Lua function for cross-thread execution
+    /// Serializes a Lua function for cross-thread execution.
+    ///
+    /// **Upvalues are not captured.** `mlua`'s `dump` only emits bytecode, so
+    /// any captured locals would be silently lost on the receiving side, which
+    /// is a footgun. To make that contract explicit we reject any function
+    /// whose upvalue count is non-zero — callers must pass a pure function
+    /// (or wrap their captured state into the data table).
     ///
     /// # Arguments
     /// * `lua` - The source Lua context
@@ -214,19 +224,34 @@ impl LuaContextFactory {
     /// * `mlua::Result<SerializedFunction>` - Serialized function or error
     ///
     /// # Errors
-    /// Returns an error if function serialization fails
+    /// Returns an error if:
+    /// - The function has one or more upvalues (captured locals)
+    /// - Function introspection fails
     pub fn serialize_function(_lua: &Lua, func: &Function) -> mlua::Result<SerializedFunction> {
-        // Dump the function to bytecode
+        // Dump the function to bytecode (no upvalue capture happens here).
         let bytecode = func.dump(false);
 
-        // For now, we'll handle upvalues in a simplified way
-        // In a full implementation, we would need to extract and serialize upvalues
-        let upvalues = Vec::new();
+        // Reject functions with upvalues so callers get a clear failure
+        // instead of silently-dropped captured state on the deserialize side.
+        let info = func.info();
+        if info.num_upvalues > 0 {
+            return Err(mlua::Error::RuntimeError(format!(
+                "Functions with upvalues cannot be serialized for parallel execution \
+                 (found {} upvalue(s)). Refactor to pass captured state via the data table.",
+                info.num_upvalues
+            )));
+        }
 
-        Ok(SerializedFunction { bytecode, upvalues })
+        Ok(SerializedFunction {
+            bytecode,
+            upvalues: Vec::new(),
+        })
     }
 
-    /// Deserializes a function in an isolated Lua context
+    /// Deserializes a function in an isolated Lua context.
+    ///
+    /// The bytecode produced by [`serialize_function`] carries no upvalues, so
+    /// nothing needs to be restored here.
     ///
     /// # Arguments
     /// * `lua` - The target Lua context
@@ -241,11 +266,8 @@ impl LuaContextFactory {
         lua: &Lua,
         serialized_func: &SerializedFunction,
     ) -> mlua::Result<Function> {
-        // Load the function from bytecode
+        // Load the function from bytecode (no upvalue restore: see serialize_function).
         let func = lua.load(&serialized_func.bytecode).into_function()?;
-
-        // TODO: Restore upvalues if needed
-        // For now, we assume functions don't capture external variables
 
         Ok(func)
     }
@@ -366,7 +388,7 @@ pub fn create_global_executor_interface(lua: &Lua) -> mlua::Result<Table> {
 
     // Add map method
     let map_fn = lua.create_function(|lua, (_self, data, func): (Table, Table, Function)| {
-        let executor = global_executor();
+        let executor = global_executor()?;
         let executor = executor.lock().map_err(|e| {
             mlua::Error::RuntimeError(format!("Failed to lock global executor: {e}"))
         })?;
@@ -391,7 +413,7 @@ pub fn create_global_executor_interface(lua: &Lua) -> mlua::Result<Table> {
             max_memory_mb,
         };
 
-        let executor = global_executor();
+        let executor = global_executor()?;
         let mut executor = executor.lock().map_err(|e| {
             mlua::Error::RuntimeError(format!("Failed to lock global executor: {e}"))
         })?;

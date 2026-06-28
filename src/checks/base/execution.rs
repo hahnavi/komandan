@@ -96,10 +96,12 @@ pub fn execute_command_with_error_handling(
                 if is_permission_error(&error_message) {
                     CheckResult::permission_error(&error_message, command)
                 } else if is_not_found_error(&error_message) {
-                    // For "not found" errors, return empty actual state rather than error
-                    let mut actual = HashMap::new();
-                    actual.insert("exists".to_string(), "false".to_string());
-                    CheckResult::success(actual)
+                    // For "not found" errors, return an empty actual map rather
+                    // than a fabricated `exists=false`. Callers (file/package/
+                    // service checks) interpret the missing key according to
+                    // their own semantics; hardcoding `exists=false` here was
+                    // wrong for package-style "is not installed" results.
+                    CheckResult::success(HashMap::new())
                 } else {
                     CheckResult::command_error(&error_message, command, exit_code)
                 }

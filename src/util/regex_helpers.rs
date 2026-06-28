@@ -4,8 +4,7 @@ pub fn regex_is_match(
     _: &Lua,
     (text, pattern): (mlua::String, mlua::String),
 ) -> mlua::Result<bool> {
-    let Ok(re) = regex::Regex::new(&pattern.to_str()?) else {
-        return Ok(false);
-    };
+    let re = regex::Regex::new(&pattern.to_str()?)
+        .map_err(|e| mlua::Error::RuntimeError(format!("Invalid regex pattern: {e}")))?;
     Ok(re.is_match(&text.to_str()?))
 }

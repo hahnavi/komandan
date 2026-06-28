@@ -54,6 +54,11 @@ jobs:
       - name: Run tests
         env:
           KOMANDAN_SSH_TEST: "1"
+          # Enables the subset of SSH integration tests that reach out to
+          # external hosts (test.rebex.net). Coverage CI deliberately omits
+          # this flag so it only exercises the localhost SSH path.
+          KOMANDAN_SSH_EXTERNAL_TEST: "1"
+          KOMANDAN_SSH_PORT: "22"
         run: cargo test --all-targets --no-fail-fast
 
   clippy:

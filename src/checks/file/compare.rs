@@ -40,37 +40,57 @@ pub(super) fn compare_file_state(expected: &FileParameters, actual: &FileState) 
         return CheckResult::error(error.clone());
     }
 
-    // Check mode using standard field name
-    if let Some(ref actual_mode) = actual.mode {
+    // Check mode using standard field name. The Option must be compared
+    // first: when expected is Some and actual is None (stat didn't return a
+    // mode), that is a validation failure, not a silent pass.
+    if let Some(ref expected_mode) = expected.mode {
+        match actual.mode {
+            Some(ref actual_mode) => {
+                actual_map.insert(StandardFields::MODE.to_string(), actual_mode.clone());
+                if expected_mode != actual_mode {
+                    validation_passed = false;
+                }
+            }
+            None => {
+                validation_passed = false;
+            }
+        }
+    } else if let Some(ref actual_mode) = actual.mode {
         actual_map.insert(StandardFields::MODE.to_string(), actual_mode.clone());
-
-        if let Some(ref expected_mode) = expected.mode
-            && expected_mode != actual_mode
-        {
-            validation_passed = false;
-        }
     }
 
-    // Check owner using standard field name
-    if let Some(ref actual_owner) = actual.owner {
+    // Check owner using standard field name (see mode comment above).
+    if let Some(ref expected_owner) = expected.owner {
+        match actual.owner {
+            Some(ref actual_owner) => {
+                actual_map.insert(StandardFields::OWNER.to_string(), actual_owner.clone());
+                if expected_owner != actual_owner {
+                    validation_passed = false;
+                }
+            }
+            None => {
+                validation_passed = false;
+            }
+        }
+    } else if let Some(ref actual_owner) = actual.owner {
         actual_map.insert(StandardFields::OWNER.to_string(), actual_owner.clone());
-
-        if let Some(ref expected_owner) = expected.owner
-            && expected_owner != actual_owner
-        {
-            validation_passed = false;
-        }
     }
 
-    // Check group using standard field name
-    if let Some(ref actual_group) = actual.group {
-        actual_map.insert(StandardFields::GROUP.to_string(), actual_group.clone());
-
-        if let Some(ref expected_group) = expected.group
-            && expected_group != actual_group
-        {
-            validation_passed = false;
+    // Check group using standard field name (see mode comment above).
+    if let Some(ref expected_group) = expected.group {
+        match actual.group {
+            Some(ref actual_group) => {
+                actual_map.insert(StandardFields::GROUP.to_string(), actual_group.clone());
+                if expected_group != actual_group {
+                    validation_passed = false;
+                }
+            }
+            None => {
+                validation_passed = false;
+            }
         }
+    } else if let Some(ref actual_group) = actual.group {
+        actual_map.insert(StandardFields::GROUP.to_string(), actual_group.clone());
     }
 
     create_validated_result(validation_passed, &actual_map, None, "file").unwrap_or_else(|_| {

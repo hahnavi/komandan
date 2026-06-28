@@ -32,10 +32,14 @@ pub(super) fn query_apt_package_state(
 
     if result.ok {
         result.actual.get("stdout").map_or_else(
+            // No stdout means `execute_command_with_error_handling` classified
+            // the stderr (e.g. "no packages found" / dpkg-query exit 1 for a
+            // missing package) as a not-found condition and returned an empty
+            // actual map. Treat that as absent rather than a hard error.
             || PackageState {
                 installed: false,
                 version: None,
-                error: Some("No output from dpkg-query command".to_string()),
+                error: None,
             },
             |stdout| parse_apt_package_output(stdout),
         )

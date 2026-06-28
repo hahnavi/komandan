@@ -1,3 +1,5 @@
+#![feature(once_cell_try)]
+
 pub mod args;
 mod checks;
 pub mod connection;
@@ -122,9 +124,11 @@ fn resolve_project_dir(args: &Args) -> mlua::Result<String> {
 ///
 /// Returns an error if Lua initialization or setup fails.
 pub fn create_lua() -> mlua::Result<Lua> {
-    let project_dir = match crate::args::global_config() {
-        Some(config) => config.project_dir.clone(),
-        None => env::current_dir()?.display().to_string(),
+    let project_dir = crate::args::global_config().project_dir;
+    let project_dir = if project_dir.is_empty() {
+        env::current_dir()?.display().to_string()
+    } else {
+        project_dir
     };
     let lua = build_lua(crate::args::global_flags().unsafe_lua);
     configure_package_path(&lua, &project_dir)?;
@@ -150,7 +154,8 @@ pub fn create_lua_with_args(args: &Args) -> mlua::Result<Lua> {
     crate::args::init_global_config(crate::args::ResolvedConfig {
         flags: args.flags.clone(),
         project_dir: project_dir.clone(),
-    });
+    })
+    .map_err(mlua::Error::external)?;
 
     let lua = build_lua(args.flags.unsafe_lua);
     configure_package_path(&lua, &project_dir)?;

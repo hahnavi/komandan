@@ -38,13 +38,23 @@ pub fn create_ssh_session(host: &Table) -> mlua::Result<SSHSession> {
         .to_runtime_error());
     };
 
-    let host_key_check = host
-        .get::<Value>("host_key_check")
-        .map_or(true, |key_check| match key_check {
-            Value::Nil => *default_key_check,
-            Value::Boolean(false) => false,
-            _ => true,
-        });
+    let host_key_check = match host.get::<Value>("host_key_check")? {
+        // Truly absent → fall back to default.
+        Value::Nil => *default_key_check,
+        // Either boolean value is accepted.
+        Value::Boolean(b) => b,
+        // Any other value (number, string, table, …) is a type mismatch.
+        other => {
+            return Err(ConnectionError::Configuration {
+                message: format!(
+                    "host_key_check must be a boolean, got {}",
+                    other.type_name()
+                ),
+                context: "SSH session configuration".to_string(),
+            }
+            .to_runtime_error());
+        }
+    };
 
     let Ok(default_known_hosts_file) = defaults.known_hosts_file.read() else {
         return Err(ConnectionError::Configuration {
@@ -55,9 +65,11 @@ pub fn create_ssh_session(host: &Table) -> mlua::Result<SSHSession> {
     };
 
     if host_key_check {
+        // Read as Option<String> so a present-but-wrong-type value surfaces as
+        // an error instead of silently falling back to the default.
         ssh.known_hosts_file = host
-            .get::<String>("known_hosts_file")
-            .map_or_else(|_| Some(default_known_hosts_file.clone()), Some);
+            .get::<Option<String>>("known_hosts_file")?
+            .map_or_else(|| Some(default_known_hosts_file.clone()), Some);
     }
 
     Ok(ssh)
@@ -70,14 +82,19 @@ pub fn create_ssh_session(host: &Table) -> mlua::Result<SSHSession> {
 ///
 /// # Returns
 /// * `mlua::Result<u16>` - The resolved port number
+///
+/// # Errors
+/// Returns an error if:
+/// - `port` is present but not a number
+/// - The default port lock is poisoned
 pub fn get_port_from_host(host: &Table) -> mlua::Result<u16> {
     let defaults = Defaults::global();
 
-    // Try to get port from host configuration first
-    if let Ok(port) = host.get::<u16>("port") {
+    // Read as Option<u16> so a present-but-wrong-type value surfaces as an
+    // error instead of silently falling back to the default port.
+    if let Some(port) = host.get::<Option<u16>>("port")? {
         Ok(port)
     } else {
-        // Fall back to default port
         let Ok(default_port) = defaults.port.read() else {
             return Err(ConnectionError::Configuration {
                 message: "Failed to read default port setting".to_string(),

@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 
 use clap::{Args as ClapArgs, Parser, Subcommand};
 
@@ -86,16 +86,24 @@ pub struct Flags {
     pub version: bool,
 }
 
-static GLOBAL_CONFIG: OnceLock<ResolvedConfig> = OnceLock::new();
+/// Updatable global resolved-config store.
+///
+/// Held in a `RwLock` so that repeated `init_global_config` calls (e.g.
+/// `create_lua_with_args` invoked once per task in the same process, or unit
+/// tests running `run_app` repeatedly with different args) refresh the active
+/// config instead of silently keeping the first one. This replaces the older
+/// `OnceLock<ResolvedConfig>` behavior that discarded later values and could
+/// leave later VMs reading stale flags / `project_dir` / package-path state.
+static GLOBAL_CONFIG: OnceLock<RwLock<ResolvedConfig>> = OnceLock::new();
 
-static DEFAULT_FLAGS: Flags = Flags {
-    dry_run: false,
-    no_report: false,
-    interactive: false,
-    verbose: false,
-    unsafe_lua: false,
-    version: false,
-};
+fn config_cell() -> &'static RwLock<ResolvedConfig> {
+    GLOBAL_CONFIG.get_or_init(|| {
+        RwLock::new(ResolvedConfig {
+            flags: Flags::default(),
+            project_dir: String::new(),
+        })
+    })
+}
 
 /// Resolved runtime configuration, set once from parsed CLI args.
 ///
@@ -109,42 +117,67 @@ pub struct ResolvedConfig {
     pub project_dir: String,
 }
 
-/// Initialize the global resolved config. Called once from `create_lua_with_args`.
+/// Initialize (or refresh) the global resolved config.
 ///
-/// Subsequent calls are ignored (config is immutable after first init).
+/// The config lives in an updatable `RwLock`, so this is **not** a one-shot
+/// any more: calling it again with new values replaces the active config and
+/// subsequent `create_lua` / `create_lua_with_args` / `global_flags` callers
+/// observe the latest values. This avoids the prior bug where the second call
+/// silently dropped new flags/`project_dir`.
+///
+/// Returns an error only if the underlying lock is poisoned.
 ///
 /// # Errors
 ///
-/// Infallible: never returns an error.
+/// Returns an error if the global config `RwLock` is poisoned.
 ///
 /// # Panics
 ///
-/// Never panics. Re-initialization is silently ignored.
-pub fn init_global_config(config: ResolvedConfig) {
-    let _ = GLOBAL_CONFIG.set(config);
+/// Never panics.
+pub fn init_global_config(config: ResolvedConfig) -> Result<(), String> {
+    {
+        let mut guard = config_cell()
+            .write()
+            .map_err(|e| format!("global config lock poisoned: {e}"))?;
+        *guard = config;
+    }
+    Ok(())
 }
 
-/// Returns the resolved global config, if it has been initialized.
+/// Returns a snapshot of the resolved global config.
 ///
-/// `None` indicates `init_global_config` was never called (e.g. unit tests
-/// calling `create_lua()` directly); callers should fall back to defaults.
+/// Because the store is now updatable, callers receive a clone of the current
+/// values rather than a static reference. `Flags::default()` / empty
+/// `project_dir` are returned before `init_global_config` was ever called
+/// (e.g. unit tests calling `create_lua()` directly).
 ///
 /// # Errors
 ///
-/// Infallible: never returns an error.
+/// Returns an error if the global config `RwLock` is poisoned.
 ///
 /// # Panics
 ///
 /// Never panics.
 #[must_use]
-pub fn global_config() -> Option<&'static ResolvedConfig> {
-    GLOBAL_CONFIG.get()
+pub fn global_config() -> ResolvedConfig {
+    config_cell()
+        .read()
+        .map_or_else(|_| ResolvedConfig::default_empty(), |guard| guard.clone())
 }
 
-/// Returns the resolved global flags.
+impl ResolvedConfig {
+    fn default_empty() -> Self {
+        Self {
+            flags: Flags::default(),
+            project_dir: String::new(),
+        }
+    }
+}
+
+/// Returns a snapshot of the resolved global flags.
 ///
 /// Returns `Flags::default()` (all-false) when the global config was never
-/// initialized (unit-test path).
+/// initialized or the lock is poisoned.
 ///
 /// # Errors
 ///
@@ -154,8 +187,9 @@ pub fn global_config() -> Option<&'static ResolvedConfig> {
 ///
 /// Never panics.
 #[must_use]
-pub fn global_flags() -> &'static Flags {
-    GLOBAL_CONFIG
-        .get()
-        .map_or(&DEFAULT_FLAGS, |config| &config.flags)
+pub fn global_flags() -> Flags {
+    config_cell()
+        .read()
+        .map(|guard| guard.flags.clone())
+        .unwrap_or_default()
 }

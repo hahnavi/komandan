@@ -73,15 +73,15 @@ impl FromLua for Host {
                 .map(|s| SecretString::new(s.into_boxed_str())),
             elevate: table.get("elevate")?,
             elevation_method: table
-                .get::<String>("elevation_method")
-                .ok()
-                .and_then(|s| s.parse().ok()),
+                .get::<Option<String>>("elevation_method")?
+                .map(|s| s.parse().map_err(Error::external))
+                .transpose()?,
             as_user: table.get("as_user")?,
             env: table.get("env")?,
-            connection: match table.get::<String>("connection") {
-                Ok(s) => Some(s.parse().map_err(Error::external)?),
-                Err(_) => None,
-            },
+            connection: table
+                .get::<Option<String>>("connection")?
+                .map(|s| s.parse().map_err(Error::external))
+                .transpose()?,
         })
     }
 }
@@ -155,9 +155,9 @@ impl FromLua for Task {
             ignore_exit_code: table.get("ignore_exit_code")?,
             elevate: table.get("elevate")?,
             elevation_method: table
-                .get::<String>("elevation_method")
-                .ok()
-                .and_then(|s| s.parse().ok()),
+                .get::<Option<String>>("elevation_method")?
+                .map(|s| s.parse().map_err(Error::external))
+                .transpose()?,
             as_user: table.get("as_user")?,
             env: table.get("env")?,
         })
@@ -407,6 +407,66 @@ mod tests {
         assert!(
             msg.contains("invalid connection type"),
             "error should mention invalid connection type: {msg}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_host_invalid_elevation_method_errors() -> mlua::Result<()> {
+        let lua = Lua::new();
+        let table = lua.create_table()?;
+        table.set("address", "127.0.0.1")?;
+        table.set("elevation_method", "definitely-not-real")?;
+        let result = Host::from_lua(Value::Table(table), &lua);
+        assert!(
+            result.is_err(),
+            "invalid elevation_method value should error, but Host parsed successfully"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_host_non_string_elevation_method_errors() -> mlua::Result<()> {
+        // Non-string elevation_method (e.g. a number) must surface as a type
+        // error rather than silently becoming None.
+        let lua = Lua::new();
+        let table = lua.create_table()?;
+        table.set("address", "127.0.0.1")?;
+        table.set("elevation_method", 42)?;
+        let result = Host::from_lua(Value::Table(table), &lua);
+        assert!(
+            result.is_err(),
+            "non-string elevation_method should error, but Host parsed successfully"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_host_non_string_connection_errors() -> mlua::Result<()> {
+        let lua = Lua::new();
+        let table = lua.create_table()?;
+        table.set("address", "127.0.0.1")?;
+        table.set("connection", 99)?;
+        let result = Host::from_lua(Value::Table(table), &lua);
+        assert!(
+            result.is_err(),
+            "non-string connection value should error, but Host parsed successfully"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_task_invalid_elevation_method_errors() -> mlua::Result<()> {
+        let lua = Lua::new();
+        let table = lua.create_table()?;
+        let module_table = lua.create_table()?;
+        module_table.set("command", "echo hi")?;
+        table.set(1, module_table)?;
+        table.set("elevation_method", "nope")?;
+        let result = Task::from_lua(Value::Table(table), &lua);
+        assert!(
+            result.is_err(),
+            "invalid task elevation_method should error, but Task parsed successfully"
         );
         Ok(())
     }
