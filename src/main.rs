@@ -134,7 +134,12 @@ fn run_project_dir(path: &Path, args: &Args, lua: &Lua) -> anyhow::Result<()> {
     );
 
     let config_content = fs::read_to_string(&config_path)?;
-    let config: KomandanConfig = serde_json::from_str(&config_content)?;
+    let config: KomandanConfig = serde_json::from_str(&config_content).with_context(|| {
+        format!(
+            "Failed to parse {} as a Komandan config (expected fields: name, version, main, defaults)",
+            config_path.display()
+        )
+    })?;
 
     load_hosts_defaults(path, &config, lua)?;
 

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hahnavi/komandan/main/schema/komandan.schema.json",
+  "title": "Komandan project config",
+  "description": "Configuration file for a Komandan project. Loaded by Komandan at project startup from `komandan.json`. Top-level unknown keys (including `$schema`) are ignored by the loader.",
+  "type": "object",
+  "required": ["name", "version", "main"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional JSON Schema URI enabling editor validation. Ignored by Komandan at runtime."
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable project name."
+    },
+    "version": {
+      "type": "string",
+      "description": "Project version. Free-form string; semver recommended."
+    },
+    "main": {
+      "type": "string",
+      "description": "Project-relative path to the entrypoint Lua script executed by Komandan."
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Optional project defaults. Omitted fields fall back to Komandan's built-in defaults.",
+      "properties": {
+        "hosts": {
+          "type": "string",
+          "description": "Project-relative path to the hosts definition Lua file."
+        }
+      },
+      "additionalProperties": {
+        "type": "string",
+        "description": "Arbitrary string-valued default consumed by Komandan modules."
+      }
+    }
+  }
+}
