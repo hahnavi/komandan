@@ -1,5 +1,5 @@
 use mlua::{Lua, Table, chunk};
-use rand::{Rng, distr::Alphanumeric};
+use rand::{RngExt, distr::Alphanumeric};
 
 pub fn script(lua: &Lua, params: Table) -> mlua::Result<Table> {
     let random_file_name: String = rand::rng()
