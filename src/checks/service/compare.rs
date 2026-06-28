@@ -83,8 +83,11 @@ pub(super) fn compare_service_state(
         }
 
         if let Some(error) = &actual.error {
-            return create_validated_result(false, &actual_map, Some(error.clone()), "service")
-                .unwrap_or_else(|_| CheckResult::failure(actual_map));
+            return CheckResult {
+                ok: false,
+                actual: actual_map,
+                error: Some(error.clone()),
+            };
         }
 
         return create_validated_result(validation_passed, &actual_map, None, "service")
