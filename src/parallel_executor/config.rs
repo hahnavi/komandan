@@ -68,8 +68,8 @@ impl ExecutorConfig {
 
         Self {
             thread_count: Some(thread_count), // More threads for I/O waiting
-            chunk_size: Some(50),              // Smaller chunks for better responsiveness
-            timeout_seconds: Some(900),        // 15 minutes for network operations
+            chunk_size: Some(50),             // Smaller chunks for better responsiveness
+            timeout_seconds: Some(900),       // 15 minutes for network operations
             error_strategy: Some("continue".to_string()),
             max_memory_mb: Some(256), // Lower memory per thread
         }
