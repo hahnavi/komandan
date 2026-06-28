@@ -61,10 +61,13 @@ impl ExecutorConfig {
     /// Creates a configuration optimized for I/O intensive tasks
     #[must_use]
     pub fn for_io_intensive() -> Self {
-        let cpu_count = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+        let cpu_count = std::thread::available_parallelism().map_or(2, std::num::NonZero::get);
+        // 2x CPU count, floored at 4 — small CI runners report 1-2 cores and
+        // the I/O-bound preset still benefits from at least 4 worker threads.
+        let thread_count = std::cmp::max(cpu_count * 2, 4);
 
         Self {
-            thread_count: Some(cpu_count * 2), // More threads for I/O waiting
+            thread_count: Some(thread_count), // More threads for I/O waiting
             chunk_size: Some(50),              // Smaller chunks for better responsiveness
             timeout_seconds: Some(900),        // 15 minutes for network operations
             error_strategy: Some("continue".to_string()),

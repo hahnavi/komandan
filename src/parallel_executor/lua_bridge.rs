@@ -250,7 +250,7 @@ impl LuaContextFactory {
 
     /// Deserializes a function in an isolated Lua context.
     ///
-    /// The bytecode produced by [`serialize_function`] carries no upvalues, so
+    /// The bytecode produced by [`Self::serialize_function`] carries no upvalues, so
     /// nothing needs to be restored here.
     ///
     /// # Arguments
