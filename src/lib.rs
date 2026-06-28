@@ -9,6 +9,7 @@ pub mod models;
 mod modules;
 pub mod parallel_executor;
 pub mod project;
+mod repl_config;
 mod report;
 pub mod ssh;
 mod util;
@@ -276,8 +277,8 @@ pub fn run_main_file_with_args(lua: &Lua, args: &Args, main_file: &String) -> Re
 /// Returns an error if the editor cannot be initialized.
 pub fn repl(lua: &Lua) -> Result<()> {
     print_version();
-    let mut editor =
-        DefaultEditor::new().map_err(|e| anyhow::anyhow!("Failed to create editor: {e}"))?;
+    let mut editor = DefaultEditor::with_config(repl_config::load_config())
+        .map_err(|e| anyhow::anyhow!("Failed to create editor: {e}"))?;
 
     loop {
         let mut prompt = "> ";
