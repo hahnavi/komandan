@@ -33,6 +33,8 @@ jobs:
           echo "127.0.0.1 localhost2" | tee -a /etc/hosts > /dev/null
 
       - name: Generate coverage report
+        env:
+          KOMANDAN_SSH_TEST: "1"
         run: |
           cargo +nightly tarpaulin --verbose --out Xml --implicit-test-threads
 
