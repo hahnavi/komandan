@@ -121,27 +121,6 @@ pub fn create_lua_with_args(args: &Args) -> mlua::Result<Lua> {
     Ok(lua)
 }
 
-/// Helper function to copy multiple fields from one Lua table to another.
-///
-/// This reduces boilerplate when copying multiple fields between tables.
-///
-/// # Arguments
-///
-/// * `src` - Source table to copy fields from
-/// * `dst` - Destination table to copy fields to
-/// * `fields` - Slice of field names to copy
-///
-/// # Errors
-///
-/// Returns an error if field retrieval or setting fails.
-fn copy_table_fields(src: &mlua::Table, dst: &mlua::Table, fields: &[&str]) -> mlua::Result<()> {
-    for &field in fields {
-        let value = src.get::<mlua::Value>(field)?;
-        dst.set(field, value)?;
-    }
-    Ok(())
-}
-
 /// Sets up the `komandan` global table in Lua.
 ///
 /// # Errors
@@ -149,84 +128,50 @@ fn copy_table_fields(src: &mlua::Table, dst: &mlua::Table, fields: &[&str]) -> m
 /// Returns an error if table creation or setting globals fails.
 pub fn setup_komandan_table(lua: &Lua) -> mlua::Result<()> {
     let komandan = lua.create_table()?;
-
-    let defaults = Defaults::global();
-    komandan.set("defaults", defaults)?;
-
-    let base_module = base_module(lua)?;
-    komandan.set("KomandanModule", base_module)?;
-
-    komandan.set("komando", lua.create_function(komando)?)?;
-    komandan.set(
-        "komando_parallel_tasks",
-        lua.create_function(komando_parallel_tasks)?,
-    )?;
-    komandan.set(
-        "komando_parallel_hosts",
-        lua.create_function(komando_parallel_hosts)?,
-    )?;
-
-    // Add utils
-    komandan.set("regex_is_match", lua.create_function(regex_is_match)?)?;
-    komandan.set("filter_hosts", lua.create_function(filter_hosts)?)?;
-    komandan.set(
-        "parse_hosts_json_file",
-        lua.create_function(parse_hosts_json_file)?,
-    )?;
-    komandan.set(
-        "parse_hosts_json_url",
-        lua.create_function(parse_hosts_json_url)?,
-    )?;
-    komandan.set("dprint", lua.create_function(dprint)?)?;
-    komandan.set("host_info", lua.create_function(host_info)?)?;
-
-    // Add core modules
+    komandan.set("defaults", Defaults::global())?;
+    komandan.set("KomandanModule", base_module(lua)?)?;
     komandan.set("modules", collect_core_modules(lua)?)?;
-
-    // Add check functions
     komandan.set("check", collect_check_functions(lua)?)?;
-
-    // Add parallel executor constructor
     komandan.set("parallel_executor", parallel_executor_constructor(lua)?)?;
+
+    let entries = [
+        ("komando", lua.create_function(komando)?),
+        (
+            "komando_parallel_tasks",
+            lua.create_function(komando_parallel_tasks)?,
+        ),
+        (
+            "komando_parallel_hosts",
+            lua.create_function(komando_parallel_hosts)?,
+        ),
+        ("regex_is_match", lua.create_function(regex_is_match)?),
+        ("filter_hosts", lua.create_function(filter_hosts)?),
+        (
+            "parse_hosts_json_file",
+            lua.create_function(parse_hosts_json_file)?,
+        ),
+        (
+            "parse_hosts_json_url",
+            lua.create_function(parse_hosts_json_url)?,
+        ),
+        ("dprint", lua.create_function(dprint)?),
+        ("host_info", lua.create_function(host_info)?),
+    ];
+    for (name, func) in &entries {
+        komandan.set(*name, func.clone())?;
+    }
 
     lua.globals().set("komandan", &komandan)?;
 
-    // Create separate 'k' table (not an alias)
     let k_table = lua.create_table()?;
-
-    // Copy core functionality to k using helper function
-    let core_fields = &[
-        "defaults",
-        "komando",
-        "komando_parallel_hosts",
-        "komando_parallel_tasks",
-    ];
-    copy_table_fields(&komandan, &k_table, core_fields)?;
-
-    // Copy utility functions using helper function
-    let util_fields = &[
-        "regex_is_match",
-        "filter_hosts",
-        "parse_hosts_json_file",
-        "parse_hosts_json_url",
-        "dprint",
-        "host_info",
-    ];
-    copy_table_fields(&komandan, &k_table, util_fields)?;
-
-    lua.globals().set("k", k_table)?;
-
-    // Create alias 'k.mods' for 'komandan.modules'
-    let k_table = lua.globals().get::<mlua::Table>("k")?;
-    let modules_table = komandan.get::<mlua::Table>("modules")?;
-    k_table.set("mods", modules_table)?;
-
-    // Create alias 'k.check' for 'komandan.check'
-    let check_table = komandan.get::<mlua::Table>("check")?;
-    k_table.set("check", check_table)?;
-
-    // Add global parallel executor interface to k
+    k_table.set("defaults", komandan.get::<mlua::Value>("defaults")?)?;
+    for (name, _) in &entries {
+        k_table.set(*name, komandan.get::<mlua::Value>(*name)?)?;
+    }
+    k_table.set("mods", komandan.get::<mlua::Value>("modules")?)?;
+    k_table.set("check", komandan.get::<mlua::Value>("check")?)?;
     k_table.set("parallel_executor", create_global_executor_interface(lua)?)?;
+    lua.globals().set("k", k_table)?;
 
     Ok(())
 }
