@@ -29,16 +29,52 @@ use util::{
     dprint, filter_hosts, host_info, parse_hosts_json_file, parse_hosts_json_url, regex_is_match,
 };
 
+/// Cached `LuaJIT` version string, populated once on first `Lua` construction.
+static LUAJIT_VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Captures the `LuaJIT` version (`jit.version`, falling back to `_VERSION`)
+/// into [`LUAJIT_VERSION`] the first time a `Lua` VM is built. Errors are
+/// silently discarded — version capture must never break Lua creation.
+fn capture_luajit_version(lua: &Lua) {
+    let result = lua
+        .load("return jit.version")
+        .eval::<String>()
+        .or_else(|_| lua.load("return _VERSION").eval::<String>());
+    if let Ok(version) = result {
+        let _ = LUAJIT_VERSION.set(version);
+    }
+}
+
+/// Returns the `LuaJIT` version, populating the cache lazily.
+///
+/// On normal runs the version is captured during [`build_lua`]; this helper
+/// covers the bare `--version` path, which prints and exits before any Komandan
+/// `Lua` is constructed. In that case a throwaway `Lua::new()` (just the VM —
+/// no Komandan table) is built once to read `jit.version`.
+fn luajit_version() -> &'static str {
+    LUAJIT_VERSION
+        .get_or_init(|| {
+            let lua = Lua::new();
+            lua.load("return jit.version")
+                .eval::<String>()
+                .or_else(|_| lua.load("return _VERSION").eval::<String>())
+                .unwrap_or_else(|_| "unknown".to_string())
+        })
+        .as_str()
+}
+
 /// Constructs a `Lua` VM, using the unsafe backend only when explicitly requested.
 #[allow(unsafe_code)]
 fn build_lua(unsafe_lua: bool) -> Lua {
-    if unsafe_lua {
+    let lua = if unsafe_lua {
         // SAFETY: `unsafe_new` bypasses Lua's internal safety guarantees; only
         // enabled via the explicit `--unsafe-lua` CLI flag by a trusting user.
         unsafe { Lua::unsafe_new() }
     } else {
         Lua::new()
-    }
+    };
+    capture_luajit_version(&lua);
+    lua
 }
 
 /// Prepends the project's Lua module search paths to `package.path`/`package.cpath`.
@@ -285,7 +321,12 @@ pub fn repl(lua: &Lua) -> Result<()> {
 pub fn print_version() {
     let version = env!("CARGO_PKG_VERSION");
     let authors = env!("CARGO_PKG_AUTHORS");
+    let sha = option_env!("KOMANDAN_GIT_SHA").unwrap_or("unknown");
+    let arch = env::consts::ARCH;
+    let os = env::consts::OS;
+    let luajit = luajit_version();
     println!("Komandan {version} -- Copyright (C) 2026 {authors}");
+    println!("git: {sha}  target: {arch}-{os}  luajit: {luajit}");
 }
 
 // Tests

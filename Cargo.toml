@@ -4,6 +4,7 @@ version = "0.0.4"
 authors = ["Abdul Munif Hanafi"]
 license = "MIT"
 edition = "2024"
+build = "build.rs"
 
 [features]
 vendored-openssl = ["http-klien/vendored-openssl", "ssh2/vendored-openssl"]
