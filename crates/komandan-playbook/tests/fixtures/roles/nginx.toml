@@ -1,0 +1,3 @@
+# Per-role allow/skip config (spec §11.3: tests/fixtures/roles/<name>.toml).
+mimics = "geerlingguy.nginx"
+allow = ["apt", "file", "template", "systemd"]

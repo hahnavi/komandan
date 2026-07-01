@@ -11,7 +11,11 @@ fn main() {
         .or_else(git_rev_parse)
         .unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=KOMANDAN_GIT_SHA={sha}");
-    println!("cargo:rerun-if-changed=.git/HEAD");
+    // Package lives at crates/komandan-core; the repo .git is at the
+    // workspace root, two levels up. The relative path is resolved from the
+    // package directory. `git describe`/`git rev-parse` still work because git
+    // walks up from cwd (the package dir) to find the repository.
+    println!("cargo:rerun-if-changed=../../.git/HEAD");
 }
 
 /// Runs `git describe --always --tags --dirty=-dirty --abbrev=10`.

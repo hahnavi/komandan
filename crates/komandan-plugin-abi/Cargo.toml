@@ -1,0 +1,35 @@
+# Cargo.toml — komandan-plugin-abi
+#
+# This is the **interface crate** for komandan's dynamic plugin system. It
+# declares the FFI-stable types, traits, and entry-symbol contract; it contains
+# NO plugin-loading logic and NO hand-written unsafe (the loader lives in the
+# host binary crate, confined to a single audited module per
+# docs/PLUGIN_SYSTEM_SPEC.md §5).
+#
+# Separately versioned from the komandan binary: the ABI has its own
+# compatibility track (see ABI_VERSION in src/entry.rs). The komandan binary
+# 0.0.x may ship against abi 0.1.x; the two version numbers are independent.
+
+[package]
+name = "komandan-plugin-abi"
+version = "0.1.0"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "ABI-stable contracts between the komandan host binary and dynamically-loaded komandan plugins."
+keywords = ["komandan", "ffi", "abi", "plugin", "abi_stable"]
+categories = ["development-tools::build-utils"]
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+# abi_stable minor-pinned via workspace.dependencies. The `#[sabi_trait]`
+# macro bakes field-offset and discriminant constants into generated code that
+# must match between host and plugin compiles — a patch bump (0.11.x) is safe;
+# a minor bump needs deliberate review and an ABI_VERSION bump.
+abi_stable.workspace = true
+
+[lints]
+workspace = true

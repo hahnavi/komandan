@@ -80,6 +80,73 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  scoped-roles:
+    name: scoped-role matrix (spec §11.3)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Cache cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Run scoped-role integration tests
+        # Synthetic fixtures mimicking geerlingguy.docker / geerlingguy.nginx /
+        # dev-sec.ssh-hardening; exercises the reuse + gap-file executors
+        # (apt, file, copy, template, systemd, lineinfile, blockinfile) under
+        # realistic role orchestration (handlers/notify, loops, when).
+        run: cargo test -p komandan-playbook --test scoped_roles -- --nocapture
+
+  real-roles:
+    name: real-world role coverage (spec §11.3)
+    runs-on: ubuntu-22.04
+    # Real upstream roles drift over time and may introduce patterns komandan
+    # does not yet parse; keep this non-blocking until the matrix stabilizes.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Cache cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install Rust components
+        run: rustup component add clippy
+      - name: Build komandan binary + playbook plugin
+        # The integration test exercises the library directly; the analysis
+        # script shells out to the `komandan` host binary, which discovers
+        # `libkomandan_playbook.so` from $KOMANDAN_PLUGIN_DIR.
+        run: cargo build -p komandan -p komandan-playbook
+      - name: Stage plugin for the host
+        run: |
+          mkdir -p "$HOME/.config/komandan/plugins"
+          cp target/debug/libkomandan_playbook.so "$HOME/.config/komandan/plugins/" 2>/dev/null || true
+      - name: Run real-role integration tests
+        # Clones geerlingguy.docker / geerlingguy.nginx / dev-sec.ssh-hardening
+        # from GitHub, parses every tasks/handlers file, and asserts the
+        # supported-module coverage stays above the spec threshold. The
+        # `--skip-unsupported` path drives a check-mode execute() to a PLAY
+        # RECAP for each role.
+        env:
+          KOMANDAN_TEST_REAL_ROLES: "1"
+        run: cargo test -p komandan-playbook --test real_roles -- --nocapture --test-threads=1
+      - name: Run analysis script
+        # Standalone shell harness: clones the same roles, runs `komandan
+        # playbook --syntax-check` / `--list-tasks --skip-unsupported` against
+        # each, and prints a per-role module coverage summary.
+        run: scripts/analyze-real-roles.sh
+
+
   doc:
     name: cargo doc
     runs-on: ubuntu-22.04

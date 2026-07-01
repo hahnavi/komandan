@@ -8,7 +8,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN cargo build --features vendored-openssl --release
+RUN cargo build -p komandan --features vendored-openssl --release
 
 FROM alpine:3.21
 

@@ -1,0 +1,28 @@
+---
+# Harden sshd (synthetic fixture mimicking dev-sec.ssh-hardening's module
+# profile: file, lineinfile, blockinfile). All modules below are supported.
+
+- name: Ensure sshd config directory exists
+  file:
+    path: /etc/ssh
+    state: directory
+    mode: "0755"
+
+- name: Harden SSH config (lineinfile)
+  lineinfile:
+    dest: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    create: true
+  loop:
+    - { regexp: '^PermitRootLogin', line: 'PermitRootLogin no' }
+    - { regexp: '^PasswordAuthentication', line: 'PasswordAuthentication no' }
+    - { regexp: '^MaxAuthTries', line: 'MaxAuthTries 3' }
+
+- name: Add crypto policy block
+  blockinfile:
+    path: /etc/ssh/sshd_config
+    block: |
+      Ciphers chacha20-poly1305@openssh.com
+      MACs hmac-sha2-512-etm@openssh.com
+    marker: "# {mark} ANSIBLE MANAGED BLOCK crypto"

@@ -1,15 +1,44 @@
-[package]
-name = "komandan"
+[workspace]
+members = [
+    "crates/komandan-core",
+    "crates/komandan",
+    "crates/komandan-plugin-abi",
+    "crates/komandan-hello-plugin",
+    "crates/komandan-playbook",
+]
+default-members = ["crates/komandan"]
+resolver = "2"
+
+[workspace.package]
 version = "0.0.4"
 authors = ["Abdul Munif Hanafi"]
 license = "MIT"
 edition = "2024"
-build = "build.rs"
+repository = "https://github.com/hahnavi/komandan"
 
-[features]
-vendored-openssl = ["http-klien/vendored-openssl", "ssh2/vendored-openssl"]
+[workspace.lints.rust]
+unsafe_code = "deny"
 
-[dependencies]
+[workspace.lints.clippy]
+enum_glob_use = "deny"
+pedantic = "deny"
+nursery = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+
+[workspace.dependencies]
+# internal crates
+komandan-core = { path = "crates/komandan-core", version = "0.0.4" }
+komandan-plugin-abi = { path = "crates/komandan-plugin-abi", version = "0.1.0" }
+komandan-playbook = { path = "crates/komandan-playbook", version = "0.1.0" }
+
+# external crates (single source of truth for versions)
+# abi_stable: minor-pinned (=0.11.3). The #[sabi_trait] macro bakes layout
+# constants into generated code; patch bumps are safe, minor bumps need review.
+abi_stable = "=0.11.3"
+# libloading: used by komandan-core's plugin loader (the single audited
+# `unsafe` site). Pin minor; the Symbol API has been stable across 0.8.x.
+libloading = "0.8"
 anyhow = "1.0.100"
 clap = { version = "4.5.55", features = ["derive"] }
 secrecy = { version = "0.10.3", features = ["serde"] }
@@ -28,12 +57,28 @@ regex = "1.12.2"
 rustyline = "18.0.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
+serde_yaml = "0.9"
+# similar: diff engine for playbook `--diff` mode (komandan-playbook).
+similar = "2"
+indexmap = { version = "2", features = ["serde"] }
+# base64: used by komandan-playbook's `b64encode`/`b64decode` Jinja filters.
+base64 = "0.22"
+# bcrypt: used by komandan-playbook's `password_hash` (bcrypt-only) filter.
+bcrypt = "0.19"
 ssh2 = "0.9.5"
+# sha2: used by komandan-playbook's `hash` Jinja filter (sha256/sha512).
+sha2 = "0.10"
+# md-5: used by komandan-playbook's `hash` Jinja filter (md5 variant).
+md-5 = "0.10"
+# chrono: used by komandan-playbook's `strftime`/`to_datetime` Jinja filters.
+chrono = "0.4"
+# toml: used by komandan-playbook's scoped-role allow/skip config parser.
+toml = "0.9"
+# criterion: benchmark framework for komandan-playbook benches.
+criterion = { version = "0.5", features = ["html_reports"] }
 thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-[dev-dependencies]
 tempfile = "3.24.0"
 mockall = "0.14.0"
 
@@ -41,17 +86,8 @@ mockall = "0.14.0"
 lto = "fat"
 strip = "symbols"
 
-[lints.rust]
-unsafe_code = "deny"
-
-[lints.clippy]
-enum_glob_use = "deny"
-pedantic = "deny"
-nursery = "deny"
-unwrap_used = "deny"
-expect_used = "deny"
-
 [patch.crates-io]
 # proc-macro-error2 is archived and emits a future-incompat warning (E0365).
 # This fork contains the upstream fix (PR GnomedDev/proc-macro-error-2#14).
+# Do not remove until upstream releases; re-evaluate quarterly.
 proc-macro-error2 = { git = "https://github.com/fgardt/proc-macro-error-2", branch = "fix/future-incompat" }

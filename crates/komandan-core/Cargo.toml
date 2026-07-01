@@ -1,0 +1,49 @@
+[package]
+name = "komandan-core"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+build = "build.rs"
+description = "Core library for komandan: agentless server automation with embedded LuaJIT"
+
+[features]
+vendored-openssl = ["http-klien/vendored-openssl", "ssh2/vendored-openssl"]
+
+[lib]
+# The library keeps the `komandan` crate name so all existing `use komandan::...`
+# call sites (tests, the binary crate, downstream) keep working unchanged.
+# crate-type includes `cdylib` to allow the future plugin host to expose a
+# shared object (see docs/PLUGIN_SYSTEM_SPEC.md).
+name = "komandan"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+secrecy.workspace = true
+http-klien.workspace = true
+minijinja.workspace = true
+mlua.workspace = true
+rand.workspace = true
+rayon.workspace = true
+regex.workspace = true
+rustyline.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ssh2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+# Plugin system host side. komandan-plugin-abi is the stable interface;
+# libloading performs the dlopen. The only `unsafe` in this crate lives in
+# src/plugin/loader.rs (the audited boundary; see docs/PLUGIN_SYSTEM_SPEC.md §5).
+komandan-plugin-abi.workspace = true
+libloading.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+mockall.workspace = true
+
+[lints]
+workspace = true

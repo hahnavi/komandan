@@ -22,6 +22,37 @@ get_os_arch() {
   fi
 }
 
+resolve_plugin_dir() {
+  if [ -n "$KOMANDAN_PLUGIN_DIR" ]; then
+    echo "$KOMANDAN_PLUGIN_DIR"
+  elif [ -n "$XDG_CONFIG_HOME" ]; then
+    echo "$XDG_CONFIG_HOME/komandan/plugins"
+  else
+    echo "$HOME/.config/komandan/plugins"
+  fi
+}
+
+install_playbook_plugin() {
+  local install_dir="$1"
+  local plugin_file="$install_dir/libkomandan_playbook.so"
+  local plugin_dir
+  local target_file
+
+  if [ ! -f "$plugin_file" ]; then
+    echo "Playbook plugin not found in this release; skipping plugin installation."
+    return 0
+  fi
+
+  plugin_dir=$(resolve_plugin_dir)
+  mkdir -p "$plugin_dir"
+  target_file="$plugin_dir/libkomandan_playbook.so"
+
+  mv "$plugin_file" "$target_file"
+  chmod 0644 "$target_file"
+
+  echo "Playbook plugin installed to $target_file"
+}
+
 install_komandan() {
   local os_arch
   local download_url
@@ -71,6 +102,8 @@ install_komandan() {
   fi
 
   chmod +x "$install_dir/komandan"
+
+  install_playbook_plugin "$install_dir"
 
   rm -rf "$temp_dir"
 

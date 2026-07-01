@@ -4,6 +4,7 @@ use komandan::{
     args::{Args, Commands},
     create_lua_with_args,
     defaults::Defaults,
+    init_globals,
     models::KomandanConfig,
     print_version, project, repl, run_main_file_with_args,
 };
@@ -22,8 +23,18 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_level));
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 
+    // Initialize global config/flags EARLY so plugin-driven Lua VMs (the
+    // per-thread `PLUGIN_LUA` pool) and CoreApi accessors reflect host CLI
+    // flags even when plugin dispatch short-circuits before
+    // `create_lua_with_args` runs. Idempotent; the normal script path re-inits
+    // harmlessly inside `create_lua_with_args`.
+    init_globals(args)?;
+
+    let registry = load_plugin_registry();
+
     if args.flags.version {
         print_version();
+        print_plugins(&registry);
         return Ok(());
     }
 
@@ -31,6 +42,21 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
         return match command {
             Commands::Project(project_args) => project::handle_project_command(project_args),
         };
+    }
+
+    // Plugin dispatch short-circuit: `komandan <plugin-name> [trailing...]`.
+    // If the positional arg names a loaded plugin, dispatch to it directly
+    // without building a Lua VM, forwarding the trailing argv tail so the
+    // plugin owns its own arg parsing.
+    if let Some(main_file) = &args.main_file
+        && registry.has(main_file)
+    {
+        let out = registry.dispatch(
+            main_file,
+            args.trailing.iter().map(std::ffi::OsString::from).collect(),
+        )?;
+        println!("{out}");
+        return Ok(());
     }
 
     let lua = create_lua_with_args(args)?;
@@ -61,6 +87,33 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Discover and load all plugins from the configured plugin directory.
+///
+/// Returns an empty registry when the directory is absent or unreadable;
+/// per-file load failures are logged, not fatal. The directory is resolved by
+/// [`komandan::plugin::discover_dir`] (`KOMANDAN_PLUGIN_DIR`, else the XDG
+/// config default).
+fn load_plugin_registry() -> komandan::plugin::PluginRegistry {
+    let mut registry = komandan::plugin::PluginRegistry::new();
+    if let Some(dir) = komandan::plugin::discover_dir()
+        && dir.exists()
+    {
+        registry.load_dir(&dir);
+    }
+    registry
+}
+
+/// Print loaded plugins under `--version` (one line each).
+fn print_plugins(registry: &komandan::plugin::PluginRegistry) {
+    if registry.is_empty() {
+        return;
+    }
+    println!("plugins:");
+    for (name, version, desc) in registry.listings() {
+        println!("  {name} v{version} - {desc}");
+    }
 }
 
 /// Loads host defaults from the project's configured hosts file into the global
@@ -163,6 +216,7 @@ mod tests {
     fn default_args() -> Args {
         Args {
             main_file: None,
+            trailing: Vec::new(),
             chunk: None,
             flags: Flags {
                 dry_run: false,

@@ -1,0 +1,3 @@
+# Per-role allow/skip config (spec §11.3: tests/fixtures/roles/<name>.toml).
+mimics = "dev-sec.ssh-hardening"
+allow = ["file", "lineinfile", "blockinfile"]

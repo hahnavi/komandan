@@ -1,0 +1,44 @@
+---
+# Install Docker (synthetic fixture mimicking geerlingguy.docker's module
+# profile: apt/dnf, file, copy, systemd). All modules below are supported by
+# komandan's reuse/gap executors — no skip-with-warning is needed.
+
+- name: Ensure old versions are removed
+  apt:
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - docker
+    - docker-engine
+  when: ansible_os_family == "Debian"
+
+- name: Install prerequisites
+  apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: true
+  loop:
+    - apt-transport-https
+    - ca-certificates
+    - curl
+  when: ansible_os_family == "Debian"
+
+- name: Create docker config directory
+  file:
+    path: /etc/docker
+    state: directory
+    mode: "0755"
+
+- name: Copy daemon.json
+  copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {"log-driver": "json-file", "log-opts": {"max-size": "10m"}}
+    mode: "0644"
+  notify: restart docker
+
+- name: Ensure docker service is started
+  systemd:
+    name: docker
+    state: started
+    enabled: true

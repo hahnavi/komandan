@@ -1,0 +1,77 @@
+# Cargo.toml — komandan-playbook
+#
+# The playbook plugin: parses Ansible-format YAML playbooks and (in later
+# phases) runs them via komandan's Rust core. Builds as a `cdylib` producing
+# the loadable `libkomandan_playbook.{so,dylib,dll}`; the `rlib` facet lets
+# `cargo test` link in-crate unit tests. Depends ONLY on
+# `komandan-plugin-abi` for the host boundary (never on komandan-core/the
+# binary).
+
+[package]
+name = "komandan-playbook"
+# Plugins track the plugin ABI, not the host; versioned independently.
+version = "0.1.0"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Komandan plugin that runs Ansible-format playbooks via komandan's Rust core."
+keywords = ["komandan", "plugin", "ansible", "playbook", "ffi"]
+categories = ["development-tools"]
+
+[lib]
+name = "komandan_playbook"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Exposes in-crate test helpers (`test_support::MockCore`, `null_core`) to
+# integration tests in `tests/`. The self `[dev-dependencies]` import below
+# enables it for the test build only; it stays off in normal/release builds
+# so the mock code never ships in the `cdylib`.
+testing = []
+
+[dependencies]
+komandan-plugin-abi.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+indexmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+# Templating (Phase 2): minijinja engine + filter deps.
+minijinja.workspace = true
+regex.workspace = true
+base64.workspace = true
+bcrypt.workspace = true
+# Parallel host execution (`--forks`, Phase 5 hardening).
+rayon.workspace = true
+# Diff engine for `--diff` mode (file-change before/after rendering).
+similar.workspace = true
+# Hash filters (`sha256`, `md5`, etc.) and date filters (`strftime`).
+sha2.workspace = true
+md-5.workspace = true
+chrono.workspace = true
+# Random-element filter (`random`) and password lookup entropy.
+rand.workspace = true
+# Scoped-role allow/skip config parser (tests/fixtures/roles/*.toml).
+toml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+# Benchmark framework (harness = false per [[bench]] target).
+criterion.workspace = true
+# Self-import enables the `testing` feature for integration tests in `tests/`
+# (Cargo activates dev-dependencies for test/example/bench targets only).
+komandan-playbook = { path = ".", features = ["testing"] }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "playbook"
+harness = false
+
+[[bench]]
+name = "parse"
+harness = false

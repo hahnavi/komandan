@@ -1,0 +1,14 @@
+Komandan
+Copyright (C) 2026 Abdul Munif Hanafi <hahnavi@komandan.dev>
+
+Licensed under the MIT License.
+
+This product includes no Ansible(R) code. The `komandan-playbook` plugin
+parses the Ansible playbook YAML format (a publicly documented schema, not
+copyrightable) and recognizes Ansible module names (an API surface, not
+copyrightable). All module behavior is implemented independently in Rust.
+No Ansible module, module_utils, or packer is embedded, linked, called,
+shipped, or redistributed.
+
+"Ansible" is a trademark of Red Hat, Inc. Komandan is not affiliated with
+or endorsed by Red Hat, Inc.

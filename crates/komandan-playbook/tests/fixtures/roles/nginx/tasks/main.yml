@@ -1,0 +1,30 @@
+---
+# Install nginx (synthetic fixture mimicking geerlingguy.nginx's module
+# profile: apt, file, template, systemd). All modules below are supported.
+
+- name: Install nginx (Debian)
+  apt:
+    name: nginx
+    state: present
+    update_cache: true
+  when: ansible_os_family == "Debian"
+  notify: restart nginx
+
+- name: Create nginx config directory
+  file:
+    path: /etc/nginx/conf.d
+    state: directory
+    mode: "0755"
+
+- name: Template nginx config
+  template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    mode: "0644"
+  notify: restart nginx
+
+- name: Ensure nginx is running
+  systemd:
+    name: nginx
+    state: started
+    enabled: true

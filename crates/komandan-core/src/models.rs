@@ -38,19 +38,19 @@ impl ConnectionType {
 
 #[derive(Clone, Debug, Default)]
 pub struct Host {
-    name: Option<String>,
-    address: String,
-    port: Option<u16>,
-    user: Option<String>,
-    key_check: Option<bool>,
-    private_key_file: Option<String>,
-    private_key_pass: Option<SecretString>,
-    password: Option<SecretString>,
-    elevate: Option<bool>,
-    elevation_method: Option<ElevationMethod>,
-    as_user: Option<String>,
-    env: Option<HashMap<String, String>>,
-    connection: Option<ConnectionType>,
+    pub(crate) name: Option<String>,
+    pub(crate) address: String,
+    pub(crate) port: Option<u16>,
+    pub(crate) user: Option<String>,
+    pub(crate) key_check: Option<bool>,
+    pub(crate) private_key_file: Option<String>,
+    pub(crate) private_key_pass: Option<SecretString>,
+    pub(crate) password: Option<SecretString>,
+    pub(crate) elevate: Option<bool>,
+    pub(crate) elevation_method: Option<ElevationMethod>,
+    pub(crate) as_user: Option<String>,
+    pub(crate) env: Option<HashMap<String, String>>,
+    pub(crate) connection: Option<ConnectionType>,
 }
 
 impl FromLua for Host {
@@ -236,10 +236,10 @@ impl IntoLua for Module {
 
 #[derive(Serialize, Deserialize)]
 pub struct KomandoResult {
-    stdout: String,
-    stderr: String,
-    exit_code: i32,
-    changed: bool,
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
+    pub(crate) exit_code: i32,
+    pub(crate) changed: bool,
 }
 
 impl UserData for KomandoResult {}

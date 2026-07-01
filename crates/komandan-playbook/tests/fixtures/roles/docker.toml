@@ -1,0 +1,7 @@
+# Per-role allow/skip config (spec §11.3: tests/fixtures/roles/<name>.toml).
+#
+# `allow` lists every module the role's tasks/handlers use. The scoped-role
+# test verifies each is registered (supported), then runs the role green.
+# `mimics` documents the real-world role this synthetic fixture reproduces.
+mimics = "geerlingguy.docker"
+allow = ["apt", "file", "copy", "systemd"]

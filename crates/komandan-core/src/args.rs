@@ -10,6 +10,14 @@ pub struct Args {
     #[arg()]
     pub main_file: Option<String>,
 
+    /// Trailing arguments forwarded verbatim to a plugin subcommand
+    /// (`komandan <plugin> <trailing...>`). Captured with `trailing_var_arg`
+    /// so any flag-like token after the plugin name reaches the plugin
+    /// untouched instead of being parsed by the host. Empty on the normal
+    /// script path. The plugin owns its own argv parsing.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true, num_args = 0..)]
+    pub trailing: Vec<String>,
+
     /// Execute string 'chunk'
     #[arg(short = 'e')]
     pub chunk: Option<String>,

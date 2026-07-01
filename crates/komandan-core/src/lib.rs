@@ -10,6 +10,7 @@ mod local;
 pub mod models;
 mod modules;
 pub mod parallel_executor;
+pub mod plugin;
 pub mod project;
 mod repl_config;
 mod report;
@@ -114,6 +115,28 @@ fn resolve_project_dir(args: &Args) -> mlua::Result<String> {
     }
 }
 
+/// Initialize the global config/flags from parsed `Args`.
+///
+/// Resolves the project dir and writes [`args::ResolvedConfig`] into the
+/// updatable global store, so that plugin-driven Lua VMs (the per-thread
+/// `PLUGIN_LUA` pool) and `CoreApi` accessors (`global_flags`, etc.) reflect the
+/// host's CLI flags **even when plugin dispatch short-circuits before
+/// [`create_lua_with_args`] runs**. Idempotent — the backing store is an
+/// `RwLock`, later calls overwrite.
+///
+/// # Errors
+///
+/// Returns an error if project-dir resolution fails or the global config lock
+/// is poisoned.
+pub fn init_globals(args: &Args) -> mlua::Result<()> {
+    let project_dir = resolve_project_dir(args)?;
+    crate::args::init_global_config(crate::args::ResolvedConfig {
+        flags: args.flags.clone(),
+        project_dir,
+    })
+    .map_err(mlua::Error::external)
+}
+
 /// Creates a new Lua instance with Komandan configuration.
 ///
 /// Uses the already-initialized global config/flags (set by an earlier
@@ -138,8 +161,8 @@ pub fn create_lua() -> mlua::Result<Lua> {
 
 /// Creates a new Lua instance with explicit arguments (avoids re-parsing CLI args).
 ///
-/// Resolves the project directory from `args.main_file`, initializes the global
-/// config, then builds the Lua VM and Komandan environment.
+/// Initializes the global config via [`init_globals`] (idempotent), then builds
+/// the Lua VM and Komandan environment.
 ///
 /// # Arguments
 ///
@@ -147,16 +170,10 @@ pub fn create_lua() -> mlua::Result<Lua> {
 ///
 /// # Errors
 ///
-/// Returns an error if Lua initialization or setup fails.
+/// Returns an error if global-config init or Lua setup fails.
 pub fn create_lua_with_args(args: &Args) -> mlua::Result<Lua> {
+    init_globals(args)?;
     let project_dir = resolve_project_dir(args)?;
-
-    crate::args::init_global_config(crate::args::ResolvedConfig {
-        flags: args.flags.clone(),
-        project_dir: project_dir.clone(),
-    })
-    .map_err(mlua::Error::external)?;
-
     let lua = build_lua(args.flags.unsafe_lua);
     configure_package_path(&lua, &project_dir)?;
     setup_komandan_table(&lua)?;
@@ -352,6 +369,7 @@ mod tests {
             Args {
                 chunk: None,
                 main_file: Some("/tmp/test/main.lua".to_string()),
+                trailing: Vec::new(),
                 command: None,
                 flags: crate::args::Flags {
                     dry_run: false,

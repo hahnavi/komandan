@@ -1,0 +1,35 @@
+# Cargo.toml — komandan-hello-plugin
+#
+# Reference plugin for komandan's dynamic plugin system. Builds as a `cdylib`
+# producing the loadable `libkomandan_hello_plugin.{so,dylib,dll}`; the `rlib`
+# facet lets `cargo test` link the in-crate unit tests (cdylib-only crates
+# cannot run unit tests). Depends ONLY on `komandan-plugin-abi`.
+
+[package]
+name = "komandan-hello-plugin"
+# Separately versioned from the komandan binary: plugins track the plugin ABI,
+# not the host. Bump independently of komandan-core.
+version = "0.1.0"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Reference komandan plugin implementing the `hello` subcommand."
+keywords = ["komandan", "plugin", "ffi", "abi_stable", "cdylib"]
+categories = ["development-tools"]
+
+[lib]
+# cdylib → the loadable shared object the host `dlopen`s.
+# rlib → lets `cargo test` link the in-crate unit tests.
+name = "komandan_hello_plugin"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The plugin depends only on the ABI interface crate (never on komandan-core
+# or the binary). Its abi_stable pin (=0.11.3) is inherited via workspace
+# deps, so the plugin and host compile against identical abi_stable versions —
+# load-time layout checks pass.
+komandan-plugin-abi.workspace = true
+
+[lints]
+workspace = true
